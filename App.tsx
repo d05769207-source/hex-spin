@@ -545,7 +545,7 @@ const App: React.FC = () => {
         return (
           <>
             {/* Main Game Area */}
-            <div className="flex-1 relative flex items-center justify-center z-10 mt-20 md:mt-10 pb-8 md:pb-0 md:pr-24">
+            <div className="flex-1 relative flex items-center justify-center z-10 mt-14 md:mt-10 pb-8 md:pb-0 md:pr-24">
 
               {/* Responsive Container */}
               <div className="relative w-[95vw] max-w-[380px] aspect-square md:w-[420px] md:max-w-none md:h-[420px]">
@@ -597,7 +597,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Footer / Controls */}
-            <div className="relative z-20 w-full pb-8 md:pb-12 mt-auto md:pr-24">
+            <div className="relative z-20 w-full pb-14 md:pb-12 mt-auto md:pr-24">
               <SpinControls
                 onSpin={handleSpin}
                 isSpinning={isSpinning}
