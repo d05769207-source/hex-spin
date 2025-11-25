@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Home, Trophy, ShoppingBag, User as UserIcon } from 'lucide-react';
+import { Home, Gift, Trophy, ShoppingBag, User as UserIcon } from 'lucide-react';
 import { Page, User } from '../types';
 
 interface NavigationProps {
@@ -15,6 +15,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentPage, onNavigate, user }
 
   const navItems = [
     { id: 'HOME', icon: Home, label: 'Home' },
+    { id: 'EVENT', icon: Gift, label: 'Event' },
     { id: 'RANK', icon: Trophy, label: 'Rank' },
     { id: 'SHOP', icon: ShoppingBag, label: 'Shop' },
     { id: 'PROFILE', icon: UserIcon, label: 'Profile' },

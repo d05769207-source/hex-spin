@@ -8,9 +8,11 @@ import WinnerModal from './components/WinnerModal';
 import Navigation from './components/Navigation';
 import Profile from './components/pages/Profile';
 import Leaderboard from './components/pages/Leaderboard';
+import Event from './components/pages/Event';
 import Shop from './components/pages/Shop';
 import LoginModal from './components/auth/LoginModal';
 import UsernameModal from './components/auth/UsernameModal';
+import WeeklyTimer from './components/WeeklyTimer';
 import { Volume2, VolumeX } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
@@ -533,6 +535,12 @@ const App: React.FC = () => {
             <Leaderboard />
           </div>
         );
+      case 'EVENT':
+        return (
+          <div className="flex-1 pt-24 md:pt-20 overflow-hidden md:pr-24">
+            <Event />
+          </div>
+        );
       case 'SHOP':
         return (
           <div className="flex-1 pt-24 md:pt-20 overflow-hidden md:pr-24">
@@ -588,6 +596,11 @@ const App: React.FC = () => {
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Weekly Timer - Below Logo */}
+        <div className="absolute top-16 md:top-20 left-4">
+          <WeeklyTimer />
         </div>
 
         {/* Top Right Menu */}

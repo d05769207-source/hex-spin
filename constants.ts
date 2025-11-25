@@ -7,7 +7,7 @@ import { GameItem, Rarity } from './types';
 
 export const ITEMS: GameItem[] = [
   // --- INNER DIAMOND (4 Main Prizes) ---
-  
+
   // TIER 2: Medium Size (Top) -> User #1 -> 10K Coins
   {
     id: 'inner-top',
@@ -16,8 +16,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.LEGENDARY,
     amount: 10000,
     isInner: true,
-    position: { x: 0, y: -13 }, 
-    desktopPosition: { x: 0, y: -15 }, 
+    position: { x: 0, y: -13 },
+    desktopPosition: { x: 0, y: -15 },
   },
   // TIER 2: Medium Size (Bottom) -> User #2 -> 5K Coins
   {
@@ -27,34 +27,34 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.EPIC,
     amount: 5000,
     isInner: true,
-    position: { x: 0, y: 13 }, 
-    desktopPosition: { x: 0, y: 15 }, 
+    position: { x: 0, y: 13 },
+    desktopPosition: { x: 0, y: 15 },
   },
-  // TIER 1: Large Size (Left) -> User #3 -> KTM
+  // TIER 1: Large Size (Left) → User #3 → KTM
   {
     id: 'inner-left',
     name: 'KTM Duke',
-    imageUrl: 'https://images.unsplash.com/photo-1558981806-ec527fa84c3d?q=80&w=2070&auto=format&fit=crop', 
-    rarity: Rarity.RARE, 
+    imageUrl: '/images/ktm_bike.png',
+    rarity: Rarity.RARE,
     isInner: true,
-    position: { x: -19, y: 0 }, 
-    desktopPosition: { x: -24, y: 0 }, 
+    position: { x: -19, y: 0 },
+    desktopPosition: { x: -24, y: 0 },
   },
-  // TIER 1: Large Size (Right) -> User #4 -> iPhone (Orange Theme)
+  // TIER 1: Large Size (Right) → User #4 → iPhone (Orange Theme)
   {
     id: 'inner-right',
     name: 'iPhone 15 Pro',
-    imageUrl: 'https://images.unsplash.com/photo-1696446701796-da61225697cc?q=80&w=2070&auto=format&fit=crop',
+    imageUrl: '/images/iphone.png',
     rarity: Rarity.EPIC,
     isInner: true,
-    position: { x: 19, y: 0 }, 
-    desktopPosition: { x: 24, y: 0 }, 
+    position: { x: 19, y: 0 },
+    desktopPosition: { x: 24, y: 0 },
   },
 
   // --- OUTER RING (10 Items) ---
   // Mapped based on User Instructions:
   // 5->1k, 6->100, 7->10, 8->2, 9->20, 10->500, 11->200, 12->5, 13->1, 14->50
-  
+
   // 1. Top Center (User No. 5)
   {
     id: 'outer-1',
@@ -64,7 +64,7 @@ export const ITEMS: GameItem[] = [
     amount: 1000,
     isInner: false,
     position: { x: 0, y: -30 },
-    desktopPosition: { x: 0, y: -37 }, 
+    desktopPosition: { x: 0, y: -37 },
   },
   // 2. Top Right (User No. 6)
   {
