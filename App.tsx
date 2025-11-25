@@ -13,6 +13,9 @@ import Shop from './components/pages/Shop';
 import LoginModal from './components/auth/LoginModal';
 import UsernameModal from './components/auth/UsernameModal';
 import WeeklyTimer from './components/WeeklyTimer';
+import AdminLoginModal from './components/admin/AdminLoginModal';
+import AdminBadge from './components/admin/AdminBadge';
+import AdminDashboard from './components/admin/AdminDashboard';
 import { Volume2, VolumeX } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
@@ -145,6 +148,13 @@ const App: React.FC = () => {
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [showUsernameModal, setShowUsernameModal] = useState<boolean>(false);
 
+  // Admin State
+  const [isAdminMode, setIsAdminMode] = useState<boolean>(() => {
+    return sessionStorage.getItem('isAdmin') === 'true';
+  });
+  const [showAdminLogin, setShowAdminLogin] = useState<boolean>(false);
+  const [longPressProgress, setLongPressProgress] = useState<number>(0);
+
   // Game State
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
@@ -160,6 +170,10 @@ const App: React.FC = () => {
   // Use refs for values that change rapidly inside the spin loop without triggering re-renders
   const currentIndexRef = useRef<number>(0);
   const isSkippingRef = useRef<boolean>(false);
+
+  // Long press detection refs
+  const pressStartTime = useRef<number | null>(null);
+  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // AUTH LISTENER
   useEffect(() => {
@@ -336,8 +350,8 @@ const App: React.FC = () => {
     // TOKEN COST LOGIC: 1 Spin = 1 P-Token
     const cost = count;
 
-    // AUTH LOGIC: If balance is low
-    if (balance < cost) {
+    // AUTH LOGIC: If balance is low (skip check if admin mode)
+    if (!isAdminMode && balance < cost) {
       if (!user) {
         // If Guest -> Trigger Login Flow
         setShowLoginModal(true);
@@ -348,7 +362,10 @@ const App: React.FC = () => {
       return;
     }
 
-    setBalance(prev => prev - cost);
+    // Deduct balance only if not in admin mode
+    if (!isAdminMode) {
+      setBalance(prev => prev - cost);
+    }
     setShowWinnerModal(false);
     setWonItems([]);
 
@@ -402,7 +419,7 @@ const App: React.FC = () => {
     setActiveIndex(-1);
     setShowWinnerModal(true);
 
-  }, [balance, isSpinning, soundEnabled, user]);
+  }, [balance, isSpinning, soundEnabled, user, isAdminMode]);
 
   const handleScreenTap = () => {
     // Resume audio context on tap as well
@@ -461,6 +478,66 @@ const App: React.FC = () => {
     }
   };
 
+  // --- ADMIN HANDLERS ---
+  const handleAdminLogin = (password: string) => {
+    // Hardcoded password with env fallback
+    const correctPassword = import.meta.env.VITE_ADMIN_PASSWORD || 'pj.pj';
+
+    if (password === correctPassword) {
+      setIsAdminMode(true);
+      setShowAdminLogin(false);
+      sessionStorage.setItem('isAdmin', 'true');
+      setCurrentPage('ADMIN_DASHBOARD');
+    }
+  };
+
+  const handleAdminLogout = () => {
+    try {
+      setIsAdminMode(false);
+      sessionStorage.removeItem('isAdmin');
+      setCurrentPage('HOME');
+    } catch (error) {
+      console.error("Logout failed", error);
+    }
+  };
+
+  // Long Press Detection
+  const handlePressStart = () => {
+    if (currentPage !== 'HOME' || isSpinning) return;
+
+    pressStartTime.current = Date.now();
+
+    const interval = setInterval(() => {
+      if (!pressStartTime.current) {
+        clearInterval(interval);
+        return;
+      }
+
+      const elapsed = Date.now() - pressStartTime.current;
+      const progress = Math.min((elapsed / 10000) * 100, 100);
+
+      setLongPressProgress(progress);
+
+      if (progress >= 100) {
+        clearInterval(interval);
+        setShowAdminLogin(true);
+        setLongPressProgress(0);
+        pressStartTime.current = null;
+      }
+    }, 50);
+
+    pressTimerRef.current = interval;
+  };
+
+  const handlePressEnd = () => {
+    if (pressTimerRef.current) {
+      clearInterval(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+    setLongPressProgress(0);
+    pressStartTime.current = null;
+  };
+
   // --- RENDER CONTENT BASED ON PAGE ---
   const renderContent = () => {
     switch (currentPage) {
@@ -468,7 +545,7 @@ const App: React.FC = () => {
         return (
           <>
             {/* Main Game Area */}
-            <div className="flex-1 relative flex items-center justify-center z-10 mt-4 md:mt-10 pb-12 md:pb-0 md:pr-24">
+            <div className="flex-1 relative flex items-center justify-center z-10 mt-20 md:mt-10 pb-8 md:pb-0 md:pr-24">
 
               {/* Responsive Container */}
               <div className="relative w-[95vw] max-w-[380px] aspect-square md:w-[420px] md:max-w-none md:h-[420px]">
@@ -520,11 +597,12 @@ const App: React.FC = () => {
             </div>
 
             {/* Footer / Controls */}
-            <div className="relative z-20 w-full pb-24 md:pb-12 mt-auto md:pr-24">
+            <div className="relative z-20 w-full pb-8 md:pb-12 mt-auto md:pr-24">
               <SpinControls
                 onSpin={handleSpin}
                 isSpinning={isSpinning}
                 balance={balance}
+                isAdminMode={isAdminMode}
               />
             </div>
           </>
@@ -538,7 +616,7 @@ const App: React.FC = () => {
       case 'EVENT':
         return (
           <div className="flex-1 pt-24 md:pt-20 overflow-hidden md:pr-24">
-            <Event />
+            <Event isAdminMode={isAdminMode} />
           </div>
         );
       case 'SHOP':
@@ -564,10 +642,25 @@ const App: React.FC = () => {
     }
   }
 
+  // If in Admin Dashboard mode, render only the dashboard
+  if (currentPage === 'ADMIN_DASHBOARD') {
+    return (
+      <AdminDashboard
+        onLogout={handleAdminLogout}
+        onBackToGame={() => setCurrentPage('HOME')}
+      />
+    );
+  }
+
   return (
     <div
-      className="h-[100dvh] w-full bg-[#1a0505] relative overflow-hidden font-sans select-none flex flex-col"
+      className="min-h-screen w-full bg-gray-900 text-white font-sans pb-20 md:pb-0 md:pl-20 relative overflow-x-hidden flex flex-col"
       onClick={handleScreenTap}
+      onMouseDown={handlePressStart}
+      onMouseUp={handlePressEnd}
+      onMouseLeave={handlePressEnd}
+      onTouchStart={handlePressStart}
+      onTouchEnd={handlePressEnd}
     >
 
       {/* Intense Background Image */}
@@ -660,6 +753,16 @@ const App: React.FC = () => {
       {showUsernameModal && (
         <UsernameModal
           onSubmit={handleUsernameSet}
+        />
+      )}
+
+      {/* ADMIN COMPONENTS */}
+      {isAdminMode && <AdminBadge onLogout={handleAdminLogout} />}
+
+      {showAdminLogin && (
+        <AdminLoginModal
+          onLogin={handleAdminLogin}
+          onClose={() => setShowAdminLogin(false)}
         />
       )}
 

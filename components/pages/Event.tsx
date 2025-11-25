@@ -4,7 +4,11 @@ import PrizeImage from '../PrizeImage';
 
 type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 'KTM_DRAW' | 'KTM_WINNER' | 'ENDED';
 
-const Event: React.FC = () => {
+interface EventProps {
+    isAdminMode?: boolean;
+}
+
+const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
     const [eventState, setEventState] = useState<EventState>('JOINING');
     const [ktmEntry, setKtmEntry] = useState<number | null>(null);
     const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
@@ -23,6 +27,13 @@ const Event: React.FC = () => {
             const day = now.getDay(); // 0 = Sunday
             const hours = now.getHours();
             const minutes = now.getMinutes();
+
+            // ADMIN MODE: Show all states as if it's Sunday event time
+            if (isAdminMode) {
+                // Default to JOINING for admin to test all features
+                setEventState('JOINING');
+                return;
+            }
 
             // Not Sunday or before 7 PM
             if (day !== 0 || hours < 19) {
@@ -67,7 +78,7 @@ const Event: React.FC = () => {
         checkEventState();
         const interval = setInterval(checkEventState, 30000); // Check every 30 seconds
         return () => clearInterval(interval);
-    }, []);
+    }, [isAdminMode]);
 
     const handleJoinKTM = async () => {
         // Generate random number

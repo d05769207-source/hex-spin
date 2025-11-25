@@ -5,6 +5,7 @@ interface SpinControlsProps {
   onSpin: (count: number) => void;
   isSpinning: boolean;
   balance: number;
+  isAdminMode?: boolean;
 }
 
 // Professional P-Token Icon (Futuristic Hexagon Chip)
@@ -12,30 +13,30 @@ interface SpinControlsProps {
 const TokenIcon = () => (
   <div className="relative w-5 h-5 md:w-6 md:h-6 flex items-center justify-center shrink-0 filter drop-shadow-[0_0_5px_rgba(6,182,212,0.8)]">
     {/* Outer Frame (Cyan Gradient) */}
-    <div 
+    <div
       className="absolute inset-0 bg-gradient-to-b from-cyan-300 via-blue-500 to-blue-700"
       style={{ clipPath: 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)' }}
     />
     {/* Inner Dark Chip */}
-    <div 
+    <div
       className="absolute inset-[1.5px] md:inset-[2px] bg-gradient-to-br from-slate-900 to-blue-950 flex items-center justify-center"
       style={{ clipPath: 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)' }}
     >
-        {/* Glowing 'P' */}
-        <span className="text-[10px] md:text-[12px] font-black text-transparent bg-clip-text bg-gradient-to-b from-cyan-200 to-cyan-500 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" style={{ fontFamily: 'sans-serif' }}>P</span>
+      {/* Glowing 'P' */}
+      <span className="text-[10px] md:text-[12px] font-black text-transparent bg-clip-text bg-gradient-to-b from-cyan-200 to-cyan-500 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" style={{ fontFamily: 'sans-serif' }}>P</span>
     </div>
     {/* Top Shine Reflection */}
-    <div 
+    <div
       className="absolute top-0 w-full h-[40%] bg-gradient-to-b from-white/50 to-transparent pointer-events-none"
       style={{ clipPath: 'polygon(25% 0%, 75% 0%, 100% 100%, 25% 100%)' }}
     />
   </div>
 );
 
-const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance }) => {
+const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance, isAdminMode = false }) => {
   return (
     <div className="w-full max-w-2xl mx-auto flex justify-center items-end gap-4 sm:gap-12 px-4">
-      
+
       {/* 1 Spin Button - Blue Crystal Shape */}
       <button
         onClick={() => onSpin(1)}
@@ -55,13 +56,13 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
           shadow-[0_0_20px_rgba(6,182,212,0.6)]
           flex flex-col items-center justify-center
         ">
-           <div className="skew-x-[20deg] text-center">
-              <div className="text-white font-bold text-lg md:text-xl drop-shadow-md leading-none">1 Spin</div>
-              <div className="flex items-center justify-center gap-1.5 mt-1">
-                 <TokenIcon />
-                 <span className="text-white font-bold text-lg">1</span>
-              </div>
-           </div>
+          <div className="skew-x-[20deg] text-center">
+            <div className="text-white font-bold text-lg md:text-xl drop-shadow-md leading-none">1 Spin</div>
+            <div className="flex items-center justify-center gap-1.5 mt-1">
+              <TokenIcon />
+              <span className="text-white font-bold text-lg">1</span>
+            </div>
+          </div>
         </div>
       </button>
 
@@ -84,13 +85,13 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
           shadow-[0_0_20px_rgba(234,179,8,0.6)]
           flex flex-col items-center justify-center
         ">
-           <div className="skew-x-[20deg] text-center">
-              <div className="text-black font-extrabold text-lg md:text-xl leading-none">5 Spins</div>
-              <div className="flex items-center justify-center gap-1.5 mt-1">
-                 <TokenIcon />
-                 <span className="text-black font-extrabold text-lg">5</span>
-              </div>
-           </div>
+          <div className="skew-x-[20deg] text-center">
+            <div className="text-black font-extrabold text-lg md:text-xl leading-none">5 Spins</div>
+            <div className="flex items-center justify-center gap-1.5 mt-1">
+              <TokenIcon />
+              <span className="text-black font-extrabold text-lg">5</span>
+            </div>
+          </div>
         </div>
       </button>
 

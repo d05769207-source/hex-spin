@@ -22,7 +22,7 @@ export interface SpinCost {
   five: number;
 }
 
-export type Page = 'HOME' | 'EVENT' | 'RANK' | 'SHOP' | 'PROFILE';
+export type Page = 'HOME' | 'EVENT' | 'RANK' | 'SHOP' | 'PROFILE' | 'ADMIN_DASHBOARD';
 
 export interface User {
   id: string;
