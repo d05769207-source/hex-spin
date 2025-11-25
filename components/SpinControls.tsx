@@ -48,7 +48,7 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
       >
         {/* Button Shape */}
         <div className="
-          w-40 h-14 md:w-48 md:h-16 
+          w-32 h-10 md:w-48 md:h-16 
           bg-gradient-to-r from-cyan-600 via-blue-500 to-blue-700
           skew-x-[-20deg]
           border-t-2 border-l-2 border-cyan-300
@@ -57,10 +57,10 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
           flex flex-col items-center justify-center
         ">
           <div className="skew-x-[20deg] text-center">
-            <div className="text-white font-bold text-lg md:text-xl drop-shadow-md leading-none">1 Spin</div>
-            <div className="flex items-center justify-center gap-1.5 mt-1">
+            <div className="text-white font-bold text-sm md:text-xl drop-shadow-md leading-none">1 Spin</div>
+            <div className="flex items-center justify-center gap-1.5 mt-0.5 md:mt-1">
               <TokenIcon />
-              <span className="text-white font-bold text-lg">1</span>
+              <span className="text-white font-bold text-sm md:text-lg">1</span>
             </div>
           </div>
         </div>
@@ -77,7 +77,7 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
       >
         {/* Button Shape */}
         <div className="
-          w-40 h-14 md:w-48 md:h-16 
+          w-32 h-10 md:w-48 md:h-16 
           bg-gradient-to-r from-yellow-400 via-orange-500 to-orange-600
           skew-x-[-20deg]
           border-t-2 border-l-2 border-yellow-200
@@ -86,10 +86,10 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
           flex flex-col items-center justify-center
         ">
           <div className="skew-x-[20deg] text-center">
-            <div className="text-black font-extrabold text-lg md:text-xl leading-none">5 Spins</div>
-            <div className="flex items-center justify-center gap-1.5 mt-1">
+            <div className="text-black font-extrabold text-sm md:text-xl leading-none">5 Spins</div>
+            <div className="flex items-center justify-center gap-1.5 mt-0.5 md:mt-1">
               <TokenIcon />
-              <span className="text-black font-extrabold text-lg">5</span>
+              <span className="text-black font-extrabold text-sm md:text-lg">5</span>
             </div>
           </div>
         </div>

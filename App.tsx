@@ -699,24 +699,24 @@ const App: React.FC = () => {
         {/* Top Right Menu */}
         <div className="flex gap-2 md:pr-24">
           {/* Token Balance */}
-          <div className="bg-black/60 px-3 py-1 rounded border border-cyan-500/30 flex items-center gap-2 shadow-lg cursor-pointer hover:bg-black/80 transition-colors" onClick={() => setCurrentPage('SHOP')}>
-            <div className="relative w-5 h-5 flex items-center justify-center shrink-0 filter drop-shadow-[0_0_5px_rgba(6,182,212,0.8)]">
+          <div className="bg-black/60 px-2 py-0.5 md:px-3 md:py-1 rounded border border-cyan-500/30 flex items-center gap-1.5 md:gap-2 shadow-lg cursor-pointer hover:bg-black/80 transition-colors" onClick={() => setCurrentPage('SHOP')}>
+            <div className="relative w-4 h-4 md:w-5 md:h-5 flex items-center justify-center shrink-0 filter drop-shadow-[0_0_5px_rgba(6,182,212,0.8)]">
               <div className="absolute inset-0 bg-gradient-to-b from-cyan-300 via-blue-500 to-blue-700" style={{ clipPath: 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)' }} />
               <div className="absolute inset-[1.5px] bg-gradient-to-br from-slate-900 to-blue-950 flex items-center justify-center" style={{ clipPath: 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)' }} >
-                <span className="text-[10px] font-black text-transparent bg-clip-text bg-gradient-to-b from-cyan-200 to-cyan-500" style={{ fontFamily: 'sans-serif' }}>P</span>
+                <span className="text-[8px] md:text-[10px] font-black text-transparent bg-clip-text bg-gradient-to-b from-cyan-200 to-cyan-500" style={{ fontFamily: 'sans-serif' }}>P</span>
               </div>
             </div>
-            <span className="text-cyan-400 font-bold drop-shadow-sm">{balance}</span>
+            <span className="text-cyan-400 font-bold text-sm md:text-base drop-shadow-sm">{balance}</span>
           </div>
 
           {/* Coin Balance */}
-          <div className="bg-black/60 px-3 py-1 rounded border border-yellow-500/30 flex items-center gap-2 shadow-lg">
-            <svg viewBox="0 0 36 36" className="w-5 h-5 flex shrink-0 drop-shadow-md filter brightness-110">
+          <div className="bg-black/60 px-2 py-0.5 md:px-3 md:py-1 rounded border border-yellow-500/30 flex items-center gap-1.5 md:gap-2 shadow-lg">
+            <svg viewBox="0 0 36 36" className="w-4 h-4 md:w-5 md:h-5 flex shrink-0 drop-shadow-md filter brightness-110">
               <circle cx="18" cy="18" r="16" fill="#eab308" stroke="#fef08a" strokeWidth="2" />
               <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
               <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
             </svg>
-            <span className="text-yellow-400 font-bold drop-shadow-sm">{coins}</span>
+            <span className="text-yellow-400 font-bold text-sm md:text-base drop-shadow-sm">{coins}</span>
           </div>
 
           {/* Sound Toggle */}
