@@ -691,10 +691,12 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Weekly Timer - Below Logo */}
-        <div className="absolute top-16 md:top-20 left-4">
-          <WeeklyTimer />
-        </div>
+        {/* Weekly Timer - Below Logo (Only on Home Page) */}
+        {currentPage === 'HOME' && (
+          <div className="absolute top-16 md:top-20 left-4">
+            <WeeklyTimer />
+          </div>
+        )}
 
         {/* Top Right Menu */}
         <div className="flex gap-2 md:pr-24">

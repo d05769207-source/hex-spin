@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import PrizeImage from '../PrizeImage';
 
@@ -8,110 +7,15 @@ interface EventProps {
     isAdminMode?: boolean;
 }
 
-const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
-    const [eventState, setEventState] = useState<EventState>('JOINING');
-    const [ktmEntry, setKtmEntry] = useState<number | null>(null);
-    const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
-
-    useEffect(() => {
-        const savedKtm = localStorage.getItem('lottery_ktm_entry');
-        const savedIphone = localStorage.getItem('lottery_iphone_entry');
-        if (savedKtm) setKtmEntry(parseInt(savedKtm));
-        if (savedIphone) setIphoneEntry(parseInt(savedIphone));
-    }, []);
-
-    useEffect(() => {
-        const checkEventState = () => {
-            const now = new Date();
-            const day = now.getDay();
-            const hours = now.getHours();
-            const minutes = now.getMinutes();
-
-            if (isAdminMode) {
-                setEventState('JOINING');
-                return;
-            }
-
-            if (day !== 0 || hours < 19) {
-                setEventState('JOINING');
-                return;
-            }
-
-            if (hours === 19 && minutes < 10) {
-                setEventState('IPHONE_DRAW');
-                return;
-            }
-
-            if (hours === 19 && minutes >= 10 && minutes < 30) {
-                setEventState('IPHONE_WINNER');
-                return;
-            }
-
-            if ((hours === 19 && minutes >= 30) || (hours === 20 && minutes === 0)) {
-                setEventState('KTM_WAITING');
-                return;
-            }
-
-            if (hours === 20 && minutes < 10) {
-                setEventState('KTM_DRAW');
-                return;
-            }
-
-            if (hours === 20 && minutes >= 10 && minutes < 30) {
-                setEventState('KTM_WINNER');
-                return;
-            }
-
-            setEventState('ENDED');
-        };
-
-        checkEventState();
-        const interval = setInterval(checkEventState, 30000);
-        return () => clearInterval(interval);
-    }, [isAdminMode]);
-
-    const handleJoinKTM = async () => {
-        const luckyNumber = Math.floor(Math.random() * 100000) + 1;
-        setKtmEntry(luckyNumber);
-        localStorage.setItem('lottery_ktm_entry', luckyNumber.toString());
-    };
-
-    const handleJoinIPhone = async () => {
-        const luckyNumber = Math.floor(Math.random() * 100000) + 1;
-        setIphoneEntry(luckyNumber);
-        localStorage.setItem('lottery_iphone_entry', luckyNumber.toString());
-    };
-
-    return (
-        <div className="w-full max-w-sm mx-auto h-full flex flex-col p-2 animate-in fade-in duration-500">
-            <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden">
-                {eventState === 'JOINING' && (
-                    <JoiningView
-                        ktmEntry={ktmEntry}
-                        iphoneEntry={iphoneEntry}
-                        onJoinKTM={handleJoinKTM}
-                        onJoinIPhone={handleJoinIPhone}
-                    />
-                )}
-                {eventState === 'IPHONE_DRAW' && <DrawView prize="iPhone" />}
-                {eventState === 'IPHONE_WINNER' && <WinnerView prize="iPhone" />}
-                {eventState === 'KTM_WAITING' && <WaitingView />}
-                {eventState === 'KTM_DRAW' && <DrawView prize="KTM" />}
-                {eventState === 'KTM_WINNER' && <WinnerView prize="KTM" />}
-                {eventState === 'ENDED' && <EndedView />}
-            </div>
-        </div>
-    );
-};
-
 interface JoiningViewProps {
     ktmEntry: number | null;
     iphoneEntry: number | null;
     onJoinKTM: () => void;
     onJoinIPhone: () => void;
+    onViewDraw: (prize: 'iPhone' | 'KTM') => void;
 }
 
-const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoinKTM, onJoinIPhone }) => {
+const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoinKTM, onJoinIPhone, onViewDraw }) => {
     const [timeUntilDraw, setTimeUntilDraw] = useState('');
 
     useEffect(() => {
@@ -170,11 +74,19 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                             <p className="text-[10px] text-indigo-200/70 truncate">Pro Max 256GB Titanium</p>
 
                             {iphoneEntry ? (
-                                <div className="mt-2 flex items-center gap-2">
-                                    <div className="bg-black/40 px-3 py-1 rounded border border-indigo-500/30">
-                                        <span className="text-xs font-mono text-indigo-300 tracking-widest">{iphoneEntry.toString().padStart(6, '0')}</span>
+                                <div className="mt-2 flex flex-col gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="bg-black/40 px-3 py-1 rounded border border-indigo-500/30">
+                                            <span className="text-xs font-mono text-indigo-300 tracking-widest">{iphoneEntry.toString().padStart(6, '0')}</span>
+                                        </div>
+                                        <span className="text-[10px] text-green-400 font-bold">✓ Joined</span>
                                     </div>
-                                    <span className="text-[10px] text-green-400 font-bold">✓ Joined</span>
+                                    <button
+                                        onClick={() => onViewDraw('iPhone')}
+                                        className="w-full bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-[10px] font-bold py-1.5 rounded border border-indigo-500/30 transition-all"
+                                    >
+                                        View Draw
+                                    </button>
                                 </div>
                             ) : (
                                 <button
@@ -203,11 +115,19 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                             <p className="text-[10px] text-orange-200/70 truncate">RC 390 GP Edition</p>
 
                             {ktmEntry ? (
-                                <div className="mt-2 flex items-center gap-2">
-                                    <div className="bg-black/40 px-3 py-1 rounded border border-orange-500/30">
-                                        <span className="text-xs font-mono text-orange-300 tracking-widest">{ktmEntry.toString().padStart(6, '0')}</span>
+                                <div className="mt-2 flex flex-col gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="bg-black/40 px-3 py-1 rounded border border-orange-500/30">
+                                            <span className="text-xs font-mono text-orange-300 tracking-widest">{ktmEntry.toString().padStart(6, '0')}</span>
+                                        </div>
+                                        <span className="text-[10px] text-green-400 font-bold">✓ Joined</span>
                                     </div>
-                                    <span className="text-[10px] text-green-400 font-bold">✓ Joined</span>
+                                    <button
+                                        onClick={() => onViewDraw('KTM')}
+                                        className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 text-[10px] font-bold py-1.5 rounded border border-orange-500/30 transition-all"
+                                    >
+                                        View Draw
+                                    </button>
                                 </div>
                             ) : (
                                 <button
@@ -225,7 +145,7 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                 </div>
             </div>
 
-            <div className="text-center pt-2">
+            <div className="text-center pt-2 mt-auto">
                 <p className="text-[10px] text-gray-500">Winners announced automatically • 100% Free Entry</p>
             </div>
         </div>
@@ -237,51 +157,204 @@ interface DrawViewProps {
 }
 
 const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
-    const [currentNumber, setCurrentNumber] = useState(0);
-    const [timeLeft, setTimeLeft] = useState(600);
+    // 6 reels for 6 digits (000000 - 999999)
+    const [reels, setReels] = useState<number[]>([0, 0, 0, 0, 0, 0]);
+    const [isSpinning, setIsSpinning] = useState<boolean[]>([true, true, true, true, true, true]);
+    const [muted, setMuted] = useState(false);
+    const [finalNumber] = useState<number[]>(() => {
+        // Generate a random 6-digit number, split into array
+        const num = Math.floor(Math.random() * 1000000);
+        return num.toString().padStart(6, '0').split('').map(Number);
+    });
+
+    // Audio Refs
+    const spinSound = React.useRef<HTMLAudioElement | null>(null);
+    const stopSound = React.useRef<HTMLAudioElement | null>(null);
+    const winSound = React.useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
-        const scrollInterval = setInterval(() => {
-            setCurrentNumber(Math.floor(Math.random() * 100000) + 1);
-        }, 80);
-
-        const timerInterval = setInterval(() => {
-            setTimeLeft(prev => Math.max(0, prev - 1));
-        }, 1000);
+        // Initialize Audio objects
+        spinSound.current = new Audio('/sounds/spin_loop.mp3');
+        spinSound.current.loop = true;
+        stopSound.current = new Audio('/sounds/reel_stop.mp3');
+        winSound.current = new Audio('/sounds/win_fanfare.mp3');
 
         return () => {
-            clearInterval(scrollInterval);
-            clearInterval(timerInterval);
+            // Cleanup sounds on unmount
+            if (spinSound.current) {
+                spinSound.current.pause();
+                spinSound.current = null;
+            }
+            stopSound.current = null;
+            winSound.current = null;
         };
     }, []);
 
-    const minutes = Math.floor(timeLeft / 60);
-    const seconds = timeLeft % 60;
+    useEffect(() => {
+        if (spinSound.current) {
+            spinSound.current.muted = muted;
+        }
+        if (stopSound.current) {
+            stopSound.current.muted = muted;
+        }
+        if (winSound.current) {
+            winSound.current.muted = muted;
+        }
+    }, [muted]);
+
+    const playSound = (audioRef: React.MutableRefObject<HTMLAudioElement | null>, fallbackText?: string) => {
+        if (muted) return;
+
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(e => {
+                console.log("Audio play failed, trying fallback:", e);
+                if (fallbackText && 'speechSynthesis' in window) {
+                    const utterance = new SpeechSynthesisUtterance(fallbackText);
+                    utterance.rate = 1.5; // Speak faster
+                    utterance.volume = 0.5;
+                    window.speechSynthesis.speak(utterance);
+                }
+            });
+        }
+    };
+
+    useEffect(() => {
+        // Start spinning sound
+        if (spinSound.current && !muted) {
+            spinSound.current.play().catch(e => {
+                console.log("Spin sound failed:", e);
+                // Fallback for spin start
+                if ('speechSynthesis' in window) {
+                    // window.speechSynthesis.speak(new SpeechSynthesisUtterance('Spinning'));
+                }
+            });
+        }
+
+        // Start stopping reels sequentially after a delay
+        const stopDelays = [2000, 3000, 4000, 5000, 6000, 7000]; // Delays for each reel to stop
+
+        stopDelays.forEach((delay, index) => {
+            setTimeout(() => {
+                setIsSpinning(prev => {
+                    const newState = [...prev];
+                    newState[index] = false;
+                    return newState;
+                });
+
+                // Set the final number for this reel
+                setReels(prev => {
+                    const newReels = [...prev];
+                    newReels[index] = finalNumber[index];
+                    return newReels;
+                });
+
+                // Play stop sound
+                playSound(stopSound, 'tik');
+
+                // If it's the last reel, stop spin sound and play win sound
+                if (index === 5) {
+                    if (spinSound.current) spinSound.current.pause();
+                    setTimeout(() => playSound(winSound, 'Winner!'), 500); // Slight delay for effect
+                }
+            }, delay);
+        });
+    }, []);
+
+    // Animation effect for spinning reels
+    useEffect(() => {
+        const intervals: NodeJS.Timeout[] = [];
+
+        reels.forEach((_, index) => {
+            if (isSpinning[index]) {
+                const interval = setInterval(() => {
+                    setReels(prev => {
+                        const newReels = [...prev];
+                        newReels[index] = Math.floor(Math.random() * 10);
+                        return newReels;
+                    });
+                }, 50 + (index * 10)); // Slightly different speeds for effect
+                intervals.push(interval);
+            }
+        });
+
+        return () => intervals.forEach(clearInterval);
+    }, [isSpinning]);
+
     const isIphone = prize === 'iPhone';
 
     return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center">
-            <div className="mb-6 relative">
-                <div className={`absolute inset-0 blur-xl opacity-20 ${isIphone ? 'bg-indigo-500' : 'bg-orange-500'}`} />
+        <div className="flex flex-col items-center justify-center h-full p-4 text-center relative">
+            {/* Mute Button */}
+            <button
+                onClick={() => setMuted(!muted)}
+                className="absolute top-2 right-2 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20"
+            >
+                {muted ? '🔇' : '🔊'}
+            </button>
+
+            <div className="mb-8 relative animate-bounce-slow">
+                <div className={`absolute inset-0 blur-2xl opacity-30 ${isIphone ? 'bg-indigo-500' : 'bg-orange-500'}`} />
                 <PrizeImage prize={prize} size="lg" />
             </div>
 
-            <h2 className="text-2xl font-black text-white mb-1">
+            <h2 className="text-3xl font-black text-white mb-2 tracking-tight">
                 {isIphone ? 'iPHONE' : 'KTM'} <span className={isIphone ? 'text-indigo-400' : 'text-orange-400'}>DRAW</span>
             </h2>
-            <p className="text-xs text-gray-400 mb-6 font-medium tracking-wide uppercase">Finding Lucky Winner</p>
+            <p className="text-xs text-gray-400 mb-8 font-medium tracking-wide uppercase">
+                {isSpinning.some(s => s) ? 'Finding Lucky Winner...' : 'Winner Found!'}
+            </p>
 
-            <div className={`relative w-full max-w-[240px] bg-black/50 rounded-lg border ${isIphone ? 'border-indigo-500/30' : 'border-orange-500/30'} p-4 mb-6 overflow-hidden`}>
-                <div className={`text-4xl font-mono font-black tracking-widest ${isIphone ? 'text-indigo-400' : 'text-orange-400'}`}>
-                    {currentNumber.toString().padStart(6, '0')}
-                </div>
-                <div className={`absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-${isIphone ? 'indigo' : 'orange'}-500/10`} />
+            {/* 6-Reel Slot Machine */}
+            <div className="flex gap-2 mb-8 p-4 bg-black/40 rounded-xl border border-white/10 shadow-inner">
+                {reels.map((num, index) => (
+                    <div
+                        key={index}
+                        className={`
+                            relative w-10 h-14 md:w-12 md:h-16 
+                            bg-gradient-to-b from-gray-800 to-black 
+                            rounded-lg border border-white/10 
+                            flex items-center justify-center 
+                            overflow-hidden shadow-lg
+                            ${!isSpinning[index] ? (isIphone ? 'border-indigo-500/50 shadow-indigo-500/20' : 'border-orange-500/50 shadow-orange-500/20') : ''}
+                        `}
+                    >
+                        {/* Spinning Blur Effect */}
+                        {isSpinning[index] && (
+                            <div className="absolute inset-0 bg-white/5 blur-sm animate-pulse" />
+                        )}
+
+                        <span className={`
+                            text-2xl md:text-3xl font-mono font-black 
+                            ${isSpinning[index] ? 'text-gray-400 blur-[1px]' : (isIphone ? 'text-indigo-400' : 'text-orange-400')}
+                            transition-all duration-300
+                        `}>
+                            {num}
+                        </span>
+
+                        {/* Shine Effect */}
+                        <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent pointer-events-none" />
+                    </div>
+                ))}
             </div>
 
-            <div className="bg-white/5 rounded px-4 py-2 border border-white/10">
-                <p className="text-[10px] text-gray-400 mb-0.5">Time Remaining</p>
-                <p className="text-xl font-bold text-white font-mono">
-                    {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+            {/* Status Indicator */}
+            <div className={`
+                px-6 py-2 rounded-full border 
+                ${isSpinning.some(s => s)
+                    ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                    : 'bg-green-500/10 border-green-500/30 text-green-400'}
+            `}>
+                <p className="text-xs font-bold uppercase tracking-widest flex items-center gap-2">
+                    {isSpinning.some(s => s) ? (
+                        <>
+                            <span className="animate-spin">⚙️</span> DRAWING...
+                        </>
+                    ) : (
+                        <>
+                            <span>🎉</span> DRAW COMPLETE
+                        </>
+                    )}
                 </p>
             </div>
         </div>
@@ -369,6 +442,106 @@ const EndedView: React.FC = () => {
             <p className="text-xs text-gray-400 max-w-[200px] leading-relaxed">
                 Thanks for participating! Join us again next Sunday for more prizes.
             </p>
+        </div>
+    );
+};
+
+const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
+    const [eventState, setEventState] = useState<EventState>('JOINING');
+    const [ktmEntry, setKtmEntry] = useState<number | null>(null);
+    const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
+
+    useEffect(() => {
+        const savedKtm = localStorage.getItem('lottery_ktm_entry');
+        const savedIphone = localStorage.getItem('lottery_iphone_entry');
+        if (savedKtm) setKtmEntry(parseInt(savedKtm));
+        if (savedIphone) setIphoneEntry(parseInt(savedIphone));
+    }, []);
+
+    // Time check disabled for manual testing
+    /*
+    useEffect(() => {
+        const checkEventState = () => {
+            const now = new Date();
+            const day = now.getDay();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+
+            if (isAdminMode) {
+                setEventState('JOINING');
+                return;
+            }
+
+            if (day !== 0 || hours < 19) {
+                setEventState('JOINING');
+                return;
+            }
+
+            if (hours === 19 && minutes < 10) {
+                setEventState('IPHONE_DRAW');
+                return;
+            }
+
+            if (hours === 19 && minutes >= 10 && minutes < 30) {
+                setEventState('IPHONE_WINNER');
+                return;
+            }
+
+            if ((hours === 19 && minutes >= 30) || (hours === 20 && minutes === 0)) {
+                setEventState('KTM_WAITING');
+                return;
+            }
+
+            if (hours === 20 && minutes < 10) {
+                setEventState('KTM_DRAW');
+                return;
+            }
+
+            if (hours === 20 && minutes >= 10 && minutes < 30) {
+                setEventState('KTM_WINNER');
+                return;
+            }
+
+            setEventState('ENDED');
+        };
+
+        checkEventState();
+        const interval = setInterval(checkEventState, 30000);
+        return () => clearInterval(interval);
+    }, [isAdminMode]);
+    */
+
+    const handleJoinKTM = async () => {
+        const luckyNumber = Math.floor(Math.random() * 100000) + 1;
+        setKtmEntry(luckyNumber);
+        localStorage.setItem('lottery_ktm_entry', luckyNumber.toString());
+    };
+
+    const handleJoinIPhone = async () => {
+        const luckyNumber = Math.floor(Math.random() * 100000) + 1;
+        setIphoneEntry(luckyNumber);
+        localStorage.setItem('lottery_iphone_entry', luckyNumber.toString());
+    };
+
+    return (
+        <div className="w-full max-w-sm mx-auto h-full flex flex-col p-2 animate-in fade-in duration-500">
+            <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden min-h-[600px] flex flex-col">
+                {eventState === 'JOINING' && (
+                    <JoiningView
+                        ktmEntry={ktmEntry}
+                        iphoneEntry={iphoneEntry}
+                        onJoinKTM={handleJoinKTM}
+                        onJoinIPhone={handleJoinIPhone}
+                        onViewDraw={(prize) => setEventState(prize === 'iPhone' ? 'IPHONE_DRAW' : 'KTM_DRAW')}
+                    />
+                )}
+                {eventState === 'IPHONE_DRAW' && <DrawView prize="iPhone" />}
+                {eventState === 'IPHONE_WINNER' && <WinnerView prize="iPhone" />}
+                {eventState === 'KTM_WAITING' && <WaitingView />}
+                {eventState === 'KTM_DRAW' && <DrawView prize="KTM" />}
+                {eventState === 'KTM_WINNER' && <WinnerView prize="KTM" />}
+                {eventState === 'ENDED' && <EndedView />}
+            </div>
         </div>
     );
 };
