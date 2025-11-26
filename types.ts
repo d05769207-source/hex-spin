@@ -29,4 +29,5 @@ export interface User {
   email?: string;
   username?: string;
   isGuest: boolean;
+  eTokens?: number;
 }

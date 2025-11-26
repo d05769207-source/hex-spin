@@ -115,6 +115,7 @@ const playWinSound = () => {
 // --- GUEST DATA MANAGEMENT (localStorage) ---
 const GUEST_BALANCE_KEY = 'guest_balance';
 const GUEST_COINS_KEY = 'guest_coins';
+const GUEST_ETOKENS_KEY = 'guest_etokens';
 
 const getGuestBalance = (): number => {
   const saved = localStorage.getItem(GUEST_BALANCE_KEY);
@@ -126,6 +127,11 @@ const getGuestCoins = (): number => {
   return saved ? parseInt(saved) : 0;
 };
 
+const getGuestETokens = (): number => {
+  const saved = localStorage.getItem(GUEST_ETOKENS_KEY);
+  return saved ? parseInt(saved) : 0;
+};
+
 const saveGuestBalance = (balance: number) => {
   localStorage.setItem(GUEST_BALANCE_KEY, balance.toString());
 };
@@ -134,9 +140,14 @@ const saveGuestCoins = (coins: number) => {
   localStorage.setItem(GUEST_COINS_KEY, coins.toString());
 };
 
+const saveGuestETokens = (eTokens: number) => {
+  localStorage.setItem(GUEST_ETOKENS_KEY, eTokens.toString());
+};
+
 const clearGuestData = () => {
   localStorage.removeItem(GUEST_BALANCE_KEY);
   localStorage.removeItem(GUEST_COINS_KEY);
+  localStorage.removeItem(GUEST_ETOKENS_KEY);
 };
 
 const App: React.FC = () => {
@@ -163,6 +174,7 @@ const App: React.FC = () => {
 
   const [balance, setBalance] = useState<number>(getGuestBalance()); // Load from localStorage for guests
   const [coins, setCoins] = useState<number>(getGuestCoins());       // Load from localStorage for guests
+  const [eTokens, setETokens] = useState<number>(getGuestETokens()); // Load from localStorage for guests
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false); // Prevent sync until data is loaded
@@ -200,11 +212,13 @@ const App: React.FC = () => {
               const userData = userDoc.data();
               setBalance(userData.tokens || 0);
               setCoins(userData.coins || 0);
-              console.log('User data loaded from Firestore:', { tokens: userData.tokens, coins: userData.coins });
+              setETokens(userData.eTokens || 0);
+              console.log('User data loaded from Firestore:', { tokens: userData.tokens, coins: userData.coins, eTokens: userData.eTokens });
             } else {
               // If no Firestore data, use defaults
               setBalance(10);
               setCoins(0);
+              setETokens(0);
             }
 
             // Enable sync AFTER data is loaded
@@ -214,6 +228,7 @@ const App: React.FC = () => {
             // Fallback to defaults on error
             setBalance(10);
             setCoins(0);
+            setETokens(0);
             setIsSyncEnabled(true);
           }
         } else {
@@ -227,6 +242,7 @@ const App: React.FC = () => {
         setIsSyncEnabled(false); // Disable Firestore sync for guests
         setBalance(getGuestBalance()); // Load from localStorage
         setCoins(getGuestCoins());
+        setETokens(getGuestETokens());
       }
     });
 
@@ -271,6 +287,24 @@ const App: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [coins, user, isSyncEnabled]);
 
+  // SYNC E-TOKENS TO FIRESTORE (Logged-in users only)
+  useEffect(() => {
+    if (!user || user.isGuest || !isSyncEnabled) return;
+
+    const syncETokens = async () => {
+      try {
+        const userDocRef = doc(db, 'users', user.id);
+        await updateDoc(userDocRef, { eTokens: eTokens });
+        console.log('E-Tokens synced to Firestore:', eTokens);
+      } catch (error) {
+        console.error('Error syncing eTokens to Firestore:', error);
+      }
+    };
+
+    const timeoutId = setTimeout(syncETokens, 500);
+    return () => clearTimeout(timeoutId);
+  }, [eTokens, user, isSyncEnabled]);
+
   // SYNC GUEST DATA TO LOCALSTORAGE (Guest users only)
   useEffect(() => {
     if (user) return; // Only for guests
@@ -281,6 +315,11 @@ const App: React.FC = () => {
     if (user) return; // Only for guests
     saveGuestCoins(coins);
   }, [coins, user]);
+
+  useEffect(() => {
+    if (user) return; // Only for guests
+    saveGuestETokens(eTokens);
+  }, [eTokens, user]);
 
   // Helper to wait for a specific amount of time
   const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -430,6 +469,20 @@ const App: React.FC = () => {
     if (isSpinning) {
       isSkippingRef.current = true;
     }
+    if (isSpinning) {
+      isSkippingRef.current = true;
+    }
+  };
+
+  const handleExchange = (amount: number) => {
+    // Exchange Rate: 1000 Coins = 1 E-Token
+    const cost = amount * 1000;
+    if (coins >= cost) {
+      setCoins(prev => prev - cost);
+      setETokens(prev => prev + amount);
+      return true;
+    }
+    return false;
   };
 
   // --- AUTH HANDLERS ---
@@ -632,8 +685,10 @@ const App: React.FC = () => {
               onBack={() => setCurrentPage('HOME')}
               coins={coins}
               tokens={balance}
+              eTokens={eTokens}
               user={user}
               onLogout={handleLogout}
+              onExchange={handleExchange}
             />
           </div>
         );
