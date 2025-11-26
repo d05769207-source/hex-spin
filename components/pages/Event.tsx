@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import PrizeImage from '../PrizeImage';
+import { soundManager } from '../../utils/SoundManager';
 
 type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 'KTM_DRAW' | 'KTM_WINNER' | 'ENDED';
 
@@ -167,68 +168,25 @@ const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
         return num.toString().padStart(6, '0').split('').map(Number);
     });
 
-    // Audio Refs
-    const spinSound = React.useRef<HTMLAudioElement | null>(null);
-    const stopSound = React.useRef<HTMLAudioElement | null>(null);
-    const winSound = React.useRef<HTMLAudioElement | null>(null);
-
+    // Audio Initialization
+    // Audio Initialization
     useEffect(() => {
-        // Initialize Audio objects
-        spinSound.current = new Audio('/sounds/spin_loop.mp3');
-        spinSound.current.loop = true;
-        stopSound.current = new Audio('/sounds/reel_stop.mp3');
-        winSound.current = new Audio('/sounds/win_fanfare.mp3');
-
         return () => {
-            // Cleanup sounds on unmount
-            if (spinSound.current) {
-                spinSound.current.pause();
-                spinSound.current = null;
-            }
-            stopSound.current = null;
-            winSound.current = null;
+            soundManager.stop('spin_loop');
+            soundManager.stop('win_fanfare');
         };
     }, []);
 
     useEffect(() => {
-        if (spinSound.current) {
-            spinSound.current.muted = muted;
-        }
-        if (stopSound.current) {
-            stopSound.current.muted = muted;
-        }
-        if (winSound.current) {
-            winSound.current.muted = muted;
-        }
+        soundManager.mute(muted);
     }, [muted]);
 
-    const playSound = (audioRef: React.MutableRefObject<HTMLAudioElement | null>, fallbackText?: string) => {
-        if (muted) return;
 
-        if (audioRef.current) {
-            audioRef.current.currentTime = 0;
-            audioRef.current.play().catch(e => {
-                console.log("Audio play failed, trying fallback:", e);
-                if (fallbackText && 'speechSynthesis' in window) {
-                    const utterance = new SpeechSynthesisUtterance(fallbackText);
-                    utterance.rate = 1.5; // Speak faster
-                    utterance.volume = 0.5;
-                    window.speechSynthesis.speak(utterance);
-                }
-            });
-        }
-    };
 
     useEffect(() => {
         // Start spinning sound
-        if (spinSound.current && !muted) {
-            spinSound.current.play().catch(e => {
-                console.log("Spin sound failed:", e);
-                // Fallback for spin start
-                if ('speechSynthesis' in window) {
-                    // window.speechSynthesis.speak(new SpeechSynthesisUtterance('Spinning'));
-                }
-            });
+        if (!muted) {
+            soundManager.play('spin_loop', { loop: true, volume: 0.5 });
         }
 
         // Start stopping reels sequentially after a delay
@@ -250,12 +208,12 @@ const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
                 });
 
                 // Play stop sound
-                playSound(stopSound, 'tik');
+                soundManager.play('reel_stop', { volume: 0.8 });
 
                 // If it's the last reel, stop spin sound and play win sound
                 if (index === 5) {
-                    if (spinSound.current) spinSound.current.pause();
-                    setTimeout(() => playSound(winSound, 'Winner!'), 500); // Slight delay for effect
+                    soundManager.stop('spin_loop');
+                    setTimeout(() => soundManager.play('win_fanfare', { volume: 1.0 }), 500);
                 }
             }, delay);
         });
@@ -452,6 +410,13 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
     const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
 
     useEffect(() => {
+        // Preload sounds
+        soundManager.load({
+            spin_loop: '/sounds/spin_loop.mp3',
+            reel_stop: '/sounds/reel_stop.mp3',
+            win_fanfare: '/sounds/win_fanfare.mp3'
+        });
+
         const savedKtm = localStorage.getItem('lottery_ktm_entry');
         const savedIphone = localStorage.getItem('lottery_iphone_entry');
         if (savedKtm) setKtmEntry(parseInt(savedKtm));
@@ -523,6 +488,12 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
         localStorage.setItem('lottery_iphone_entry', luckyNumber.toString());
     };
 
+    const handleViewDraw = (selectedPrize: 'iPhone' | 'KTM') => {
+        // Resume context on user interaction
+        soundManager.resumeContext();
+        setEventState(selectedPrize === 'iPhone' ? 'IPHONE_DRAW' : 'KTM_DRAW');
+    };
+
     return (
         <div className="w-full max-w-sm mx-auto h-full flex flex-col p-2 animate-in fade-in duration-500">
             <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden min-h-[600px] flex flex-col">
@@ -532,7 +503,7 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
                         iphoneEntry={iphoneEntry}
                         onJoinKTM={handleJoinKTM}
                         onJoinIPhone={handleJoinIPhone}
-                        onViewDraw={(prize) => setEventState(prize === 'iPhone' ? 'IPHONE_DRAW' : 'KTM_DRAW')}
+                        onViewDraw={handleViewDraw}
                     />
                 )}
                 {eventState === 'IPHONE_DRAW' && <DrawView prize="iPhone" />}
