@@ -149,15 +149,17 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
             <div className="text-center pt-2 mt-auto">
                 <p className="text-[10px] text-gray-500">Winners announced automatically • 100% Free Entry</p>
             </div>
+
         </div>
     );
 };
 
 interface DrawViewProps {
     prize: 'iPhone' | 'KTM';
+    onBack: () => void;
 }
 
-const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
+const DrawView: React.FC<DrawViewProps> = ({ prize, onBack }) => {
     // 6 reels for 6 digits (000000 - 999999)
     const [reels, setReels] = useState<number[]>([0, 0, 0, 0, 0, 0]);
     const [isSpinning, setIsSpinning] = useState<boolean[]>([true, true, true, true, true, true]);
@@ -169,19 +171,17 @@ const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
     });
 
     // Audio Initialization
-    // Audio Initialization
     useEffect(() => {
         return () => {
             soundManager.stop('spin_loop');
             soundManager.stop('win_fanfare');
+            soundManager.stop('reel_stop'); // Ensure no stray stops play
         };
     }, []);
 
     useEffect(() => {
         soundManager.mute(muted);
     }, [muted]);
-
-
 
     useEffect(() => {
         // Start spinning sound
@@ -191,9 +191,10 @@ const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
 
         // Start stopping reels sequentially after a delay
         const stopDelays = [2000, 3000, 4000, 5000, 6000, 7000]; // Delays for each reel to stop
+        const timeoutIds: NodeJS.Timeout[] = [];
 
         stopDelays.forEach((delay, index) => {
-            setTimeout(() => {
+            const id = setTimeout(() => {
                 setIsSpinning(prev => {
                     const newState = [...prev];
                     newState[index] = false;
@@ -213,10 +214,16 @@ const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
                 // If it's the last reel, stop spin sound and play win sound
                 if (index === 5) {
                     soundManager.stop('spin_loop');
-                    setTimeout(() => soundManager.play('win_fanfare', { volume: 1.0 }), 500);
+                    const winId = setTimeout(() => soundManager.play('win_fanfare', { volume: 1.0 }), 500);
+                    timeoutIds.push(winId);
                 }
             }, delay);
+            timeoutIds.push(id);
         });
+
+        return () => {
+            timeoutIds.forEach(clearTimeout);
+        };
     }, []);
 
     // Animation effect for spinning reels
@@ -243,6 +250,14 @@ const DrawView: React.FC<DrawViewProps> = ({ prize }) => {
 
     return (
         <div className="flex flex-col items-center justify-center h-full p-4 text-center relative">
+            {/* Back Button */}
+            <button
+                onClick={onBack}
+                className="absolute top-2 left-2 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20 flex items-center gap-1"
+            >
+                <span className="text-lg">←</span>
+            </button>
+
             {/* Mute Button */}
             <button
                 onClick={() => setMuted(!muted)}
@@ -428,53 +443,53 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
     useEffect(() => {
         const checkEventState = () => {
             const now = new Date();
-            const day = now.getDay();
-            const hours = now.getHours();
-            const minutes = now.getMinutes();
+                            const day = now.getDay();
+                            const hours = now.getHours();
+                            const minutes = now.getMinutes();
 
-            if (isAdminMode) {
-                setEventState('JOINING');
-                return;
+                            if (isAdminMode) {
+                                setEventState('JOINING');
+                            return;
             }
 
-            if (day !== 0 || hours < 19) {
-                setEventState('JOINING');
-                return;
+                            if (day !== 0 || hours < 19) {
+                                setEventState('JOINING');
+                            return;
             }
 
-            if (hours === 19 && minutes < 10) {
-                setEventState('IPHONE_DRAW');
-                return;
+                            if (hours === 19 && minutes < 10) {
+                                setEventState('IPHONE_DRAW');
+                            return;
             }
 
             if (hours === 19 && minutes >= 10 && minutes < 30) {
-                setEventState('IPHONE_WINNER');
-                return;
+                                setEventState('IPHONE_WINNER');
+                            return;
             }
 
             if ((hours === 19 && minutes >= 30) || (hours === 20 && minutes === 0)) {
-                setEventState('KTM_WAITING');
-                return;
+                                setEventState('KTM_WAITING');
+                            return;
             }
 
-            if (hours === 20 && minutes < 10) {
-                setEventState('KTM_DRAW');
-                return;
+                            if (hours === 20 && minutes < 10) {
+                                setEventState('KTM_DRAW');
+                            return;
             }
 
             if (hours === 20 && minutes >= 10 && minutes < 30) {
-                setEventState('KTM_WINNER');
-                return;
+                                setEventState('KTM_WINNER');
+                            return;
             }
 
-            setEventState('ENDED');
+                            setEventState('ENDED');
         };
 
-        checkEventState();
-        const interval = setInterval(checkEventState, 30000);
+                            checkEventState();
+                            const interval = setInterval(checkEventState, 30000);
         return () => clearInterval(interval);
     }, [isAdminMode]);
-    */
+                            */
 
     const handleJoinKTM = async () => {
         const luckyNumber = Math.floor(Math.random() * 100000) + 1;
@@ -506,10 +521,10 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
                         onViewDraw={handleViewDraw}
                     />
                 )}
-                {eventState === 'IPHONE_DRAW' && <DrawView prize="iPhone" />}
+                {eventState === 'IPHONE_DRAW' && <DrawView prize="iPhone" onBack={() => setEventState('JOINING')} />}
                 {eventState === 'IPHONE_WINNER' && <WinnerView prize="iPhone" />}
                 {eventState === 'KTM_WAITING' && <WaitingView />}
-                {eventState === 'KTM_DRAW' && <DrawView prize="KTM" />}
+                {eventState === 'KTM_DRAW' && <DrawView prize="KTM" onBack={() => setEventState('JOINING')} />}
                 {eventState === 'KTM_WINNER' && <WinnerView prize="KTM" />}
                 {eventState === 'ENDED' && <EndedView />}
             </div>
