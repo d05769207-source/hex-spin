@@ -32,4 +32,25 @@ export interface User {
   isGuest: boolean;
   eTokens?: number;
   photoURL?: string;
+  weeklyCoins?: number;
+  coins?: number; // Total coins for leaderboard sync
+  createdAt?: Date;
+  lastActive?: Date;
+  weekStartDate?: Date;
+}
+
+export interface LeaderboardEntry {
+  userId: string;
+  username: string;
+  coins: number;
+  photoURL?: string;
+  rank?: number;
+  isMe?: boolean;
+}
+
+export interface WeeklyStats {
+  weekId: string;
+  startDate: Date;
+  endDate: Date;
+  totalPlayers: number;
 }

@@ -20,6 +20,7 @@ import { Volume2, VolumeX } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 
 // --- WEB AUDIO API SYSTEM ---
 // Synthesizing sounds guarantees playback without network issues, CORS errors, or loading delays.
@@ -214,8 +215,8 @@ const App: React.FC = () => {
             if (userDoc.exists()) {
               const userData = userDoc.data();
               console.log('✅ User data found in Firestore:', userData);
-              
-              setBalance(userData.tokens || 10);
+
+              setBalance(userData.tokens !== undefined ? userData.tokens : 10);
               setCoins(userData.coins || 0);
               setETokens(userData.eTokens || 0);
 
@@ -232,7 +233,7 @@ const App: React.FC = () => {
               });
             } else {
               console.log('⚠️ No user document found in Firestore, creating default data...');
-              
+
               // Create user document if it doesn't exist
               const defaultUserData = {
                 uid: firebaseUser.uid,
@@ -244,14 +245,14 @@ const App: React.FC = () => {
                 createdAt: new Date(),
                 isGuest: false
               };
-              
+
               try {
                 await setDoc(userDocRef, defaultUserData);
                 console.log('✅ Default user data created in Firestore');
               } catch (createError) {
                 console.error('❌ Failed to create user document:', createError);
               }
-              
+
               setBalance(10);
               setCoins(0);
               setETokens(0);
@@ -266,12 +267,12 @@ const App: React.FC = () => {
             console.error('❌ Error loading user data from Firestore:', error);
             console.error('Error code:', error.code);
             console.error('Error message:', error.message);
-            
+
             // Fallback to defaults on error
             setBalance(10);
             setCoins(0);
             setETokens(0);
-            
+
             // Still enable sync after delay
             setTimeout(() => {
               setIsSyncEnabled(true);
@@ -322,7 +323,16 @@ const App: React.FC = () => {
       try {
         const userDocRef = doc(db, 'users', user.id);
         await updateDoc(userDocRef, { coins: coins });
-        console.log('Coins synced to Firestore:', coins);
+
+        // Also sync to weekly leaderboard with absolute value
+        await syncUserToLeaderboard(
+          user.id,
+          user.username || 'Player',
+          coins,
+          user.photoURL
+        );
+
+        console.log('Coins synced to Firestore & Leaderboard:', coins);
       } catch (error) {
         console.error('Error syncing coins to Firestore:', error);
       }
@@ -482,7 +492,12 @@ const App: React.FC = () => {
 
       // Calculate Reward
       if (winners[i].name.includes('Coins') && winners[i].amount) {
-        setCoins(prev => prev + winners[i].amount!);
+        const coinsEarned = winners[i].amount!;
+        setCoins(prev => prev + coinsEarned);
+
+        // Update leaderboard for logged-in users (not guests)
+        // Note: Leaderboard sync is now handled by the useEffect hook in App.tsx
+        // watching the 'coins' state change.
       }
 
       if (soundEnabled) playWinSound(); // Hard Impact Sound
