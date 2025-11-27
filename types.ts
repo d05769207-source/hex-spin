@@ -26,8 +26,10 @@ export type Page = 'HOME' | 'EVENT' | 'RANK' | 'SHOP' | 'PROFILE' | 'ADMIN_DASHB
 
 export interface User {
   id: string;
+  uid?: string;
   email?: string;
   username?: string;
   isGuest: boolean;
   eTokens?: number;
+  photoURL?: string;
 }

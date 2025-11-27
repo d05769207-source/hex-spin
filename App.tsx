@@ -19,7 +19,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import { Volume2, VolumeX } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 
 // --- WEB AUDIO API SYSTEM ---
 // Synthesizing sounds guarantees playback without network issues, CORS errors, or loading delays.
@@ -198,38 +198,84 @@ const App: React.FC = () => {
 
           setUser({
             id: firebaseUser.uid,
+            uid: firebaseUser.uid,
             username: firebaseUser.displayName,
             email: firebaseUser.email || undefined,
-            isGuest: false
+            isGuest: false,
+            photoURL: firebaseUser.photoURL || undefined
           });
 
           // Load user data from Firestore
           try {
             const userDocRef = doc(db, 'users', firebaseUser.uid);
+            console.log('Loading user data for UID:', firebaseUser.uid);
             const userDoc = await getDoc(userDocRef);
 
             if (userDoc.exists()) {
               const userData = userDoc.data();
-              setBalance(userData.tokens || 0);
+              console.log('✅ User data found in Firestore:', userData);
+              
+              setBalance(userData.tokens || 10);
               setCoins(userData.coins || 0);
               setETokens(userData.eTokens || 0);
-              console.log('User data loaded from Firestore:', { tokens: userData.tokens, coins: userData.coins, eTokens: userData.eTokens });
+
+              // Update user object with photoURL from Firestore
+              if (userData.photoURL) {
+                setUser(prev => prev ? { ...prev, photoURL: userData.photoURL } : null);
+              }
+
+              console.log('✅ User data loaded successfully:', {
+                tokens: userData.tokens || 10,
+                coins: userData.coins || 0,
+                eTokens: userData.eTokens || 0,
+                photoURL: userData.photoURL
+              });
             } else {
-              // If no Firestore data, use defaults
+              console.log('⚠️ No user document found in Firestore, creating default data...');
+              
+              // Create user document if it doesn't exist
+              const defaultUserData = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email,
+                username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+                coins: 0,
+                tokens: 10,
+                eTokens: 0,
+                createdAt: new Date(),
+                isGuest: false
+              };
+              
+              try {
+                await setDoc(userDocRef, defaultUserData);
+                console.log('✅ Default user data created in Firestore');
+              } catch (createError) {
+                console.error('❌ Failed to create user document:', createError);
+              }
+              
               setBalance(10);
               setCoins(0);
               setETokens(0);
             }
 
-            // Enable sync AFTER data is loaded
-            setIsSyncEnabled(true);
+            // Enable sync AFTER data is loaded with a small delay
+            setTimeout(() => {
+              setIsSyncEnabled(true);
+              console.log('✅ Firestore sync enabled');
+            }, 1000);
           } catch (error) {
-            console.error('Error loading user data from Firestore:', error);
+            console.error('❌ Error loading user data from Firestore:', error);
+            console.error('Error code:', error.code);
+            console.error('Error message:', error.message);
+            
             // Fallback to defaults on error
             setBalance(10);
             setCoins(0);
             setETokens(0);
-            setIsSyncEnabled(true);
+            
+            // Still enable sync after delay
+            setTimeout(() => {
+              setIsSyncEnabled(true);
+            }, 1000);
           }
         } else {
           // Signed in but no username -> Show Username Modal
@@ -501,9 +547,11 @@ const App: React.FC = () => {
         // Force update local state
         setUser({
           id: auth.currentUser.uid,
+          uid: auth.currentUser.uid,
           username: username,
           email: auth.currentUser.email || undefined,
-          isGuest: false
+          isGuest: false,
+          photoURL: auth.currentUser.photoURL || undefined
         });
 
         // REWARD: Add 10 Free Spins

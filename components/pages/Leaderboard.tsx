@@ -1,16 +1,11 @@
 
 import React, { useState } from 'react';
-import { Calendar, Trophy } from 'lucide-react';
+import { Trophy, Users } from 'lucide-react';
 import EToken from '../EToken';
 import PrizeImage from '../PrizeImage';
 
 const Leaderboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'WEEKLY' | 'ALL'>('WEEKLY');
-
-  const tabs = [
-    { id: 'WEEKLY' as const, label: 'Weekly', icon: Calendar },
-    { id: 'ALL' as const, label: 'All Time', icon: Trophy }
-  ];
+  const [activeTab, setActiveTab] = useState<'PRIZE' | 'WEEKLY' | 'FRIENDS'>('WEEKLY');
 
   const prizeTiers = [
     { ranks: '1', prize: 'KTM Bike', icon: <PrizeImage prize="KTM" size="sm" glow={false} />, color: 'from-yellow-400 to-orange-500', textColor: 'text-yellow-400' },
@@ -33,6 +28,13 @@ const Leaderboard: React.FC = () => {
     { rank: 1245, name: 'You', score: 5420, isMe: true },
   ];
 
+  const friends = [
+    { rank: 45, name: 'Rahul_99', score: 45200, isOnline: true, isMe: false },
+    { rank: 128, name: 'Priya_Star', score: 32100, isOnline: false, isMe: false },
+    { rank: 567, name: 'Lucky_Gamer', score: 18900, isOnline: true, isMe: false },
+    { rank: 1245, name: 'You', score: 5420, isMe: true },
+  ];
+
   return (
     <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 pb-24 md:pb-0">
 
@@ -47,30 +49,44 @@ const Leaderboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 py-2.5 px-4 rounded-lg font-bold transition-all flex items-center justify-center gap-2 ${activeTab === tab.id
-              ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black shadow-lg'
-              : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10'
-              }`}
-          >
-            <tab.icon size={16} />
-            <span className="text-sm">{tab.label}</span>
-          </button>
-        ))}
+      {/* Tab Navigation */}
+      <div className="flex bg-black/40 rounded-full p-1 border border-white/10 mb-4">
+        <button
+          onClick={() => setActiveTab('PRIZE')}
+          className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'PRIZE'
+              ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
+              : 'text-gray-400 hover:text-white'
+            }`}
+        >
+          Prize Pool
+        </button>
+        <button
+          onClick={() => setActiveTab('WEEKLY')}
+          className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'WEEKLY'
+              ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20'
+              : 'text-gray-400 hover:text-white'
+            }`}
+        >
+          Weekly
+        </button>
+        <button
+          onClick={() => setActiveTab('FRIENDS')}
+          className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'FRIENDS'
+              ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20'
+              : 'text-gray-400 hover:text-white'
+            }`}
+        >
+          Friends
+        </button>
       </div>
 
-      {/* Prize Pool (Weekly tab only) */}
-      {activeTab === 'WEEKLY' && (
-        <div className="mb-4">
-          <h3 className="text-sm font-bold text-yellow-400 mb-3 uppercase tracking-wider flex items-center gap-2">
+      {/* Prize Pool Section */}
+      {activeTab === 'PRIZE' && (
+        <div className="flex-1 flex flex-col animate-in slide-in-from-left duration-300">
+          <h3 className="text-sm font-bold text-red-400 mb-3 uppercase tracking-wider flex items-center gap-2">
             <span className="text-xl">🏆</span> Prize Pool - Top 100
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2">
+          <div className="flex-1 overflow-y-auto space-y-2 pr-2">
             {prizeTiers.map((tier, i) => (
               <div
                 key={i}
@@ -95,55 +111,114 @@ const Leaderboard: React.FC = () => {
         </div>
       )}
 
-      {/* Leaderboard List */}
-      <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-        <div className="text-xs text-gray-400 mb-2 uppercase tracking-wider font-bold">
-          {activeTab === 'WEEKLY' ? 'This Week' : 'All Time'} Rankings
-        </div>
-        {players.map((player) => {
-          let rankStyle = "bg-gray-800 text-gray-400";
-          let borderStyle = "border-transparent";
+      {/* Weekly Rankings Section */}
+      {activeTab === 'WEEKLY' && (
+        <div className="flex-1 flex flex-col animate-in fade-in duration-300">
+          <div className="text-xs text-gray-400 mb-3 uppercase tracking-wider font-bold flex items-center gap-2">
+            <Trophy size={14} className="text-yellow-400" />
+            This Week Rankings
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+            {players.map((player) => {
+              let rankStyle = "bg-gray-800 text-gray-400";
+              let borderStyle = "border-transparent";
 
-          if (player.rank === 1) {
-            rankStyle = "bg-gradient-to-br from-yellow-400 to-orange-600 text-black shadow-[0_0_15px_rgba(234,179,8,0.5)]";
-            borderStyle = "border-yellow-400";
-          } else if (player.rank === 2) {
-            rankStyle = "bg-gradient-to-br from-gray-300 to-gray-500 text-black shadow-[0_0_10px_rgba(255,255,255,0.3)]";
-            borderStyle = "border-gray-400";
-          } else if (player.rank === 3) {
-            rankStyle = "bg-gradient-to-br from-orange-700 to-orange-900 text-white shadow-[0_0_10px_rgba(194,65,12,0.3)]";
-            borderStyle = "border-orange-800";
-          }
+              if (player.rank === 1) {
+                rankStyle = "bg-gradient-to-br from-yellow-400 to-orange-600 text-black shadow-[0_0_15px_rgba(234,179,8,0.5)]";
+                borderStyle = "border-yellow-400";
+              } else if (player.rank === 2) {
+                rankStyle = "bg-gradient-to-br from-gray-300 to-gray-500 text-black shadow-[0_0_10px_rgba(255,255,255,0.3)]";
+                borderStyle = "border-gray-400";
+              } else if (player.rank === 3) {
+                rankStyle = "bg-gradient-to-br from-orange-700 to-orange-900 text-white shadow-[0_0_10px_rgba(194,65,12,0.3)]";
+                borderStyle = "border-orange-800";
+              }
 
-          if (player.isMe) {
-            return (
-              <div key={player.rank} className="sticky bottom-0 mt-4 mb-2">
-                <div className="bg-cyan-900/40 backdrop-blur-md border border-cyan-500/50 rounded-xl p-3 flex items-center justify-between shadow-[0_0_20px_rgba(6,182,212,0.2)]">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-cyan-500 text-black font-black flex items-center justify-center text-xs">
+              if (player.isMe) {
+                return (
+                  <div key={player.rank} className="sticky bottom-0 mt-4 mb-2">
+                    <div className="bg-yellow-900/40 backdrop-blur-md border border-yellow-500/50 rounded-xl p-3 flex items-center justify-between shadow-[0_0_20px_rgba(234,179,8,0.2)]">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-yellow-500 text-black font-black flex items-center justify-center text-xs">
+                          {player.rank}
+                        </div>
+                        <span className="text-yellow-300 font-bold">{player.name}</span>
+                      </div>
+                      <span className="text-white font-bold">{player.score.toLocaleString()} 💰</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={player.rank} className={`flex items-center justify-between p-3 rounded-xl bg-black/40 border ${borderStyle} transition-transform hover:scale-[1.01]`}>
+                  <div className="flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${rankStyle}`}>
                       {player.rank}
                     </div>
-                    <span className="text-cyan-300 font-bold">{player.name}</span>
+                    <span className={`font-bold ${player.rank <= 3 ? 'text-white' : 'text-gray-400'}`}>{player.name}</span>
                   </div>
-                  <span className="text-white font-bold">{player.score.toLocaleString()} 💰</span>
+                  <span className="text-yellow-500 font-bold">{player.score.toLocaleString()} 💰</span>
                 </div>
-              </div>
-            );
-          }
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-          return (
-            <div key={player.rank} className={`flex items-center justify-between p-3 rounded-xl bg-black/40 border ${borderStyle} transition-transform hover:scale-[1.01]`}>
-              <div className="flex items-center gap-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm ${rankStyle}`}>
-                  {player.rank}
+      {/* Friends Section */}
+      {activeTab === 'FRIENDS' && (
+        <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
+          <div className="text-xs text-gray-400 mb-3 uppercase tracking-wider font-bold flex items-center gap-2">
+            <Users size={14} className="text-cyan-400" />
+            Friends Rankings
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+            {friends.map((friend, idx) => {
+              if (friend.isMe) {
+                return (
+                  <div key={idx} className="sticky bottom-0 mt-4 mb-2">
+                    <div className="bg-cyan-900/40 backdrop-blur-md border border-cyan-500/50 rounded-xl p-3 flex items-center justify-between shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-cyan-500 text-black font-black flex items-center justify-center text-xs">
+                          {friend.rank}
+                        </div>
+                        <span className="text-cyan-300 font-bold">{friend.name}</span>
+                      </div>
+                      <span className="text-white font-bold">{friend.score.toLocaleString()} 💰</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-black/40 border border-cyan-500/20 transition-transform hover:scale-[1.01] hover:border-cyan-500/40">
+                  <div className="flex items-center gap-4">
+                    <div className="w-8 h-8 rounded-full bg-cyan-800/50 text-cyan-300 font-black flex items-center justify-center text-sm border border-cyan-500/30">
+                      {friend.rank}
+                    </div>
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-gray-300">{friend.name}</span>
+                        {friend.isOnline && (
+                          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-cyan-400 font-bold">{friend.score.toLocaleString()} 💰</span>
                 </div>
-                <span className={`font-bold ${player.rank <= 3 ? 'text-white' : 'text-gray-400'}`}>{player.name}</span>
-              </div>
-              <span className="text-yellow-500 font-bold">{player.score.toLocaleString()} 💰</span>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+
+          {/* Add Friends Placeholder */}
+          <div className="mt-4 p-4 bg-cyan-900/20 border border-cyan-500/30 rounded-xl text-center">
+            <p className="text-cyan-400 text-xs font-bold mb-2">Add more friends to compete!</p>
+            <p className="text-gray-500 text-[10px]">Friend request system coming soon...</p>
+          </div>
+        </div>
+      )}
 
     </div>
   );

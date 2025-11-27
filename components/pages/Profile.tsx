@@ -1,8 +1,27 @@
 
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera } from 'lucide-react';
 import { User } from '../../types';
+import { db } from '../../firebase';
+import { doc, updateDoc } from 'firebase/firestore';
+import Cropper from 'react-easy-crop';
 import EToken from '../EToken';
+
+// Define Area type for crop
+type Area = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+// Cloudinary configuration
+const CLOUDINARY_CLOUD_NAME = 'dbynnzumd';
+const CLOUDINARY_UPLOAD_PRESET = 'profile_photos';
+
+// File validation constants
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
+const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
 interface ProfileProps {
   onBack: () => void;
@@ -17,9 +36,22 @@ interface ProfileProps {
 const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user, onLogout, onExchange }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showExchangeModal, setShowExchangeModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [exchangeAmount, setExchangeAmount] = useState(1);
   const [exchangeError, setExchangeError] = useState('');
   const [activeTab, setActiveTab] = useState<'PROFILE' | 'REDEEM'>('PROFILE');
+  const [photoPreview, setPhotoPreview] = useState<string>(user?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Crop states
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+  const [showCropModal, setShowCropModal] = useState(false);
 
   const MAX_EXCHANGE = Math.floor(coins / 1000);
 
@@ -30,6 +62,13 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
     }
   }, [showExchangeModal]);
 
+  // Update photo preview when user.photoURL changes
+  useEffect(() => {
+    if (user?.photoURL) {
+      setPhotoPreview(user.photoURL);
+    }
+  }, [user?.photoURL]);
+
   const handleConfirmExchange = () => {
     if (exchangeAmount < 1) return;
 
@@ -39,6 +78,209 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
       // Optional: Show success toast
     } else {
       setExchangeError('Insufficient Coins');
+    }
+  };
+
+  const validateFile = (file: File): { valid: boolean; error?: string } => {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return { valid: false, error: 'Only JPG, PNG, and WebP images are allowed' };
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      return { valid: false, error: `Image must be less than ${(MAX_FILE_SIZE / (1024 * 1024)).toFixed(0)}MB` };
+    }
+
+    return { valid: true };
+  };
+
+  const onCropComplete = useCallback((croppedArea: Area, croppedAreaPixels: Area) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const createImage = (url: string): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.addEventListener('load', () => resolve(image));
+      image.addEventListener('error', (error) => reject(error));
+      image.src = url;
+    });
+
+  const getCroppedImg = async (imageSrc: string, pixelCrop: Area): Promise<Blob> => {
+    const image = await createImage(imageSrc);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      throw new Error('No 2d context');
+    }
+
+    // Set canvas size to desired output size (500x500 for profile photo)
+    canvas.width = 500;
+    canvas.height = 500;
+
+    // Draw the cropped image
+    ctx.drawImage(
+      image,
+      pixelCrop.x,
+      pixelCrop.y,
+      pixelCrop.width,
+      pixelCrop.height,
+      0,
+      0,
+      500,
+      500
+    );
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Canvas is empty'));
+        }
+      }, 'image/jpeg', 0.95);
+    });
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file
+    const validation = validateFile(file);
+    if (!validation.valid) {
+      setUploadError(validation.error || 'Invalid file');
+      setSelectedFile(null);
+      return;
+    }
+
+    // Clear error
+    setUploadError('');
+
+    // Store file for upload
+    setSelectedFile(file);
+
+    // Load image for cropping
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImageSrc(reader.result as string);
+      setShowCropModal(true);
+      setShowEditModal(false); // Hide edit modal while cropping
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCropConfirm = async () => {
+    if (!imageSrc || !croppedAreaPixels) return;
+
+    try {
+      // Get cropped image blob
+      const croppedBlob = await getCroppedImg(imageSrc, croppedAreaPixels);
+
+      // Convert blob to file
+      const croppedFile = new File([croppedBlob], selectedFile?.name || 'cropped-photo.jpg', {
+        type: 'image/jpeg',
+      });
+
+      // Update selected file
+      setSelectedFile(croppedFile);
+
+      // Show preview
+      const previewUrl = URL.createObjectURL(croppedBlob);
+      setPhotoPreview(previewUrl);
+
+      // Close crop modal and show edit modal
+      setShowCropModal(false);
+      setShowEditModal(true);
+
+      // Reset crop states
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+    } catch (error) {
+      console.error('Crop error:', error);
+      setUploadError('Failed to crop image. Please try again.');
+    }
+  };
+
+  const uploadPhotoToCloudinary = async (file: File, userId: string): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    formData.append('folder', `users/${userId}`);
+
+    try {
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const data = await response.json();
+      return data.secure_url;
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw error;
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    if (!selectedFile) {
+      setShowEditModal(false);
+      return;
+    }
+
+    setUploading(true);
+    setUploadError('');
+
+    try {
+      // Upload to Cloudinary
+      const photoURL = await uploadPhotoToCloudinary(selectedFile, user?.uid || user?.id || 'guest');
+
+      console.log('Photo uploaded to Cloudinary:', photoURL);
+      console.log('User object:', user);
+
+      // Save to Firestore if user is logged in
+      if (user && !user.isGuest) {
+        try {
+          // Use user.id (document ID) instead of user.uid
+          const userId = user.id || user.uid;
+          if (userId) {
+            const userRef = doc(db, 'users', userId);
+            await updateDoc(userRef, {
+              photoURL: photoURL
+            });
+            console.log('Photo URL saved to Firestore for user:', userId);
+          }
+        } catch (firestoreError) {
+          console.error('Firestore save error:', firestoreError);
+          // Don't fail the whole operation if Firestore save fails
+        }
+      }
+
+      // Update local state
+      setPhotoPreview(photoURL);
+
+      // Close modal
+      setShowEditModal(false);
+      setShowSettings(false);
+      setSelectedFile(null);
+
+    } catch (error: any) {
+      const errorMessage = error.code === 'storage/unauthorized'
+        ? 'Permission denied. Please login again.'
+        : error.code === 'storage/quota-exceeded'
+          ? 'Storage limit reached. Contact support.'
+          : 'Failed to upload photo. Please try again.';
+
+      setUploadError(errorMessage);
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -77,11 +319,28 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
 
           {/* Settings Dropdown */}
           {showSettings && (
-            <div className="absolute right-0 top-full mt-2 w-48 bg-gray-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="absolute right-0 top-full mt-2 w-48 bg-gray-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-50">
               <div className="p-2 space-y-1">
                 <div className="px-3 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Settings
                 </div>
+
+                {/* Edit Profile Option */}
+                <button
+                  onClick={() => {
+                    setShowEditModal(true);
+                    setShowSettings(false);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-3 text-white hover:bg-white/10 rounded-lg transition-colors text-sm font-bold"
+                >
+                  <Edit size={16} />
+                  Edit Profile
+                </button>
+
+                {/* Separator */}
+                <div className="h-px bg-white/10 my-1"></div>
+
+                {/* Logout / Reset Guest Data */}
                 {user && !user.isGuest ? (
                   <button
                     onClick={onLogout}
@@ -112,7 +371,7 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
             <div className="relative w-24 h-24 mb-4">
               <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full animate-pulse-fast blur-md opacity-50"></div>
               <div className="relative w-full h-full rounded-full border-2 border-yellow-400 overflow-hidden bg-gray-800">
-                <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop" alt="User" className="w-full h-full object-cover" />
+                <img src={photoPreview} alt="User" className="w-full h-full object-cover" />
               </div>
               {user && !user.isGuest && (
                 <div className="absolute bottom-0 right-0 bg-yellow-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full border border-black">
@@ -221,13 +480,6 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
         <div className="grid gap-2 mb-20 md:mb-0" onClick={() => setShowSettings(false)}>
           <button className="flex items-center justify-between p-4 bg-gray-800 rounded-lg text-white font-bold hover:bg-gray-700 transition-colors border border-white/5">
             <div className="flex items-center gap-3">
-              <Edit size={18} className="text-gray-400" />
-              <span>Edit Profile</span>
-            </div>
-            <ExternalLink size={16} className="text-gray-500" />
-          </button>
-          <button className="flex items-center justify-between p-4 bg-gray-800 rounded-lg text-white font-bold hover:bg-gray-700 transition-colors border border-white/5">
-            <div className="flex items-center gap-3">
               <Share2 size={18} className="text-cyan-400" />
               <span>Refer & Earn</span>
             </div>
@@ -331,6 +583,206 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
             >
               Confirm Exchange
             </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* Edit Profile Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-[400px] bg-gray-900 border border-white/10 rounded-2xl p-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
+
+            {/* Close Button */}
+            <button
+              onClick={() => setShowEditModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            {/* Header */}
+            <h3 className="text-xl font-black text-white uppercase tracking-wider mb-6">
+              Edit <span className="text-yellow-500">Profile</span>
+            </h3>
+
+            {/* Photo Section */}
+            <div className="flex flex-col items-center mb-6">
+              <div className="relative w-32 h-32 mb-4">
+                <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full blur-lg opacity-30"></div>
+                <div className="relative w-full h-full rounded-full border-4 border-yellow-400 overflow-hidden bg-gray-800 shadow-lg">
+                  <img src={photoPreview} alt="Profile Preview" className="w-full h-full object-cover" />
+                </div>
+              </div>
+
+              {/* Change Photo Button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-lg transition-colors shadow-lg"
+              >
+                <Camera size={18} />
+                Change Photo
+              </button>
+
+              {/* Hidden File Input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoChange}
+                className="hidden"
+              />
+
+              <p className="text-gray-500 text-xs mt-2">Click to upload a new profile picture</p>
+
+              {/* File Size Display */}
+              {selectedFile && (
+                <p className="text-cyan-400 text-xs mt-1 font-bold">
+                  📎 {(selectedFile.size / 1024).toFixed(0)} KB / 2048 KB
+                </p>
+              )}
+            </div>
+
+            {/* Error Message */}
+            {uploadError && (
+              <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-3 mb-4">
+                <p className="text-red-400 text-xs font-bold text-center">
+                  ⚠️ {uploadError}
+                </p>
+              </div>
+            )}
+
+            {/* Info Section - Placeholder */}
+            <div className="bg-black/40 rounded-lg p-4 mb-6 border border-white/5">
+              <p className="text-gray-400 text-xs text-center">
+                📝 Name and username editing coming soon...
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setUploadError('');
+                  setSelectedFile(null);
+                }}
+                disabled={uploading}
+                className={`flex-1 py-3 font-bold uppercase tracking-wider rounded-xl transition-colors border border-white/10 ${uploading
+                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                  : 'bg-gray-800 text-white hover:bg-gray-700'
+                  }`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveChanges}
+                disabled={uploading || !selectedFile}
+                className={`flex-1 py-3 font-black uppercase tracking-wider rounded-xl transition-colors shadow-lg ${uploading || !selectedFile
+                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black hover:from-yellow-400 hover:to-orange-400 shadow-yellow-500/20'
+                  }`}
+              >
+                {uploading ? 'Uploading...' : 'Save Changes'}
+              </button>
+            </div>
+
+            {/* Loading Overlay */}
+            {uploading && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-2xl z-10">
+                <div className="text-white text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-yellow-500 border-t-transparent mx-auto mb-2"></div>
+                  <p className="text-sm font-bold">Uploading Photo...</p>
+                  <p className="text-xs text-gray-400 mt-1">Please wait</p>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
+      {/* Crop Photo Modal */}
+      {showCropModal && imageSrc && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-gray-900 rounded-2xl border-2 border-yellow-500/30 shadow-2xl shadow-yellow-500/10 w-full max-w-lg relative animate-in zoom-in-95 duration-200">
+
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
+              <h3 className="text-lg font-black text-white uppercase tracking-wider">
+                Crop Photo
+              </h3>
+              <button
+                onClick={() => {
+                  setShowCropModal(false);
+                  setShowEditModal(true);
+                  setImageSrc(null);
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Crop Area */}
+            <div className="relative h-96 bg-black">
+              <Cropper
+                image={imageSrc}
+                crop={crop}
+                zoom={zoom}
+                aspect={1}
+                cropShape="round"
+                showGrid={false}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+              />
+            </div>
+
+            {/* Controls */}
+            <div className="p-6 space-y-4">
+              {/* Zoom Slider */}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
+                  <span>Zoom</span>
+                  <span className="text-yellow-500">{Math.round(zoom * 100)}%</span>
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  step={0.1}
+                  value={zoom}
+                  onChange={(e) => setZoom(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                />
+              </div>
+
+              {/* Instructions */}
+              <p className="text-xs text-gray-500 text-center">
+                Drag to reposition • Pinch or scroll to zoom
+              </p>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowCropModal(false);
+                    setShowEditModal(true);
+                    setImageSrc(null);
+                  }}
+                  className="flex-1 py-3 bg-gray-800 text-white font-bold uppercase tracking-wider rounded-xl hover:bg-gray-700 transition-colors border border-white/10"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCropConfirm}
+                  className="flex-1 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-black font-black uppercase tracking-wider rounded-xl hover:from-yellow-400 hover:to-orange-400 transition-colors shadow-lg shadow-yellow-500/20"
+                >
+                  Crop Photo
+                </button>
+              </div>
+            </div>
 
           </div>
         </div>
