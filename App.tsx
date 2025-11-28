@@ -793,7 +793,7 @@ const App: React.FC = () => {
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2a0505]/50 to-[#1a0505] pointer-events-none"></div>
 
       {/* Header - Always Visible */}
-      <div className="absolute top-0 left-0 w-full z-50 flex justify-between items-center p-4">
+      <div className="absolute top-0 left-0 w-full z-50 flex justify-between items-start p-4">
         {/* Top Left Brand Badge */}
         <div className="flex items-center gap-2 md:gap-3" onClick={() => setCurrentPage('HOME')}>
           <div className="relative w-8 h-8 md:w-10 md:h-10 flex items-center justify-center bg-gradient-to-br from-yellow-500 to-yellow-700 rounded-sm border border-yellow-300 shadow-[0_0_10px_rgba(234,179,8,0.6)] skew-x-[-10deg]">
