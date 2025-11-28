@@ -63,7 +63,10 @@ const WeeklyTimer: React.FC = () => {
 
     return (
         <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-lg border border-yellow-500/30 shadow-lg">
-            <span className="text-[9px] md:text-[10px] text-gray-400 uppercase tracking-wider font-bold">Weekly Reset:</span>
+            <div className="flex flex-col md:flex-row md:gap-1 text-[9px] md:text-[10px] text-gray-400 uppercase tracking-wider font-bold leading-none md:leading-normal mr-1">
+                <span>Weekly</span>
+                <span>Reset:</span>
+            </div>
             <div className="flex gap-1 items-center">
                 <TimeUnit value={timeLeft.days} label="D" />
                 <span className="text-yellow-400 text-xs">:</span>

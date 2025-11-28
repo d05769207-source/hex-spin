@@ -857,36 +857,38 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Bottom Row: Special Tokens (Larger & Balanced) */}
-          <div className="flex items-center gap-2 mt-1">
-            {/* Info Icon */}
-            <button
-              onClick={() => setShowInfoModal(true)}
-              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
-            >
-              <Info size={14} className="text-white" />
-            </button>
+          {/* Bottom Row: Special Tokens (Larger & Balanced) - Only on Home Page */}
+          {currentPage === 'HOME' && (
+            <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-4 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm">
+                {/* KTM Token */}
+                <div className="flex items-center gap-1.5">
+                  <KTMToken size={18} />
+                  <span className="text-xs font-bold text-orange-400">{ktmTokens}</span>
+                </div>
 
-            <div className="flex items-center gap-4 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm">
-              {/* KTM Token */}
-              <div className="flex items-center gap-1.5">
-                <KTMToken size={18} />
-                <span className="text-xs font-bold text-orange-400">{ktmTokens}</span>
+                {/* iPhone Token */}
+                <div className="flex items-center gap-1.5">
+                  <IPhoneToken size={18} />
+                  <span className="text-xs font-bold text-slate-300">{iphoneTokens}</span>
+                </div>
+
+                {/* E-Token */}
+                <div className="flex items-center gap-1.5">
+                  <EToken size={18} />
+                  <span className="text-xs font-bold text-red-400">{eTokens}</span>
+                </div>
               </div>
 
-              {/* iPhone Token */}
-              <div className="flex items-center gap-1.5">
-                <IPhoneToken size={18} />
-                <span className="text-xs font-bold text-slate-300">{iphoneTokens}</span>
-              </div>
-
-              {/* E-Token */}
-              <div className="flex items-center gap-1.5">
-                <EToken size={18} />
-                <span className="text-xs font-bold text-red-400">{eTokens}</span>
-              </div>
+              {/* Info Icon - Right side */}
+              <button
+                onClick={() => setShowInfoModal(true)}
+                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
+              >
+                <Info size={14} className="text-white" />
+              </button>
             </div>
-          </div>
+          )}
         </div>
       </div>
 

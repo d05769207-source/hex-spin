@@ -8,7 +8,7 @@ interface IPhoneTokenProps {
 const IPhoneToken: React.FC<IPhoneTokenProps> = ({ size = 20, showLabel = false }) => {
     return (
         <div className="flex items-center gap-2">
-            {/* iPhone Token - Using SVG for 100% reliability */}
+            {/* iPhone Token - Using SVG for Apple Logo */}
             <div
                 className="relative flex items-center justify-center shrink-0"
                 style={{
@@ -36,26 +36,18 @@ const IPhoneToken: React.FC<IPhoneTokenProps> = ({ size = 20, showLabel = false 
                         </linearGradient>
                     </defs>
 
-                    {/* Body */}
-                    <rect x="5" y="5" width="90" height="90" rx="20" fill="url(#silverGrad)" />
+                    {/* Body - Thinner Border */}
+                    <rect x="2" y="2" width="96" height="96" rx="22" fill="url(#silverGrad)" />
 
-                    {/* Screen */}
-                    <rect x="15" y="15" width="70" height="70" rx="15" fill="url(#blueGrad)" />
+                    {/* Screen - Larger Area */}
+                    <rect x="8" y="8" width="84" height="84" rx="18" fill="url(#blueGrad)" />
 
-                    {/* The "I" Letter - Extra Bold and Stroke */}
-                    <text
-                        x="50"
-                        y="72"
-                        fontSize="65"
-                        fontWeight="900"
-                        fontFamily="serif"
+                    {/* Apple Logo Path - High Quality & Centered & Larger */}
+                    <path
+                        d="M66.07 46.73c-0.23-3.86 3.16-5.73 3.3-5.81 -1.8-2.63-4.61-2.99-5.61-3.03 -2.36-0.24-4.61 1.39-5.81 1.39 -1.2 0-3.04-1.36-5.01-1.32 -2.58 0.04-4.96 1.5-6.29 3.81 -2.68 4.65-0.69 11.53 1.93 15.31 1.28 1.84 2.8 3.91 4.8 3.84 1.92-0.08 2.65-1.24 4.97-1.24 2.32 0 2.97 1.24 5.01 1.2 2.07-0.04 3.38-1.87 4.65-3.72 1.46-2.14 2.06-4.21 2.09-4.32 -0.05-0.02-4.03-1.55-4.03-6.11zM58.07 33.15c1.17-1.41 1.96-3.37 1.74-5.33 -1.69 0.07-3.73 1.12-4.94 2.54 -1.08 1.25-2.03 3.26-1.77 5.18 1.88 0.15 3.8-0.98 4.97-2.39z"
                         fill="white"
-                        stroke="white"
-                        strokeWidth="2"
-                        textAnchor="middle"
-                    >
-                        I
-                    </text>
+                        transform="translate(-58, -38) scale(1.90)"
+                    />
                 </svg>
             </div>
 
