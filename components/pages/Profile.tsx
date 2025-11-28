@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera } from 'lucide-react';
+import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera, Trophy, Lock, CheckCircle } from 'lucide-react';
 import { User } from '../../types';
 import { db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -39,7 +38,7 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
   const [showEditModal, setShowEditModal] = useState(false);
   const [exchangeAmount, setExchangeAmount] = useState(1);
   const [exchangeError, setExchangeError] = useState('');
-  const [activeTab, setActiveTab] = useState<'PROFILE' | 'REDEEM'>('PROFILE');
+  const [activeTab, setActiveTab] = useState<'PROFILE' | 'REDEEM' | 'LEVEL'>('PROFILE');
   const [photoPreview, setPhotoPreview] = useState<string>(user?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -54,6 +53,9 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
   const [showCropModal, setShowCropModal] = useState(false);
 
   const MAX_EXCHANGE = Math.floor(coins / 1000);
+
+  // Dummy current level for visualization
+  const currentLevel = 5;
 
   useEffect(() => {
     if (showExchangeModal) {
@@ -284,6 +286,17 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
     }
   };
 
+  // Generate levels data
+  const levels = Array.from({ length: 100 }, (_, i) => {
+    const level = i + 1;
+    let reward = '10 Coins';
+    if (level % 10 === 0) reward = '100 Coins';
+    if (level % 5 === 0 && level % 10 !== 0) reward = '50 Coins';
+    if (level === 100) reward = '1000 Coins + Trophy';
+
+    return { level, reward };
+  });
+
   return (
     <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 relative">
 
@@ -295,6 +308,12 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
 
         {/* Tabs in Header */}
         <div className="flex bg-black/40 rounded-full p-1 border border-white/10">
+          <button
+            onClick={() => setActiveTab('LEVEL')}
+            className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'LEVEL' ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'text-gray-400 hover:text-white'}`}
+          >
+            Level
+          </button>
           <button
             onClick={() => setActiveTab('PROFILE')}
             className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'PROFILE' ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' : 'text-gray-400 hover:text-white'}`}
@@ -366,42 +385,68 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
 
       {activeTab === 'PROFILE' && (
         <>
-          {/* User Card */}
-          <div className="flex flex-col items-center mb-8" onClick={() => setShowSettings(false)}>
-            <div className="relative w-24 h-24 mb-4">
-              <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full animate-pulse-fast blur-md opacity-50"></div>
-              <div className="relative w-full h-full rounded-full border-2 border-yellow-400 overflow-hidden bg-gray-800">
-                <img src={photoPreview} alt="User" className="w-full h-full object-cover" />
-              </div>
-              {user && !user.isGuest && (
-                <div className="absolute bottom-0 right-0 bg-yellow-500 text-black text-[10px] font-bold px-2 py-0.5 rounded-full border border-black">
-                  PRO
+          {/* New Compact Header */}
+          <div className="bg-gray-900/80 border border-white/10 rounded-2xl p-4 mb-6 relative overflow-hidden" onClick={() => setShowSettings(false)}>
+            {/* Background Glow */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+            <div className="flex items-center justify-between relative z-10">
+
+              {/* Left: Photo & Level */}
+              <div className="flex items-center gap-3 pr-4 border-r border-white/10">
+                <div className="relative w-14 h-14">
+                  <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full animate-pulse-fast blur-sm opacity-50"></div>
+                  <div className="relative w-full h-full rounded-full border-2 border-yellow-400 overflow-hidden bg-gray-800">
+                    <img src={photoPreview} alt="User" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border border-black shadow-sm uppercase tracking-wider">
+                    LVL {currentLevel}
+                  </div>
                 </div>
-              )}
+              </div>
+
+              {/* Middle: Name & Email */}
+              <div className="flex-1 flex flex-col justify-center px-4 border-r border-white/10">
+                <h3 className="text-sm font-bold text-white truncate max-w-[120px]">{user?.username || 'Guest Player'}</h3>
+                <p className="text-gray-500 text-[10px] truncate max-w-[120px]">
+                  {user?.email || 'No email linked'}
+                </p>
+              </div>
+
+              {/* Right: Stats */}
+              <div className="flex flex-col gap-2 pl-4">
+                <div className="flex flex-col items-end">
+                  <span className="text-white font-bold text-xs">234</span>
+                  <span className="text-gray-500 text-[8px] uppercase tracking-wider">Spins</span>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-yellow-400 font-bold text-xs">#1,245</span>
+                  <span className="text-gray-500 text-[8px] uppercase tracking-wider">Rank</span>
+                </div>
+              </div>
+
             </div>
-            <h3 className="text-2xl font-bold text-white">{user?.username || 'Guest Player'}</h3>
-            <p className="text-gray-400 text-xs uppercase tracking-widest mt-1">
-              {user?.email || 'Login to save progress'}
-            </p>
           </div>
 
-          {/* Stats Grid */}
+          {/* Coins & Tokens Row */}
           <div className="grid grid-cols-2 gap-3 mb-6" onClick={() => setShowSettings(false)}>
-            <div className="bg-gray-900/60 border border-yellow-500/20 rounded-xl p-4 flex flex-col items-center">
-              <span className="text-yellow-400 font-bold text-2xl drop-shadow-sm">{coins.toLocaleString()}</span>
-              <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Coins</span>
+            <div className="bg-gray-900/60 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Coins</span>
+                <span className="text-yellow-400 font-bold text-xl drop-shadow-sm">{coins.toLocaleString()}</span>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/30">
+                <span className="text-lg">💰</span>
+              </div>
             </div>
-            <div className="bg-gray-900/60 border border-cyan-500/20 rounded-xl p-4 flex flex-col items-center">
-              <span className="text-cyan-400 font-bold text-2xl drop-shadow-sm">{tokens}</span>
-              <span className="text-gray-400 text-[10px] uppercase tracking-wider">Spin Tokens</span>
-            </div>
-            <div className="bg-gray-900/60 border border-white/10 rounded-xl p-4 flex flex-col items-center">
-              <span className="text-white font-bold text-2xl">234</span>
-              <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Spins</span>
-            </div>
-            <div className="bg-gray-900/60 border border-white/10 rounded-xl p-4 flex flex-col items-center">
-              <span className="text-white font-bold text-2xl">#1,245</span>
-              <span className="text-gray-400 text-[10px] uppercase tracking-wider">Current Rank</span>
+            <div className="bg-gray-900/60 border border-cyan-500/20 rounded-xl p-3 flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="text-gray-400 text-[10px] uppercase tracking-wider">Spin Tokens</span>
+                <span className="text-cyan-400 font-bold text-xl drop-shadow-sm">{tokens}</span>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30">
+                <EToken size={20} />
+              </div>
             </div>
           </div>
 
@@ -430,6 +475,84 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
             </div>
           </div>
         </>
+      )}
+
+      {activeTab === 'LEVEL' && (
+        <div className="flex-1 flex flex-col animate-in slide-in-from-left duration-300 overflow-hidden">
+          <div className="flex-1 overflow-y-auto pr-2 space-y-0 relative">
+
+            {/* Vertical Line Background */}
+            <div className="absolute left-[2.4rem] top-4 bottom-0 w-0.5 bg-white/10 z-0"></div>
+
+            {levels.map((item, index) => {
+              const isCompleted = item.level < currentLevel;
+              const isCurrent = item.level === currentLevel;
+              const isLocked = item.level > currentLevel;
+
+              return (
+                <div key={item.level} className={`flex items-center gap-4 mb-6 relative z-10 ${isCompleted ? 'opacity-50 grayscale' : ''}`}>
+
+                  {/* Level Circle */}
+                  <div className={`
+                    w-20 h-20 flex-shrink-0 rounded-full flex items-center justify-center border-4 font-black text-xl shadow-xl relative
+                    ${isCurrent
+                      ? 'bg-red-600 border-red-400 text-white shadow-red-600/30 scale-110'
+                      : isCompleted
+                        ? 'bg-gray-800 border-gray-700 text-gray-500'
+                        : 'bg-gray-900 border-red-900/50 text-red-700'
+                    }
+                  `}>
+                    {isCompleted ? <CheckCircle size={24} /> : item.level}
+
+                    {/* Current Level Indicator */}
+                    {isCurrent && (
+                      <div className="absolute -bottom-2 bg-white text-red-600 text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest shadow-sm">
+                        Current
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Connector Line (Horizontal) */}
+                  <div className={`h-1 w-8 ${isCompleted ? 'bg-gray-700' : isCurrent ? 'bg-red-500' : 'bg-white/10'}`}></div>
+
+                  {/* Reward Box */}
+                  <div className={`
+                    flex-1 p-3 rounded-xl border flex items-center justify-between relative overflow-hidden
+                    ${isCurrent
+                      ? 'bg-gradient-to-r from-red-900/40 to-black border-red-500/50'
+                      : isCompleted
+                        ? 'bg-gray-900/50 border-gray-800'
+                        : 'bg-black/40 border-white/5'
+                    }
+                  `}>
+                    {/* Background Pattern */}
+                    {isCurrent && <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-20"></div>}
+
+                    <div className="flex items-center gap-3 z-10">
+                      <div className={`
+                        w-10 h-10 rounded-lg flex items-center justify-center
+                        ${isCurrent ? 'bg-red-500/20 text-red-400' : isCompleted ? 'bg-gray-800 text-gray-600' : 'bg-white/5 text-gray-500'}
+                      `}>
+                        {item.level === 100 ? <Trophy size={20} /> : <span className="text-lg">🎁</span>}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className={`text-xs font-bold uppercase tracking-wider ${isCurrent ? 'text-white' : 'text-gray-400'}`}>
+                          Reward
+                        </span>
+                        <span className={`text-sm font-black ${isCurrent ? 'text-red-400' : 'text-gray-500'}`}>
+                          {item.reward}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isLocked && <Lock size={16} className="text-gray-700" />}
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {activeTab === 'REDEEM' && (

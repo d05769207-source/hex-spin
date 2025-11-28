@@ -59,15 +59,11 @@ const Leaderboard: React.FC = () => {
   return (
     <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 pb-24 md:pb-0">
 
-      {/* Header with E-Token Balance */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-black uppercase text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-orange-500 tracking-widest drop-shadow-sm">
           Leaderboard
         </h2>
-        <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-lg border border-red-500/30 shadow-lg">
-          <EToken size={20} />
-          <span className="text-red-400 font-bold">{currentUser ? '0' : '0'}</span>
-        </div>
       </div>
 
       {/* Tab Navigation */}
