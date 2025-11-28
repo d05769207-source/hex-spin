@@ -37,6 +37,8 @@ export interface User {
   createdAt?: Date;
   lastActive?: Date;
   weekStartDate?: Date;
+  totalSpins?: number;
+  level?: number;
 }
 
 export interface LeaderboardEntry {

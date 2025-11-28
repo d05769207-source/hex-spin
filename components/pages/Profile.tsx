@@ -5,6 +5,7 @@ import { db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import Cropper from 'react-easy-crop';
 import EToken from '../EToken';
+import { getLevelProgress } from '../../utils/levelUtils';
 
 // Define Area type for crop
 type Area = {
@@ -54,8 +55,11 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
 
   const MAX_EXCHANGE = Math.floor(coins / 1000);
 
-  // Dummy current level for visualization
-  const currentLevel = 5;
+
+
+  // Calculate Level Data
+  const levelData = getLevelProgress(user?.totalSpins || 0);
+  const currentLevel = levelData.currentLevel;
 
   useEffect(() => {
     if (showExchangeModal) {
@@ -411,12 +415,29 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                 <p className="text-gray-500 text-[10px] truncate max-w-[120px]">
                   {user?.email || 'No email linked'}
                 </p>
+
+                {/* Level Progress Bar */}
+                <div className="w-full mt-2">
+                  <div className="flex justify-between text-[8px] text-gray-400 mb-0.5">
+                    <span>Lvl {currentLevel}</span>
+                    <span>{Math.floor(levelData.progress)}%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden border border-white/5">
+                    <div
+                      className="h-full bg-gradient-to-r from-yellow-400 to-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+                      style={{ width: `${levelData.progress}%` }}
+                    />
+                  </div>
+                  <p className="text-[8px] text-gray-500 mt-0.5 text-right">
+                    {levelData.spinsInLevel} / {levelData.spinsNeededForLevel} to Lvl {levelData.nextLevel}
+                  </p>
+                </div>
               </div>
 
               {/* Right: Stats */}
               <div className="flex flex-col gap-2 pl-4">
                 <div className="flex flex-col items-end">
-                  <span className="text-white font-bold text-xs">234</span>
+                  <span className="text-white font-bold text-xs">{user?.totalSpins || 0}</span>
                   <span className="text-gray-500 text-[8px] uppercase tracking-wider">Spins</span>
                 </div>
                 <div className="flex flex-col items-end">
@@ -479,6 +500,32 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
 
       {activeTab === 'LEVEL' && (
         <div className="flex-1 flex flex-col animate-in slide-in-from-left duration-300 overflow-hidden">
+
+          {/* Level Header Info */}
+          <div className="mb-4 p-4 bg-gradient-to-br from-red-900/20 to-black border border-red-500/20 rounded-xl">
+            <div className="flex justify-between items-end mb-2">
+              <div>
+                <span className="text-gray-400 text-xs uppercase font-bold">Current Level</span>
+                <h2 className="text-3xl font-black text-white italic">LEVEL {currentLevel}</h2>
+              </div>
+              <div className="text-right">
+                <span className="text-red-400 font-bold text-sm">{levelData.spinsNeededForLevel - levelData.spinsInLevel} spins</span>
+                <p className="text-gray-500 text-[10px]">to next level</p>
+              </div>
+            </div>
+            <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-white/10">
+              <div
+                className="h-full bg-gradient-to-r from-orange-500 to-red-600 relative overflow-hidden"
+                style={{ width: `${levelData.progress}%` }}
+              >
+                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30"></div>
+              </div>
+            </div>
+            <p className="text-center text-[10px] text-gray-500 mt-2">
+              Total Spins: <span className="text-white font-bold">{user?.totalSpins || 0}</span>
+            </p>
+          </div>
+
           <div className="flex-1 overflow-y-auto pr-2 space-y-0 relative">
 
             {/* Vertical Line Background */}

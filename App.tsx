@@ -25,6 +25,7 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
+import { calculateLevel } from './utils/levelUtils';
 
 // --- WEB AUDIO API SYSTEM ---
 // Synthesizing sounds guarantees playback without network issues, CORS errors, or loading delays.
@@ -180,12 +181,16 @@ const App: React.FC = () => {
   const [balance, setBalance] = useState<number>(getGuestBalance()); // Load from localStorage for guests
   const [coins, setCoins] = useState<number>(getGuestCoins());       // Load from localStorage for guests
   const [eTokens, setETokens] = useState<number>(getGuestETokens()); // Load from localStorage for guests
+  const [totalSpins, setTotalSpins] = useState<number>(0);
+  const totalSpinsRef = useRef<number>(0);
   const [ktmTokens, setKtmTokens] = useState<number>(0); // Placeholder for now
   const [iphoneTokens, setIphoneTokens] = useState<number>(0); // Placeholder for now
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false); // Prevent sync until data is loaded
+
+  console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
 
   // Use refs for values that change rapidly inside the spin loop without triggering re-renders
   const currentIndexRef = useRef<number>(0);
@@ -226,6 +231,9 @@ const App: React.FC = () => {
               setBalance(userData.tokens !== undefined ? userData.tokens : 10);
               setCoins(userData.coins || 0);
               setETokens(userData.eTokens || 0);
+              const loadedSpins = userData.totalSpins || 0;
+              setTotalSpins(loadedSpins);
+              totalSpinsRef.current = loadedSpins; // SYNC REF WITH LOADED DATA
 
               // Update user object with photoURL from Firestore
               if (userData.photoURL) {
@@ -236,6 +244,7 @@ const App: React.FC = () => {
                 tokens: userData.tokens || 10,
                 coins: userData.coins || 0,
                 eTokens: userData.eTokens || 0,
+                totalSpins: userData.totalSpins || 0,
                 photoURL: userData.photoURL
               });
             } else {
@@ -249,6 +258,7 @@ const App: React.FC = () => {
                 coins: 0,
                 tokens: 10,
                 eTokens: 0,
+                totalSpins: 0,
                 createdAt: new Date(),
                 isGuest: false
               };
@@ -263,6 +273,8 @@ const App: React.FC = () => {
               setBalance(10);
               setCoins(0);
               setETokens(0);
+              setTotalSpins(0);
+              totalSpinsRef.current = 0; // SYNC REF
             }
 
             // Enable sync AFTER data is loaded with a small delay
@@ -279,6 +291,8 @@ const App: React.FC = () => {
             setBalance(10);
             setCoins(0);
             setETokens(0);
+            setTotalSpins(0);
+            totalSpinsRef.current = 0; // SYNC REF
 
             // Still enable sync after delay
             setTimeout(() => {
@@ -297,6 +311,8 @@ const App: React.FC = () => {
         setBalance(getGuestBalance()); // Load from localStorage
         setCoins(getGuestCoins());
         setETokens(getGuestETokens());
+        setTotalSpins(0); // Guests don't track spins for now or load from local if needed
+        totalSpinsRef.current = 0; // SYNC REF
       }
     });
 
@@ -367,6 +383,34 @@ const App: React.FC = () => {
     const timeoutId = setTimeout(syncETokens, 500);
     return () => clearTimeout(timeoutId);
   }, [eTokens, user, isSyncEnabled]);
+
+  // SYNC TOTAL SPINS TO FIRESTORE (Logged-in users only)
+  useEffect(() => {
+    if (!user || user.isGuest) return;
+
+    if (!isSyncEnabled) {
+      console.log('Sync skipped: Sync not enabled yet');
+      return;
+    }
+
+    const syncTotalSpins = async () => {
+      try {
+        console.log('Attempting to sync spins...', { totalSpins, userId: user.id });
+        const currentLevel = calculateLevel(totalSpins);
+        const userDocRef = doc(db, 'users', user.id);
+        await updateDoc(userDocRef, {
+          totalSpins: totalSpins,
+          level: currentLevel
+        });
+        console.log('✅ Total Spins & Level synced to Firestore:', totalSpins, 'Lvl:', currentLevel);
+      } catch (error) {
+        console.error('❌ Error syncing totalSpins to Firestore:', error);
+      }
+    };
+
+    const timeoutId = setTimeout(syncTotalSpins, 500);
+    return () => clearTimeout(timeoutId);
+  }, [totalSpins, user, isSyncEnabled]);
 
   // SYNC GUEST DATA TO LOCALSTORAGE (Guest users only)
   useEffect(() => {
@@ -439,7 +483,12 @@ const App: React.FC = () => {
   };
 
   const handleSpin = useCallback(async (count: number) => {
-    if (isSpinning) return;
+    console.log('🚀 handleSpin CALLED with count:', count);
+
+    if (isSpinning) {
+      console.log('⏸️ Already spinning, returning early');
+      return;
+    }
 
     // Resume Audio Context on user interaction to ensure sounds play
     if (audioCtx.state === 'suspended') {
@@ -451,9 +500,11 @@ const App: React.FC = () => {
 
     // TOKEN COST LOGIC: 1 Spin = 1 P-Token
     const cost = count;
+    console.log('💰 Cost:', cost, 'Balance:', balance, 'isAdminMode:', isAdminMode);
 
     // AUTH LOGIC: If balance is low (skip check if admin mode)
     if (!isAdminMode && balance < cost) {
+      console.log('❌ Insufficient balance, showing login/shop');
       if (!user) {
         // If Guest -> Trigger Login Flow
         setShowLoginModal(true);
@@ -464,10 +515,36 @@ const App: React.FC = () => {
       return;
     }
 
+    console.log('✅ Balance check passed, proceeding with spin');
+
     // Deduct balance only if not in admin mode
     if (!isAdminMode) {
       setBalance(prev => prev - cost);
     }
+
+    // Increment Total Spins
+    console.log('🎯 Calling setTotalSpins with count:', count, 'current totalSpinsRef:', totalSpinsRef.current);
+    const newTotalSpins = totalSpinsRef.current + count;
+    totalSpinsRef.current = newTotalSpins;
+    setTotalSpins(newTotalSpins);
+
+    // DIRECT SYNC TO FIRESTORE (Bypass useEffect for critical update)
+    if (user && !user.isGuest) {
+      console.log('🔄 Starting direct sync for user:', user.id);
+      const currentLevel = calculateLevel(newTotalSpins);
+      const userDocRef = doc(db, 'users', user.id);
+      updateDoc(userDocRef, {
+        totalSpins: newTotalSpins,
+        level: currentLevel
+      }).then(() => {
+        console.log('✅ DIRECT SYNC SUCCESS: Spins:', newTotalSpins, 'Level:', currentLevel);
+      }).catch(err => {
+        console.error('❌ DIRECT SYNC FAILED:', err);
+      });
+    }
+
+    setShowWinnerModal(false);
+
     setShowWinnerModal(false);
     setWonItems([]);
 
@@ -756,7 +833,7 @@ const App: React.FC = () => {
               coins={coins}
               tokens={balance}
               eTokens={eTokens}
-              user={user}
+              user={{ ...user!, totalSpins }}
               onLogout={handleLogout}
               onExchange={handleExchange}
             />
