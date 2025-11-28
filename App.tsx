@@ -859,7 +859,7 @@ const App: React.FC = () => {
 
           {/* Bottom Row: Special Tokens (Larger & Balanced) - Only on Home Page */}
           {currentPage === 'HOME' && (
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex flex-col items-end gap-1 mt-1">
               <div className="flex items-center gap-4 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm">
                 {/* KTM Token */}
                 <div className="flex items-center gap-1.5">
@@ -880,7 +880,7 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Info Icon - Right side */}
+              {/* Info Icon - Below tokens on right */}
               <button
                 onClick={() => setShowInfoModal(true)}
                 className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
