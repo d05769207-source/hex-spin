@@ -19,7 +19,8 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import KTMToken from './components/KTMToken';
 import IPhoneToken from './components/iPhoneToken';
 import EToken from './components/EToken';
-import { Volume2, VolumeX } from 'lucide-react';
+import InfoModal from './components/InfoModal';
+import { Volume2, VolumeX, Info } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
@@ -181,6 +182,7 @@ const App: React.FC = () => {
   const [eTokens, setETokens] = useState<number>(getGuestETokens()); // Load from localStorage for guests
   const [ktmTokens, setKtmTokens] = useState<number>(0); // Placeholder for now
   const [iphoneTokens, setIphoneTokens] = useState<number>(0); // Placeholder for now
+  const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false); // Prevent sync until data is loaded
@@ -856,23 +858,33 @@ const App: React.FC = () => {
           </div>
 
           {/* Bottom Row: Special Tokens (Larger & Balanced) */}
-          <div className="flex items-center gap-4 mr-1 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm mt-1">
-            {/* KTM Token */}
-            <div className="flex items-center gap-1.5">
-              <KTMToken size={18} />
-              <span className="text-xs font-bold text-orange-400">{ktmTokens}</span>
-            </div>
+          <div className="flex items-center gap-2 mt-1">
+            {/* Info Icon */}
+            <button
+              onClick={() => setShowInfoModal(true)}
+              className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
+            >
+              <Info size={14} className="text-white" />
+            </button>
 
-            {/* iPhone Token */}
-            <div className="flex items-center gap-1.5">
-              <IPhoneToken size={18} />
-              <span className="text-xs font-bold text-slate-300">{iphoneTokens}</span>
-            </div>
+            <div className="flex items-center gap-4 bg-black/40 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm">
+              {/* KTM Token */}
+              <div className="flex items-center gap-1.5">
+                <KTMToken size={18} />
+                <span className="text-xs font-bold text-orange-400">{ktmTokens}</span>
+              </div>
 
-            {/* E-Token */}
-            <div className="flex items-center gap-1.5">
-              <EToken size={18} />
-              <span className="text-xs font-bold text-red-400">{eTokens}</span>
+              {/* iPhone Token */}
+              <div className="flex items-center gap-1.5">
+                <IPhoneToken size={18} />
+                <span className="text-xs font-bold text-slate-300">{iphoneTokens}</span>
+              </div>
+
+              {/* E-Token */}
+              <div className="flex items-center gap-1.5">
+                <EToken size={18} />
+                <span className="text-xs font-bold text-red-400">{eTokens}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -913,6 +925,11 @@ const App: React.FC = () => {
           onLogin={handleAdminLogin}
           onClose={() => setShowAdminLogin(false)}
         />
+      )}
+
+      {/* INFO MODAL */}
+      {showInfoModal && (
+        <InfoModal onClose={() => setShowInfoModal(false)} />
       )}
 
     </div>

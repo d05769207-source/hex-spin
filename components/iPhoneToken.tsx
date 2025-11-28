@@ -42,14 +42,16 @@ const IPhoneToken: React.FC<IPhoneTokenProps> = ({ size = 20, showLabel = false 
                     {/* Screen */}
                     <rect x="15" y="15" width="70" height="70" rx="15" fill="url(#blueGrad)" />
 
-                    {/* The "I" Letter */}
+                    {/* The "I" Letter - Extra Bold and Stroke */}
                     <text
                         x="50"
-                        y="70"
-                        fontSize="60"
+                        y="72"
+                        fontSize="65"
                         fontWeight="900"
                         fontFamily="serif"
                         fill="white"
+                        stroke="white"
+                        strokeWidth="2"
                         textAnchor="middle"
                     >
                         I
