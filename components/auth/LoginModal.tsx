@@ -8,7 +8,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs, updateDoc, increment } from 'firebase/firestore';
 
 interface LoginModalProps {
   onLoginSuccess: () => void;
@@ -39,14 +39,45 @@ const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onClose }) => {
 
       // If new user (first time sign in), create user document
       if (!userDoc.exists()) {
+        // Check for referral code in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const refCode = urlParams.get('ref');
+        let referredBy = null;
+        let initialTokens = 10; // Base welcome bonus
+
+        if (refCode) {
+          // Try to find referrer
+          try {
+            const usersRef = collection(db, 'users');
+            const q = query(usersRef, where('referralCode', '==', refCode));
+            const snapshot = await getDocs(q);
+            if (!snapshot.empty) {
+              referredBy = snapshot.docs[0].id;
+              initialTokens += 5; // Bonus for being referred
+
+              // Also reward the referrer immediately (or we can do it via cloud function, but client side for now as requested)
+              const referrerRef = doc(db, 'users', referredBy);
+              await updateDoc(referrerRef, {
+                referralCount: increment(1),
+                tokens: increment(5)
+              });
+            }
+          } catch (err) {
+            console.error("Error finding referrer:", err);
+          }
+        }
+
         await setDoc(userDocRef, {
           uid: user.uid,
           email: user.email,
           username: user.displayName || user.email?.split('@')[0] || 'User',
           coins: 0,
-          tokens: 10, // Welcome bonus
+          tokens: initialTokens,
           createdAt: serverTimestamp(),
-          isGuest: false
+          isGuest: false,
+          referralCode: user.uid.substring(0, 6).toUpperCase(), // Generate default code
+          referredBy: referredBy,
+          hasSeenReferralPrompt: !!referredBy // If referred by link, don't show prompt
         });
         console.log('New Google user data saved to Firestore!');
       } else {
@@ -82,15 +113,45 @@ const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onClose }) => {
 
         // Save user data to Firestore
         try {
+          // Check for referral code in URL
+          const urlParams = new URLSearchParams(window.location.search);
+          const refCode = urlParams.get('ref');
+          let referredBy = null;
+          let initialTokens = 10;
+
+          if (refCode) {
+            try {
+              const usersRef = collection(db, 'users');
+              const q = query(usersRef, where('referralCode', '==', refCode));
+              const snapshot = await getDocs(q);
+              if (!snapshot.empty) {
+                referredBy = snapshot.docs[0].id;
+                initialTokens += 5;
+
+                // Reward referrer
+                const referrerRef = doc(db, 'users', referredBy);
+                await updateDoc(referrerRef, {
+                  referralCount: increment(1),
+                  tokens: increment(5)
+                });
+              }
+            } catch (err) {
+              console.error("Error finding referrer:", err);
+            }
+          }
+
           const userDocRef = doc(db, 'users', user.uid);
           await setDoc(userDocRef, {
             uid: user.uid,
             email: user.email,
             username: user.email?.split('@')[0] || 'User',
             coins: 0,
-            tokens: 10, // Welcome bonus
+            tokens: initialTokens, // Welcome bonus
             createdAt: serverTimestamp(),
-            isGuest: false
+            isGuest: false,
+            referralCode: user.uid.substring(0, 6).toUpperCase(),
+            referredBy: referredBy,
+            hasSeenReferralPrompt: !!referredBy
           });
           console.log('User data successfully written to Firestore!');
         } catch (firestoreErr: any) {

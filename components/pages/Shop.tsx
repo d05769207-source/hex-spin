@@ -1,87 +1,129 @@
 
-import React from 'react';
-import { PlayCircle, Gift } from 'lucide-react';
+import React, { useState } from 'react';
+import { PlayCircle, Gift, Copy, Share2, Users } from 'lucide-react';
+import { User } from '../../types';
 
-const Shop: React.FC = () => {
-  return (
-    <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 pb-24 md:pb-0">
-      
-      {/* Header */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-black uppercase text-white tracking-widest">Earn Tokens</h2>
-        <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold mt-1">
-           <PlayCircle size={14} />
-           <span>Watch Ads Only - No Money Required</span>
-        </div>
-      </div>
+interface ShopProps {
+   user: User | null;
+   onWatchAd: () => void;
+}
 
-      {/* Ad Cards Grid */}
-      <div className="grid grid-cols-2 gap-4 mb-8">
-        {[
-          { tokens: 5, ads: 1, label: 'QUICK' },
-          { tokens: 10, ads: 2, label: 'POPULAR' },
-          { tokens: 25, ads: 4, label: 'BEST VALUE', highlight: true },
-          { tokens: 50, ads: 6, label: 'MEGA PACK' },
-        ].map((pack, i) => (
-          <button 
-            key={i} 
-            className={`relative flex flex-col items-center p-4 rounded-xl border transition-all active:scale-95 group overflow-hidden ${
-              pack.highlight 
-                ? 'bg-gradient-to-br from-cyan-900/80 to-blue-900/80 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.2)]' 
-                : 'bg-gray-800/50 border-white/10 hover:bg-gray-800'
-            }`}
-          >
-             {/* Glow Effect */}
-             <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-             
-             {pack.highlight && (
-                <div className="absolute top-0 right-0 bg-cyan-500 text-black text-[8px] font-black px-2 py-1 rounded-bl-lg">
-                   {pack.label}
-                </div>
-             )}
-             
-             <div className="relative z-10 text-center">
-                <span className={`text-2xl font-black ${pack.highlight ? 'text-cyan-300' : 'text-white'}`}>{pack.tokens}</span>
-                <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-3">Tokens</p>
-                
-                <div className="flex flex-col items-center gap-1">
-                   {/* Visual Chips */}
-                   <div className="flex -space-x-1 mb-2">
-                       {[...Array(Math.min(3, Math.ceil(pack.tokens / 10)))].map((_, idx) => (
-                           <div key={idx} className="w-4 h-4 rounded-full bg-cyan-500 border border-black"></div>
-                       ))}
-                   </div>
-                   
-                   <div className="bg-black/40 px-3 py-1.5 rounded-full flex items-center gap-1.5 border border-white/10">
-                      <PlayCircle size={12} className="text-green-400" />
-                      <span className="text-[10px] font-bold text-gray-300">Watch {pack.ads} Ads</span>
-                   </div>
-                </div>
-             </div>
-          </button>
-        ))}
-      </div>
+const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
+   const [copied, setCopied] = useState(false);
 
-      {/* Other Ways */}
-      <div className="bg-gray-900/50 border border-white/5 rounded-xl p-4">
-         <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-            <Gift size={16} className="text-yellow-500" />
-            Other Ways to Earn
-         </h3>
-         <div className="space-y-3">
-            <div className="flex justify-between items-center p-3 bg-black/40 rounded-lg">
-                <span className="text-xs text-gray-300">Daily Login</span>
-                <span className="text-xs font-bold text-cyan-400">+1 Spin</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-black/40 rounded-lg">
-                <span className="text-xs text-gray-300">Refer a Friend</span>
-                <span className="text-xs font-bold text-cyan-400">+5 Spins</span>
+   const referralCode = user?.referralCode || user?.uid?.substring(0, 6).toUpperCase() || '------';
+   const referralCount = user?.referralCount || 0;
+
+   const handleCopyCode = () => {
+      navigator.clipboard.writeText(referralCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+   };
+
+   const handleShare = () => {
+      const shareUrl = `${window.location.origin}?ref=${referralCode}`;
+      const shareData = {
+         title: 'Lucky Chakra',
+         text: `Use my code ${referralCode} to join Lucky Chakra and win prizes!`,
+         url: shareUrl
+      };
+
+      if (navigator.share) {
+         navigator.share(shareData).catch(console.error);
+      } else {
+         navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
+         setCopied(true);
+         setTimeout(() => setCopied(false), 2000);
+      }
+   };
+
+   return (
+      <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 pb-24 md:pb-0">
+
+         {/* Header */}
+         <div className="mb-6">
+            <h2 className="text-2xl font-black uppercase text-white tracking-widest">Earn Tokens</h2>
+            <p className="text-gray-400 text-xs mt-1">Watch ads or refer friends to keep spinning!</p>
+         </div>
+
+         {/* 1. WATCH ADS SECTION (Simplified Row) */}
+         <div className="bg-gradient-to-r from-gray-900 to-gray-800 border border-cyan-500/30 rounded-xl p-4 mb-6 relative overflow-hidden group">
+            {/* Glow Effect */}
+            <div className="absolute inset-0 bg-cyan-500/5 group-hover:bg-cyan-500/10 transition-colors"></div>
+
+            <div className="flex items-center justify-between relative z-10">
+               <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+                     <PlayCircle size={24} className="text-cyan-400" />
+                  </div>
+                  <div>
+                     <h3 className="text-lg font-black text-white uppercase italic">Watch Ad</h3>
+                     <p className="text-xs text-cyan-400 font-bold">Get 5 Tokens Instantly</p>
+                  </div>
+               </div>
+
+               <button
+                  onClick={onWatchAd}
+                  className="bg-cyan-500 hover:bg-cyan-400 text-black font-black py-2 px-6 rounded-lg shadow-lg shadow-cyan-500/20 transition-transform active:scale-95 uppercase tracking-wider text-sm"
+               >
+                  Watch
+               </button>
             </div>
          </div>
-      </div>
 
-    </div>
-  );
+         {/* 2. REFERRAL SECTION */}
+         <div className="bg-gradient-to-br from-purple-900/40 to-blue-900/40 border border-purple-500/30 rounded-xl p-5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+            <div className="flex items-center gap-2 mb-4">
+               <Users size={20} className="text-purple-400" />
+               <h3 className="text-lg font-black text-white uppercase tracking-wider">Refer & Earn</h3>
+            </div>
+
+            <div className="bg-black/40 rounded-lg p-4 mb-4 border border-white/5">
+               <p className="text-gray-400 text-xs mb-2 uppercase font-bold">Your Referral Code</p>
+               <div className="flex items-center justify-between bg-black/60 rounded p-3 border border-white/10">
+                  <span className="text-xl font-mono font-bold text-white tracking-widest">{referralCode}</span>
+                  <button
+                     onClick={handleCopyCode}
+                     className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                  >
+                     {copied ? <span className="text-green-400 text-xs font-bold">Copied!</span> : <Copy size={18} className="text-gray-400" />}
+                  </button>
+               </div>
+            </div>
+
+            <div className="flex items-center justify-between mb-6">
+               <div className="flex flex-col">
+                  <span className="text-3xl font-black text-white">{referralCount}</span>
+                  <span className="text-xs text-purple-300 font-bold uppercase">Friends Referred</span>
+               </div>
+               <div className="flex flex-col items-end">
+                  <span className="text-xl font-bold text-yellow-400">+{referralCount * 5} Tokens</span>
+                  <span className="text-xs text-gray-400 uppercase">Total Earned</span>
+               </div>
+            </div>
+
+            <button
+               onClick={handleShare}
+               className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
+            >
+               <Share2 size={18} />
+               Share Link
+            </button>
+
+            <div className="mt-4 space-y-2">
+               <p className="text-center text-[10px] text-gray-400">
+                  <span className="text-cyan-400 font-bold">5 Tokens</span> when they join using your link/code.
+               </p>
+               <p className="text-center text-[10px] text-gray-400">
+                  <span className="text-yellow-400 font-bold">1 Token</span> per level up (up to 100 levels).
+               </p>
+            </div>
+         </div>
+
+      </div>
+   );
 };
 
 export default Shop;

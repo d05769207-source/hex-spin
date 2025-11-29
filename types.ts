@@ -39,6 +39,11 @@ export interface User {
   weekStartDate?: Date;
   totalSpins?: number;
   level?: number;
+  referralCode?: string;
+  referralCount?: number;
+  referredBy?: string; // ID of the user who referred this user
+  referralRewardsClaimed?: number[]; // List of levels for which the referrer has received rewards
+  hasSeenReferralPrompt?: boolean; // Whether the user has seen/skipped the manual referral input modal
 }
 
 export interface LeaderboardEntry {

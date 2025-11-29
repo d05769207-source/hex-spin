@@ -6,6 +6,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import Cropper from 'react-easy-crop';
 import EToken from '../EToken';
 import { getLevelProgress } from '../../utils/levelUtils';
+import { useLeaderboard } from '../../hooks/useLeaderboard';
 
 // Define Area type for crop
 type Area = {
@@ -60,6 +61,9 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
   // Calculate Level Data
   const levelData = getLevelProgress(user?.totalSpins || 0);
   const currentLevel = levelData.currentLevel;
+
+  // Get User Rank
+  const { userRank } = useLeaderboard(user?.uid || user?.id);
 
   useEffect(() => {
     if (showExchangeModal) {
@@ -441,7 +445,9 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                   <span className="text-gray-500 text-[8px] uppercase tracking-wider">Spins</span>
                 </div>
                 <div className="flex flex-col items-end">
-                  <span className="text-yellow-400 font-bold text-xs">#1,245</span>
+                  <span className="text-yellow-400 font-bold text-xs">
+                    {userRank > 0 ? `#${userRank}` : '-'}
+                  </span>
                   <span className="text-gray-500 text-[8px] uppercase tracking-wider">Rank</span>
                 </div>
               </div>
@@ -645,18 +651,7 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
         </div>
       )}
 
-      {/* Action Buttons */}
-      {activeTab === 'PROFILE' && (
-        <div className="grid gap-2 mb-20 md:mb-0" onClick={() => setShowSettings(false)}>
-          <button className="flex items-center justify-between p-4 bg-gray-800 rounded-lg text-white font-bold hover:bg-gray-700 transition-colors border border-white/5">
-            <div className="flex items-center gap-3">
-              <Share2 size={18} className="text-cyan-400" />
-              <span>Refer & Earn</span>
-            </div>
-            <ExternalLink size={16} className="text-gray-500" />
-          </button>
-        </div>
-      )}
+
 
       {showExchangeModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">

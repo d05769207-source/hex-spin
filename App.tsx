@@ -12,6 +12,7 @@ import Event from './components/pages/Event';
 import Shop from './components/pages/Shop';
 import LoginModal from './components/auth/LoginModal';
 import UsernameModal from './components/auth/UsernameModal';
+import ReferralInputModal from './components/auth/ReferralInputModal';
 import WeeklyTimer from './components/WeeklyTimer';
 import AdminLoginModal from './components/admin/AdminLoginModal';
 import AdminBadge from './components/admin/AdminBadge';
@@ -23,7 +24,7 @@ import InfoModal from './components/InfoModal';
 import { Volume2, VolumeX, Info } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, increment } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { calculateLevel } from './utils/levelUtils';
 
@@ -164,6 +165,7 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [showUsernameModal, setShowUsernameModal] = useState<boolean>(false);
+  const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
 
   // Admin State
   const [isAdminMode, setIsAdminMode] = useState<boolean>(() => {
@@ -231,6 +233,8 @@ const App: React.FC = () => {
               setBalance(userData.tokens !== undefined ? userData.tokens : 10);
               setCoins(userData.coins || 0);
               setETokens(userData.eTokens || 0);
+              setKtmTokens(userData.ktmTokens || 0);
+              setIphoneTokens(userData.iphoneTokens || 0);
               const loadedSpins = userData.totalSpins || 0;
               setTotalSpins(loadedSpins);
               totalSpinsRef.current = loadedSpins; // SYNC REF WITH LOADED DATA
@@ -244,9 +248,21 @@ const App: React.FC = () => {
                 tokens: userData.tokens || 10,
                 coins: userData.coins || 0,
                 eTokens: userData.eTokens || 0,
+                ktmTokens: userData.ktmTokens || 0,
+                iphoneTokens: userData.iphoneTokens || 0,
                 totalSpins: userData.totalSpins || 0,
-                photoURL: userData.photoURL
+                photoURL: userData.photoURL,
+                referralCode: userData.referralCode,
+                referralCount: userData.referralCount || 0,
+                referredBy: userData.referredBy,
+                hasSeenReferralPrompt: userData.hasSeenReferralPrompt
               });
+
+              // Check if we need to show referral input modal
+              if (!userData.referredBy && !userData.hasSeenReferralPrompt) {
+                setShowReferralModal(true);
+              }
+
             } else {
               console.log('⚠️ No user document found in Firestore, creating default data...');
 
@@ -258,6 +274,8 @@ const App: React.FC = () => {
                 coins: 0,
                 tokens: 10,
                 eTokens: 0,
+                ktmTokens: 0,
+                iphoneTokens: 0,
                 totalSpins: 0,
                 createdAt: new Date(),
                 isGuest: false
@@ -273,6 +291,8 @@ const App: React.FC = () => {
               setBalance(10);
               setCoins(0);
               setETokens(0);
+              setKtmTokens(0);
+              setIphoneTokens(0);
               setTotalSpins(0);
               totalSpinsRef.current = 0; // SYNC REF
             }
@@ -291,6 +311,8 @@ const App: React.FC = () => {
             setBalance(10);
             setCoins(0);
             setETokens(0);
+            setKtmTokens(0);
+            setIphoneTokens(0);
             setTotalSpins(0);
             totalSpinsRef.current = 0; // SYNC REF
 
@@ -311,6 +333,8 @@ const App: React.FC = () => {
         setBalance(getGuestBalance()); // Load from localStorage
         setCoins(getGuestCoins());
         setETokens(getGuestETokens());
+        setKtmTokens(0); // Guests don't get these for now
+        setIphoneTokens(0); // Guests don't get these for now
         setTotalSpins(0); // Guests don't track spins for now or load from local if needed
         totalSpinsRef.current = 0; // SYNC REF
       }
@@ -384,6 +408,42 @@ const App: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [eTokens, user, isSyncEnabled]);
 
+  // SYNC KTM TOKENS TO FIRESTORE (Logged-in users only)
+  useEffect(() => {
+    if (!user || user.isGuest || !isSyncEnabled) return;
+
+    const syncKtmTokens = async () => {
+      try {
+        const userDocRef = doc(db, 'users', user.id);
+        await updateDoc(userDocRef, { ktmTokens: ktmTokens });
+        console.log('KTM Tokens synced to Firestore:', ktmTokens);
+      } catch (error) {
+        console.error('Error syncing KTM Tokens to Firestore:', error);
+      }
+    };
+
+    const timeoutId = setTimeout(syncKtmTokens, 500);
+    return () => clearTimeout(timeoutId);
+  }, [ktmTokens, user, isSyncEnabled]);
+
+  // SYNC IPHONE TOKENS TO FIRESTORE (Logged-in users only)
+  useEffect(() => {
+    if (!user || user.isGuest || !isSyncEnabled) return;
+
+    const syncIphoneTokens = async () => {
+      try {
+        const userDocRef = doc(db, 'users', user.id);
+        await updateDoc(userDocRef, { iphoneTokens: iphoneTokens });
+        console.log('iPhone Tokens synced to Firestore:', iphoneTokens);
+      } catch (error) {
+        console.error('Error syncing iPhone Tokens to Firestore:', error);
+      }
+    };
+
+    const timeoutId = setTimeout(syncIphoneTokens, 500);
+    return () => clearTimeout(timeoutId);
+  }, [iphoneTokens, user, isSyncEnabled]);
+
   // SYNC TOTAL SPINS TO FIRESTORE (Logged-in users only)
   useEffect(() => {
     if (!user || user.isGuest) return;
@@ -397,11 +457,40 @@ const App: React.FC = () => {
       try {
         console.log('Attempting to sync spins...', { totalSpins, userId: user.id });
         const currentLevel = calculateLevel(totalSpins);
+
+        // Check for Level Up
+        const previousLevel = user.level || 1;
+
+        if (currentLevel > previousLevel) {
+          console.log(`🎉 LEVEL UP! ${previousLevel} -> ${currentLevel}`);
+
+          // If user was referred, reward the referrer
+          if (user.referredBy) {
+            try {
+              const levelsGained = currentLevel - previousLevel;
+              const rewardAmount = levelsGained * 1; // 1 Token per level
+
+              const referrerRef = doc(db, 'users', user.referredBy);
+              await updateDoc(referrerRef, {
+                tokens: increment(rewardAmount),
+                referralCount: increment(0) // No change to count, just tokens
+              });
+              console.log(`🎁 Sent ${rewardAmount} tokens to referrer ${user.referredBy}`);
+            } catch (err) {
+              console.error("Error rewarding referrer:", err);
+            }
+          }
+        }
+
         const userDocRef = doc(db, 'users', user.id);
         await updateDoc(userDocRef, {
           totalSpins: totalSpins,
           level: currentLevel
         });
+
+        // Update local user state to reflect new level immediately so we don't trigger again
+        setUser(prev => prev ? { ...prev, level: currentLevel } : null);
+
         console.log('✅ Total Spins & Level synced to Firestore:', totalSpins, 'Lvl:', currentLevel);
       } catch (error) {
         console.error('❌ Error syncing totalSpins to Firestore:', error);
@@ -582,6 +671,10 @@ const App: React.FC = () => {
         // Update leaderboard for logged-in users (not guests)
         // Note: Leaderboard sync is now handled by the useEffect hook in App.tsx
         // watching the 'coins' state change.
+      } else if (winners[i].name.includes('KTM')) {
+        setKtmTokens(prev => prev + 1);
+      } else if (winners[i].name.includes('iPhone')) {
+        setIphoneTokens(prev => prev + 1);
       }
 
       if (soundEnabled) playWinSound(); // Hard Impact Sound
@@ -628,6 +721,20 @@ const App: React.FC = () => {
       return true;
     }
     return false;
+  };
+
+  const handleWatchAd = async () => {
+    // Mock Ad Logic
+    console.log('📺 Watching Ad...');
+
+    // Simulate Ad Duration
+    await wait(2000);
+
+    // Reward User
+    setBalance(prev => prev + 5);
+
+    // Optional: Show success toast/alert
+    alert('Ad Watched! You earned 5 Tokens.');
   };
 
   // --- AUTH HANDLERS ---
@@ -822,7 +929,7 @@ const App: React.FC = () => {
       case 'SHOP':
         return (
           <div className="flex-1 pt-24 md:pt-20 overflow-hidden md:pr-24">
-            <Shop />
+            <Shop user={user} onWatchAd={handleWatchAd} />
           </div>
         );
       case 'PROFILE':
@@ -993,6 +1100,18 @@ const App: React.FC = () => {
       {showUsernameModal && (
         <UsernameModal
           onSubmit={handleUsernameSet}
+        />
+      )}
+
+      {showReferralModal && user && (
+        <ReferralInputModal
+          user={user}
+          onClose={() => setShowReferralModal(false)}
+          onSuccess={() => {
+            // Refresh user data or update local state
+            setBalance(prev => prev + 5); // Immediate reward update
+            setUser(prev => prev ? { ...prev, referredBy: 'PENDING', hasSeenReferralPrompt: true } : null);
+          }}
         />
       )}
 
