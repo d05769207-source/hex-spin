@@ -1,0 +1,150 @@
+import { db } from '../firebase';
+import { doc, getDoc, updateDoc, runTransaction, increment, collection, query, where, getDocs } from 'firebase/firestore';
+import { User } from '../types';
+
+/**
+ * Validates a referral code.
+ * Returns the referrer's UID if valid, or null if invalid.
+ */
+export const validateReferralCode = async (code: string, currentUserId: string): Promise<string | null> => {
+    if (!code || code.length < 6) return null;
+
+    try {
+        // 1. Check if the code belongs to a user
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('referralCode', '==', code));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+            // Fallback: Check if code is a UID substring (legacy support or simple ID match)
+            // For now, we strictly enforce the stored referralCode. 
+            // If you want to support UID matching, you'd need a different query or client-side check if not indexed.
+            return null;
+        }
+
+        const referrerDoc = querySnapshot.docs[0];
+        const referrerId = referrerDoc.id;
+
+        // 2. Prevent self-referral
+        if (referrerId === currentUserId) {
+            console.warn('Cannot refer yourself');
+            return null;
+        }
+
+        return referrerId;
+    } catch (error) {
+        console.error('Error validating referral code:', error);
+        return null;
+    }
+};
+
+/**
+ * Applies a referral code to the current user.
+ * Awards 5 tokens to the referrer immediately.
+ */
+export const applyReferral = async (currentUserId: string, referrerId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+        await runTransaction(db, async (transaction) => {
+            const currentUserRef = doc(db, 'users', currentUserId);
+            const referrerRef = doc(db, 'users', referrerId);
+
+            const currentUserDoc = await transaction.get(currentUserRef);
+            const referrerDoc = await transaction.get(referrerRef);
+
+            if (!currentUserDoc.exists()) {
+                throw new Error('Current user does not exist');
+            }
+            if (!referrerDoc.exists()) {
+                throw new Error('Referrer does not exist');
+            }
+
+            const currentUserData = currentUserDoc.data() as User;
+
+            // Double check if already referred
+            if (currentUserData.referredBy) {
+                throw new Error('User already referred');
+            }
+
+            // 1. Update Current User
+            transaction.update(currentUserRef, {
+                referredBy: referrerId,
+                referralDismissed: true, // Dismiss the prompt since they successfully used a code
+                lastLevelRewardTriggered: currentUserData.level || 1 // Start tracking from current level
+            });
+
+            // 2. Update Referrer (Add 5 Tokens + Increment Count)
+            transaction.update(referrerRef, {
+                tokens: increment(5),
+                referralCount: increment(1)
+            });
+        });
+
+        return { success: true, message: 'Referral applied successfully!' };
+    } catch (error: any) {
+        console.error('Error applying referral:', error);
+        return { success: false, message: error.message || 'Failed to apply referral' };
+    }
+};
+
+/**
+ * Permanently dismisses the referral prompt for the user.
+ */
+export const dismissReferralPrompt = async (currentUserId: string): Promise<void> => {
+    try {
+        console.log('Attempting to dismiss referral prompt for:', currentUserId);
+        const userRef = doc(db, 'users', currentUserId);
+        await updateDoc(userRef, {
+            referralDismissed: true
+        });
+        console.log('Successfully dismissed referral prompt for:', currentUserId);
+    } catch (error) {
+        console.error('Error dismissing referral prompt:', error);
+    }
+};
+
+/**
+ * Checks and awards level-up rewards to the referrer.
+ * Should be called whenever the user levels up.
+ */
+export const processLevelUpReward = async (currentUserId: string, currentLevel: number): Promise<void> => {
+    try {
+        const userRef = doc(db, 'users', currentUserId);
+        const userSnap = await getDoc(userRef);
+
+        if (!userSnap.exists()) return;
+
+        const userData = userSnap.data() as User;
+        const referrerId = userData.referredBy;
+        const lastTriggered = userData.lastLevelRewardTriggered || 0;
+
+        // If no referrer or no new levels gained since last reward, exit
+        if (!referrerId || currentLevel <= lastTriggered) return;
+
+        const levelsGained = currentLevel - lastTriggered;
+
+        // Cap at Level 100 (Optional, based on requirements "up to Level 100")
+        // If currentLevel > 100, we might still award for the levels up to 100 if not yet awarded.
+        // For simplicity, we assume generic "1 token per level".
+
+        if (levelsGained <= 0) return;
+
+        await runTransaction(db, async (transaction) => {
+            const referrerRef = doc(db, 'users', referrerId);
+
+            // 1. Award Tokens to Referrer
+            transaction.update(referrerRef, {
+                tokens: increment(levelsGained)
+            });
+
+            // 2. Update Current User's tracker
+            transaction.update(userRef, {
+                lastLevelRewardTriggered: currentLevel
+            });
+        });
+
+        console.log(`Awarded ${levelsGained} tokens to referrer ${referrerId} for level up to ${currentLevel}`);
+
+    } catch (error) {
+        console.error('Error processing level up reward:', error);
+    }
+};

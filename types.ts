@@ -41,9 +41,10 @@ export interface User {
   level?: number;
   referralCode?: string;
   referralCount?: number;
-  referredBy?: string; // ID of the user who referred this user
-  referralRewardsClaimed?: number[]; // List of levels for which the referrer has received rewards
-  hasSeenReferralPrompt?: boolean; // Whether the user has seen/skipped the manual referral input modal
+  referredBy?: string; // UID of the user who referred this user
+  referralDismissed?: boolean; // Has user permanently dismissed the referral prompt?
+  lastLevelRewardTriggered?: number; // The last level for which the referrer received a reward
+  inrBalance?: number; // Real money balance in Rupees (INR)
 }
 
 export interface LeaderboardEntry {

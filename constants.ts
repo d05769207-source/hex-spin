@@ -16,8 +16,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.LEGENDARY,
     amount: 10000,
     isInner: true,
-    position: { x: 0, y: -13 },
-    desktopPosition: { x: 0, y: -15 },
+    position: { x: 0, y: -11 },
+    desktopPosition: { x: 0, y: -13 },
   },
   // TIER 2: Medium Size (Bottom) -> User #2 -> 5K Coins
   {
@@ -27,8 +27,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.EPIC,
     amount: 5000,
     isInner: true,
-    position: { x: 0, y: 13 },
-    desktopPosition: { x: 0, y: 15 },
+    position: { x: 0, y: 11 },
+    desktopPosition: { x: 0, y: 13 },
   },
   // TIER 1: Large Size (Left) → User #3 → KTM
   {
@@ -37,8 +37,8 @@ export const ITEMS: GameItem[] = [
     imageUrl: '/images/ktm_bike.png',
     rarity: Rarity.RARE,
     isInner: true,
-    position: { x: -19, y: 0 },
-    desktopPosition: { x: -24, y: 0 },
+    position: { x: -16, y: 0 },
+    desktopPosition: { x: -20, y: 0 },
   },
   // TIER 1: Large Size (Right) → User #4 → iPhone (Orange Theme)
   {
@@ -47,8 +47,8 @@ export const ITEMS: GameItem[] = [
     imageUrl: '/images/iphone.png',
     rarity: Rarity.EPIC,
     isInner: true,
-    position: { x: 19, y: 0 },
-    desktopPosition: { x: 24, y: 0 },
+    position: { x: 16, y: 0 },
+    desktopPosition: { x: 20, y: 0 },
   },
 
   // --- OUTER RING (10 Items) ---
@@ -63,8 +63,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.LEGENDARY,
     amount: 1000,
     isInner: false,
-    position: { x: 0, y: -30 },
-    desktopPosition: { x: 0, y: -37 },
+    position: { x: 0, y: -28 },
+    desktopPosition: { x: 0, y: -35 },
   },
   // 2. Top Right (User No. 6)
   {
@@ -74,8 +74,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.RARE,
     amount: 100,
     isInner: false,
-    position: { x: 17, y: -23 },
-    desktopPosition: { x: 21, y: -27 },
+    position: { x: 16, y: -22 },
+    desktopPosition: { x: 20, y: -26 },
   },
   // 3. Right Upper (User No. 7)
   {
@@ -85,8 +85,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.COMMON,
     amount: 10,
     isInner: false,
-    position: { x: 33, y: -11 },
-    desktopPosition: { x: 39, y: -13 },
+    position: { x: 31, y: -11 },
+    desktopPosition: { x: 37, y: -13 },
   },
   // 4. Right Lower (User No. 8)
   {
@@ -96,8 +96,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.COMMON,
     amount: 2,
     isInner: false,
-    position: { x: 33, y: 11 },
-    desktopPosition: { x: 39, y: 13 },
+    position: { x: 31, y: 11 },
+    desktopPosition: { x: 37, y: 13 },
   },
   // 5. Bottom Right (User No. 9)
   {
@@ -107,8 +107,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.COMMON,
     amount: 20,
     isInner: false,
-    position: { x: 17, y: 23 },
-    desktopPosition: { x: 21, y: 27 },
+    position: { x: 16, y: 22 },
+    desktopPosition: { x: 20, y: 26 },
   },
   // 6. Bottom Center (User No. 10)
   {
@@ -118,8 +118,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.EPIC,
     amount: 500,
     isInner: false,
-    position: { x: 0, y: 30 },
-    desktopPosition: { x: 0, y: 37 },
+    position: { x: 0, y: 28 },
+    desktopPosition: { x: 0, y: 35 },
   },
   // 7. Bottom Left (User No. 11)
   {
@@ -129,8 +129,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.RARE,
     amount: 200,
     isInner: false,
-    position: { x: -17, y: 23 },
-    desktopPosition: { x: -21, y: 27 },
+    position: { x: -16, y: 22 },
+    desktopPosition: { x: -20, y: 26 },
   },
   // 8. Left Lower (User No. 12)
   {
@@ -140,8 +140,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.COMMON,
     amount: 5,
     isInner: false,
-    position: { x: -33, y: 11 },
-    desktopPosition: { x: -39, y: 13 },
+    position: { x: -31, y: 11 },
+    desktopPosition: { x: -37, y: 13 },
   },
   // 9. Left Upper (User No. 13)
   {
@@ -151,8 +151,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.COMMON,
     amount: 1,
     isInner: false,
-    position: { x: -33, y: -11 },
-    desktopPosition: { x: -39, y: -13 },
+    position: { x: -31, y: -11 },
+    desktopPosition: { x: -37, y: -13 },
   },
   // 10. Top Left (User No. 14)
   {
@@ -162,8 +162,8 @@ export const ITEMS: GameItem[] = [
     rarity: Rarity.COMMON,
     amount: 50,
     isInner: false,
-    position: { x: -17, y: -23 },
-    desktopPosition: { x: -21, y: -27 },
+    position: { x: -16, y: -22 },
+    desktopPosition: { x: -20, y: -26 },
   },
 ];
 

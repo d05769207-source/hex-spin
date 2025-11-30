@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera, Trophy, Lock, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera, Trophy, Lock, CheckCircle, RefreshCw } from 'lucide-react';
 import { User } from '../../types';
 import { db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import Cropper from 'react-easy-crop';
 import EToken from '../EToken';
+import KTMToken from '../KTMToken';
+import IPhoneToken from '../iPhoneToken';
+import SpinToken from '../SpinToken';
 import { getLevelProgress } from '../../utils/levelUtils';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
 
@@ -32,15 +35,32 @@ interface ProfileProps {
   user: User | null;
   onLogout: () => void;
   onExchange: (amount: number) => boolean;
+  onRedeemToken?: (amount: number) => boolean;
+  onETokenToSpin?: (amount: number) => boolean;
+  onRedeemKTM?: () => boolean;
+  onRedeemIPhone?: () => boolean;
+  inrBalance?: number;
+  ktmTokens?: number;
+  iphoneTokens?: number;
+  initialTab?: 'PROFILE' | 'REDEEM' | 'LEVEL';
 }
 
-const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user, onLogout, onExchange }) => {
+const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user, onLogout, onExchange, onRedeemToken, onETokenToSpin, onRedeemKTM, onRedeemIPhone, inrBalance, ktmTokens = 0, iphoneTokens = 0, initialTab = 'PROFILE' }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showExchangeModal, setShowExchangeModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [exchangeAmount, setExchangeAmount] = useState(1);
   const [exchangeError, setExchangeError] = useState('');
-  const [activeTab, setActiveTab] = useState<'PROFILE' | 'REDEEM' | 'LEVEL'>('PROFILE');
+  const [exchangeMode, setExchangeMode] = useState<'COIN_TO_TOKEN' | 'TOKEN_TO_SPIN' | 'TOKEN_TO_INR' | 'KTM_TO_INR' | 'IPHONE_TO_INR'>('COIN_TO_TOKEN');
+  const [activeTab, setActiveTab] = useState<'PROFILE' | 'REDEEM' | 'LEVEL'>(initialTab);
+
+  // Update active tab when initialTab prop changes
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [photoPreview, setPhotoPreview] = useState<string>(user?.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -82,12 +102,50 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
   const handleConfirmExchange = () => {
     if (exchangeAmount < 1) return;
 
-    const success = onExchange(exchangeAmount);
-    if (success) {
-      setShowExchangeModal(false);
-      // Optional: Show success toast
+    if (exchangeMode === 'COIN_TO_TOKEN') {
+      const success = onExchange(exchangeAmount);
+      if (success) {
+        setShowExchangeModal(false);
+      } else {
+        setExchangeError('Insufficient Coins');
+      }
+    } else if (exchangeMode === 'TOKEN_TO_SPIN') {
+      if (onETokenToSpin) {
+        const success = onETokenToSpin(exchangeAmount);
+        if (success) {
+          setShowExchangeModal(false);
+        } else {
+          setExchangeError('Insufficient E-Tokens');
+        }
+      }
+    } else if (exchangeMode === 'KTM_TO_INR') {
+      if (onRedeemKTM) {
+        const success = onRedeemKTM();
+        if (success) {
+          setShowExchangeModal(false);
+        } else {
+          setExchangeError('Insufficient KTM Tokens');
+        }
+      }
+    } else if (exchangeMode === 'IPHONE_TO_INR') {
+      if (onRedeemIPhone) {
+        const success = onRedeemIPhone();
+        if (success) {
+          setShowExchangeModal(false);
+        } else {
+          setExchangeError('Insufficient iPhone Tokens');
+        }
+      }
     } else {
-      setExchangeError('Insufficient Coins');
+      // TOKEN_TO_INR (Coming Soon - but keeping logic just in case)
+      if (onRedeemToken) {
+        const success = onRedeemToken(exchangeAmount);
+        if (success) {
+          setShowExchangeModal(false);
+        } else {
+          setExchangeError('Insufficient Tokens');
+        }
+      }
     }
   };
 
@@ -466,13 +524,13 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                 <span className="text-lg">💰</span>
               </div>
             </div>
-            <div className="bg-gray-900/60 border border-cyan-500/20 rounded-xl p-3 flex items-center justify-between">
+            <div className="bg-gray-900/60 border border-green-500/20 rounded-xl p-3 flex items-center justify-between">
               <div className="flex flex-col">
-                <span className="text-gray-400 text-[10px] uppercase tracking-wider">Spin Tokens</span>
-                <span className="text-cyan-400 font-bold text-xl drop-shadow-sm">{tokens}</span>
+                <span className="text-gray-400 text-[10px] uppercase tracking-wider">Rupees</span>
+                <span className="text-green-400 font-bold text-xl drop-shadow-sm">₹{inrBalance?.toLocaleString() || 0}</span>
               </div>
-              <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/30">
-                <EToken size={20} />
+              <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/30">
+                <span className="text-lg text-green-500 font-bold">₹</span>
               </div>
             </div>
           </div>
@@ -507,35 +565,12 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
       {activeTab === 'LEVEL' && (
         <div className="flex-1 flex flex-col animate-in slide-in-from-left duration-300 overflow-hidden">
 
-          {/* Level Header Info */}
-          <div className="mb-4 p-4 bg-gradient-to-br from-red-900/20 to-black border border-red-500/20 rounded-xl">
-            <div className="flex justify-between items-end mb-2">
-              <div>
-                <span className="text-gray-400 text-xs uppercase font-bold">Current Level</span>
-                <h2 className="text-3xl font-black text-white italic">LEVEL {currentLevel}</h2>
-              </div>
-              <div className="text-right">
-                <span className="text-red-400 font-bold text-sm">{levelData.spinsNeededForLevel - levelData.spinsInLevel} spins</span>
-                <p className="text-gray-500 text-[10px]">to next level</p>
-              </div>
-            </div>
-            <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-white/10">
-              <div
-                className="h-full bg-gradient-to-r from-orange-500 to-red-600 relative overflow-hidden"
-                style={{ width: `${levelData.progress}%` }}
-              >
-                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30"></div>
-              </div>
-            </div>
-            <p className="text-center text-[10px] text-gray-500 mt-2">
-              Total Spins: <span className="text-white font-bold">{user?.totalSpins || 0}</span>
-            </p>
-          </div>
 
-          <div className="flex-1 overflow-y-auto pr-2 space-y-0 relative">
+
+          <div className="flex-1 overflow-y-auto pl-4 pr-2 space-y-0 relative">
 
             {/* Vertical Line Background */}
-            <div className="absolute left-[2.4rem] top-4 bottom-0 w-0.5 bg-white/10 z-0"></div>
+            <div className="absolute left-[2.5rem] top-4 bottom-0 w-0.5 bg-white/10 z-0"></div>
 
             {levels.map((item, index) => {
               const isCompleted = item.level < currentLevel;
@@ -543,11 +578,11 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
               const isLocked = item.level > currentLevel;
 
               return (
-                <div key={item.level} className={`flex items-center gap-4 mb-6 relative z-10 ${isCompleted ? 'opacity-50 grayscale' : ''}`}>
+                <div key={item.level} className={`flex items-center gap-3 mb-3 relative z-10 ${isCompleted ? 'opacity-50 grayscale' : ''}`}>
 
                   {/* Level Circle */}
                   <div className={`
-                    w-20 h-20 flex-shrink-0 rounded-full flex items-center justify-center border-4 font-black text-xl shadow-xl relative
+                    w-12 h-12 flex-shrink-0 rounded-full flex items-center justify-center border-2 font-black text-sm shadow-lg relative
                     ${isCurrent
                       ? 'bg-red-600 border-red-400 text-white shadow-red-600/30 scale-110'
                       : isCompleted
@@ -555,22 +590,22 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                         : 'bg-gray-900 border-red-900/50 text-red-700'
                     }
                   `}>
-                    {isCompleted ? <CheckCircle size={24} /> : item.level}
+                    {isCompleted ? <CheckCircle size={16} /> : item.level}
 
                     {/* Current Level Indicator */}
                     {isCurrent && (
-                      <div className="absolute -bottom-2 bg-white text-red-600 text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-widest shadow-sm">
+                      <div className="absolute -bottom-1.5 bg-white text-red-600 text-[6px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-widest shadow-sm">
                         Current
                       </div>
                     )}
                   </div>
 
                   {/* Connector Line (Horizontal) */}
-                  <div className={`h-1 w-8 ${isCompleted ? 'bg-gray-700' : isCurrent ? 'bg-red-500' : 'bg-white/10'}`}></div>
+                  <div className={`h-0.5 w-4 ${isCompleted ? 'bg-gray-700' : isCurrent ? 'bg-red-500' : 'bg-white/10'}`}></div>
 
                   {/* Reward Box */}
                   <div className={`
-                    flex-1 p-3 rounded-xl border flex items-center justify-between relative overflow-hidden
+                    flex-1 p-2 rounded-lg border flex items-center justify-between relative overflow-hidden
                     ${isCurrent
                       ? 'bg-gradient-to-r from-red-900/40 to-black border-red-500/50'
                       : isCompleted
@@ -581,24 +616,24 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                     {/* Background Pattern */}
                     {isCurrent && <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-20"></div>}
 
-                    <div className="flex items-center gap-3 z-10">
+                    <div className="flex items-center gap-2 z-10">
                       <div className={`
-                        w-10 h-10 rounded-lg flex items-center justify-center
+                        w-8 h-8 rounded-md flex items-center justify-center
                         ${isCurrent ? 'bg-red-500/20 text-red-400' : isCompleted ? 'bg-gray-800 text-gray-600' : 'bg-white/5 text-gray-500'}
                       `}>
-                        {item.level === 100 ? <Trophy size={20} /> : <span className="text-lg">🎁</span>}
+                        {item.level === 100 ? <Trophy size={14} /> : <span className="text-sm">🎁</span>}
                       </div>
                       <div className="flex flex-col">
-                        <span className={`text-xs font-bold uppercase tracking-wider ${isCurrent ? 'text-white' : 'text-gray-400'}`}>
-                          Reward
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${isCurrent ? 'text-green-400' : 'text-gray-400'}`}>
+                          {isCurrent ? 'Auto Claim' : 'Reward'}
                         </span>
-                        <span className={`text-sm font-black ${isCurrent ? 'text-red-400' : 'text-gray-500'}`}>
+                        <span className={`text-xs font-black ${isCurrent ? 'text-red-400' : 'text-gray-500'}`}>
                           {item.reward}
                         </span>
                       </div>
                     </div>
 
-                    {isLocked && <Lock size={16} className="text-gray-700" />}
+                    {isLocked && <Lock size={12} className="text-gray-700" />}
                   </div>
 
                 </div>
@@ -609,45 +644,204 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
       )}
 
       {activeTab === 'REDEEM' && (
-        <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
-          <div className="bg-gradient-to-r from-cyan-900 to-blue-900 border border-cyan-500/30 rounded-xl p-4 flex items-center justify-between md:justify-center md:gap-12 relative overflow-hidden shadow-lg shadow-cyan-900/20">
-            {/* Background Glow */}
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10 pointer-events-none"></div>
+        <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300 overflow-y-auto pb-20">
 
-            <div className="flex items-center gap-2 md:gap-8 z-10 w-full justify-between px-2">
-              {/* Coin */}
-              <div className="flex flex-col items-center">
-                <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/50">
-                  <span className="text-base md:text-2xl">💰</span>
-                </div>
-                <span className="text-[8px] md:text-xs text-yellow-400 font-bold mt-1">Coins</span>
-              </div>
-
-              {/* Arrow & Rate */}
-              <div className="flex flex-col items-center justify-center flex-1 px-2">
-                <div className="w-full flex justify-center transform scale-x-150">
-                  <ArrowRight className="text-cyan-400 animate-pulse" size={20} />
-                </div>
-                <span className="text-[8px] font-bold text-cyan-200/70 mt-1 whitespace-nowrap">1000 = 1</span>
-              </div>
-
-              {/* E-Token */}
-              <div className="flex flex-col items-center">
-                <div className="scale-75 md:scale-110 origin-center">
-                  <EToken size={40} />
-                </div>
-                <span className="text-[8px] md:text-xs text-cyan-300 font-bold mt-1">E-Token</span>
+          {/* Wallet Dashboard */}
+          <div className="grid grid-cols-4 gap-2 mb-6">
+            {/* E-Tokens Card */}
+            <div className="bg-gray-900/80 border border-red-500/30 rounded-xl p-1.5 flex flex-col items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-red-500/5"></div>
+              <span className="text-[9px] text-gray-400 uppercase font-bold z-10">E-Tokens</span>
+              <div className="flex items-center gap-1 z-10 mt-0.5">
+                <EToken size={14} />
+                <span className="text-white font-black text-xs md:text-sm">{eTokens}</span>
               </div>
             </div>
 
-            {/* Exchange Button */}
-            <button
-              onClick={() => setShowExchangeModal(true)}
-              className="bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-black font-black py-1.5 px-3 md:py-2 md:px-8 rounded-lg shadow-lg shadow-cyan-500/20 transition-all active:scale-95 z-10 text-[10px] md:text-sm uppercase tracking-wider ml-2 whitespace-nowrap"
-            >
-              Exchange
-            </button>
+            {/* INR Card */}
+            <div className="bg-gray-900/80 border border-green-500/30 rounded-xl p-1.5 flex flex-col items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-green-500/5"></div>
+              <span className="text-[9px] text-gray-400 uppercase font-bold z-10">Rupees</span>
+              <div className="flex items-center gap-1 z-10 mt-0.5">
+                <span className="text-green-500 font-bold text-xs md:text-sm">₹</span>
+                <span className="text-white font-black text-xs md:text-sm">{inrBalance?.toLocaleString() || 0}</span>
+              </div>
+            </div>
+
+            {/* KTM Tokens Card */}
+            <div className="bg-gray-900/80 border border-orange-500/30 rounded-xl p-1.5 flex flex-col items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-orange-500/5"></div>
+              <span className="text-[9px] text-gray-400 uppercase font-bold z-10">KTM</span>
+              <div className="flex items-center gap-1 z-10 mt-0.5">
+                <KTMToken size={16} />
+                <span className="text-white font-black text-xs md:text-sm">{ktmTokens}</span>
+              </div>
+            </div>
+
+            {/* iPhone Tokens Card */}
+            <div className="bg-gray-900/80 border border-blue-500/30 rounded-xl p-1.5 flex flex-col items-center justify-center relative overflow-hidden">
+              <div className="absolute inset-0 bg-blue-500/5"></div>
+              <span className="text-[9px] text-gray-400 uppercase font-bold z-10">iPhone</span>
+              <div className="flex items-center gap-1 z-10 mt-0.5">
+                <IPhoneToken size={16} />
+                <span className="text-white font-black text-xs md:text-sm">{iphoneTokens}</span>
+              </div>
+            </div>
           </div>
+
+          {/* Active Exchanges List */}
+          <div className="space-y-3 mb-8">
+            <h3 className="text-white text-xs font-bold uppercase tracking-widest mb-2 pl-1">Active Exchanges</h3>
+
+            {/* 1. Coins -> E-Tokens */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center justify-between hover:bg-white/10 transition-colors cursor-pointer group"
+              onClick={() => {
+                setExchangeMode('COIN_TO_TOKEN');
+                setShowExchangeModal(true);
+              }}
+            >
+              <div className="flex items-center gap-4">
+                {/* Composite Icon */}
+                <div className="flex items-center bg-black/20 rounded-full p-1 border border-white/5">
+                  <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/50">
+                    <span className="text-lg">💰</span>
+                  </div>
+                  <RefreshCw size={12} className="text-gray-500 mx-1 group-hover:rotate-180 transition-all duration-500" />
+                  <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/50">
+                    <EToken size={16} />
+                  </div>
+                </div>
+
+                <div className="flex flex-col">
+                  <h4 className="text-white font-bold text-xs">Exchange Coins</h4>
+                  <p className="text-yellow-500/80 text-[10px] font-medium">1000 Coins = 1 E-Token</p>
+                </div>
+              </div>
+              <div className="bg-white/10 p-2 rounded-lg">
+                <ArrowRight size={16} className="text-gray-400" />
+              </div>
+            </div>
+
+            {/* 2. E-Tokens -> P-Tokens */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center justify-between hover:bg-white/10 transition-colors cursor-pointer group"
+              onClick={() => {
+                setExchangeMode('TOKEN_TO_SPIN');
+                setShowExchangeModal(true);
+              }}
+            >
+              <div className="flex items-center gap-4">
+                {/* Composite Icon */}
+                <div className="flex items-center bg-black/20 rounded-full p-1 border border-white/5">
+                  <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/50">
+                    <EToken size={16} />
+                  </div>
+                  <RefreshCw size={12} className="text-gray-500 mx-1 group-hover:rotate-180 transition-all duration-500" />
+                  <div className="w-8 h-8 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/50">
+                    <SpinToken size={16} />
+                  </div>
+                </div>
+
+                <div className="flex flex-col">
+                  <h4 className="text-white font-bold text-xs">Get Spin Tokens</h4>
+                  <p className="text-cyan-400 text-[10px] font-medium">1 E-Token = 1 Spin Token</p>
+                </div>
+              </div>
+              <div className="bg-white/10 p-2 rounded-lg">
+                <ArrowRight size={16} className="text-gray-400" />
+              </div>
+            </div>
+
+            {/* 3. KTM -> INR */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center justify-between hover:bg-white/10 transition-colors cursor-pointer group"
+              onClick={() => {
+                setExchangeMode('KTM_TO_INR');
+                setShowExchangeModal(true);
+              }}
+            >
+              <div className="flex items-center gap-4">
+                {/* Composite Icon */}
+                <div className="flex items-center bg-black/20 rounded-full p-1 border border-white/5">
+                  <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center border border-orange-500/50">
+                    <KTMToken size={16} />
+                  </div>
+                  <RefreshCw size={12} className="text-gray-500 mx-1 group-hover:rotate-180 transition-all duration-500" />
+                  <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/50">
+                    <span className="text-lg text-green-500 font-bold">₹</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col">
+                  <h4 className="text-white font-bold text-xs">Redeem KTM</h4>
+                  <p className="text-green-400 text-[10px] font-bold">Value: ₹3,40,000</p>
+                </div>
+              </div>
+              <div className="bg-white/10 p-2 rounded-lg">
+                <ArrowRight size={16} className="text-gray-400" />
+              </div>
+            </div>
+
+            {/* 4. iPhone -> INR */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center justify-between hover:bg-white/10 transition-colors cursor-pointer group"
+              onClick={() => {
+                setExchangeMode('IPHONE_TO_INR');
+                setShowExchangeModal(true);
+              }}
+            >
+              <div className="flex items-center gap-4">
+                {/* Composite Icon */}
+                <div className="flex items-center bg-black/20 rounded-full p-1 border border-white/5">
+                  <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/50">
+                    <IPhoneToken size={16} />
+                  </div>
+                  <RefreshCw size={12} className="text-gray-500 mx-1 group-hover:rotate-180 transition-all duration-500" />
+                  <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/50">
+                    <span className="text-lg text-green-500 font-bold">₹</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col">
+                  <h4 className="text-white font-bold text-xs">Redeem iPhone</h4>
+                  <p className="text-green-400 text-[10px] font-bold">Value: ₹1,49,000</p>
+                </div>
+              </div>
+              <div className="bg-white/10 p-2 rounded-lg">
+                <ArrowRight size={16} className="text-gray-400" />
+              </div>
+            </div>
+          </div>
+
+          {/* Coming Soon Section */}
+          <div className="space-y-3 mb-6 opacity-60 grayscale">
+            <h3 className="text-gray-500 text-xs font-bold uppercase tracking-widest mb-2 pl-1">Coming Soon</h3>
+
+            {/* E-Tokens -> INR */}
+            <div className="bg-white/5 border border-white/5 rounded-xl p-3 flex items-center justify-between cursor-not-allowed">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/50">
+                  <EToken size={16} />
+                </div>
+                <div>
+                  <h4 className="text-gray-400 font-bold text-xs">E-Tokens <span className="text-gray-600">➔</span> INR</h4>
+                  <p className="text-gray-600 text-[10px]">Redeem Cash</p>
+                </div>
+              </div>
+              <Lock size={16} className="text-gray-600" />
+            </div>
+          </div>
+
+          {/* Withdraw Button */}
+          <div className="mt-auto">
+            <button
+              className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 rounded-xl shadow-lg shadow-green-600/20 flex items-center justify-center gap-2 group active:scale-95 transition-all"
+            >
+              <span className="text-white font-black uppercase tracking-widest">Withdraw Funds</span>
+              <ArrowRight className="text-white group-hover:translate-x-1 transition-transform" size={20} />
+            </button>
+            <p className="text-center text-[10px] text-gray-500 mt-2">
+              Minimum withdrawal: ₹100
+            </p>
+          </div>
+
         </div>
       )}
 
@@ -665,22 +859,70 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
             </button>
 
             <h3 className="text-xl font-black text-white uppercase tracking-wider mb-6 text-center">
-              Exchange <span className="text-red-500">Tokens</span>
+              {exchangeMode === 'COIN_TO_TOKEN' && <>Exchange <span className="text-yellow-500">Coins</span></>}
+              {exchangeMode === 'TOKEN_TO_SPIN' && <>Get <span className="text-cyan-400">Spin Tokens</span></>}
+              {exchangeMode === 'KTM_TO_INR' && <>Redeem <span className="text-orange-500">KTM</span></>}
+              {exchangeMode === 'IPHONE_TO_INR' && <>Redeem <span className="text-blue-500">iPhone</span></>}
+              {exchangeMode === 'TOKEN_TO_INR' && <>Redeem <span className="text-green-500">Cash</span></>}
             </h3>
 
             <div className="flex items-center justify-center gap-6 mb-8">
+              {/* Source Icon */}
               <div className="flex flex-col items-center gap-2">
-                <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/50">
-                  <span className="text-2xl">💰</span>
-                </div>
-                <span className="text-xs font-bold text-yellow-500">Coins</span>
+                {exchangeMode === 'COIN_TO_TOKEN' && (
+                  <>
+                    <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/50">
+                      <span className="text-2xl">💰</span>
+                    </div>
+                    <span className="text-xs font-bold text-yellow-500">Coins</span>
+                  </>
+                )}
+                {(exchangeMode === 'TOKEN_TO_SPIN' || exchangeMode === 'TOKEN_TO_INR') && (
+                  <>
+                    <EToken size={48} />
+                    <span className="text-xs font-bold text-red-500">E-Token</span>
+                  </>
+                )}
+                {exchangeMode === 'KTM_TO_INR' && (
+                  <>
+                    <KTMToken size={48} />
+                    <span className="text-xs font-bold text-orange-500">KTM</span>
+                  </>
+                )}
+                {exchangeMode === 'IPHONE_TO_INR' && (
+                  <>
+                    <IPhoneToken size={48} />
+                    <span className="text-xs font-bold text-blue-500">iPhone</span>
+                  </>
+                )}
               </div>
 
               <ArrowRight className="text-gray-500" />
 
+              {/* Target Icon */}
               <div className="flex flex-col items-center gap-2">
-                <EToken size={48} />
-                <span className="text-xs font-bold text-red-500">E-Token</span>
+                {exchangeMode === 'COIN_TO_TOKEN' && (
+                  <>
+                    <EToken size={48} />
+                    <span className="text-xs font-bold text-red-500">E-Token</span>
+                  </>
+                )}
+                {exchangeMode === 'TOKEN_TO_SPIN' && (
+                  <>
+                    <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center border border-cyan-500/50">
+                      <SpinToken size={32} />
+                    </div>
+                    <span className="text-xs font-bold text-cyan-400">Spin Token</span>
+                  </>
+                )}
+                {(exchangeMode === 'KTM_TO_INR' || exchangeMode === 'IPHONE_TO_INR' || exchangeMode === 'TOKEN_TO_INR') && (
+                  <>
+                    <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/50">
+                      <span className="text-2xl text-green-500">₹</span>
+                    </div>
+                    <span className="text-xs font-bold text-green-500">Rupees</span>
+                  </>
+                )}
               </div>
             </div>
 
@@ -703,19 +945,19 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                   <input
                     type="range"
                     min="1"
-                    max={Math.max(1, MAX_EXCHANGE)}
+                    max={Math.max(1, exchangeMode === 'COIN_TO_TOKEN' ? Math.floor(coins / 1000) : exchangeMode === 'TOKEN_TO_SPIN' ? eTokens : exchangeMode === 'KTM_TO_INR' ? ktmTokens : exchangeMode === 'IPHONE_TO_INR' ? iphoneTokens : eTokens)}
                     value={exchangeAmount}
                     onChange={(e) => setExchangeAmount(parseInt(e.target.value))}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
                   <div
-                    className="h-full bg-gradient-to-r from-red-600 to-red-400 rounded-full transition-all duration-100"
-                    style={{ width: `${(exchangeAmount / Math.max(1, MAX_EXCHANGE)) * 100}%` }}
+                    className={`h-full rounded-full transition-all duration-100 ${exchangeMode === 'COIN_TO_TOKEN' ? 'bg-gradient-to-r from-yellow-600 to-yellow-400' : exchangeMode === 'TOKEN_TO_SPIN' ? 'bg-gradient-to-r from-cyan-600 to-cyan-400' : 'bg-gradient-to-r from-green-600 to-green-400'}`}
+                    style={{ width: `${(exchangeAmount / Math.max(1, exchangeMode === 'COIN_TO_TOKEN' ? Math.floor(coins / 1000) : exchangeMode === 'TOKEN_TO_SPIN' ? eTokens : exchangeMode === 'KTM_TO_INR' ? ktmTokens : exchangeMode === 'IPHONE_TO_INR' ? iphoneTokens : eTokens)) * 100}%` }}
                   ></div>
                 </div>
 
                 <button
-                  onClick={() => setExchangeAmount(Math.min(MAX_EXCHANGE, exchangeAmount + 1))}
+                  onClick={() => setExchangeAmount(Math.min(exchangeMode === 'COIN_TO_TOKEN' ? Math.floor(coins / 1000) : exchangeMode === 'TOKEN_TO_SPIN' ? eTokens : exchangeMode === 'KTM_TO_INR' ? ktmTokens : exchangeMode === 'IPHONE_TO_INR' ? iphoneTokens : eTokens, exchangeAmount + 1))}
                   className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-white hover:bg-gray-700 transition-colors"
                 >
                   <Plus size={16} />
@@ -723,15 +965,21 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
               </div>
               <div className="flex justify-between mt-1">
                 <span className="text-[10px] text-gray-500">1</span>
-                <span className="text-[10px] text-gray-500">{MAX_EXCHANGE}</span>
+                <span className="text-[10px] text-gray-500">{exchangeMode === 'COIN_TO_TOKEN' ? Math.floor(coins / 1000) : exchangeMode === 'TOKEN_TO_SPIN' ? eTokens : exchangeMode === 'KTM_TO_INR' ? ktmTokens : exchangeMode === 'IPHONE_TO_INR' ? iphoneTokens : eTokens}</span>
               </div>
             </div>
 
-            {/* Cost Display */}
+            {/* Cost/Value Display */}
             <div className="flex items-center justify-between bg-black/40 rounded-lg p-3 mb-6 border border-white/5">
-              <span className="text-gray-400 text-sm font-bold">Total Cost</span>
-              <span className="text-red-400 font-bold text-lg">
-                -{(exchangeAmount * 1000).toLocaleString()} Coins
+              <span className="text-gray-400 text-sm font-bold">
+                {exchangeMode === 'COIN_TO_TOKEN' ? 'Total Cost' : 'Total Value'}
+              </span>
+              <span className={`${exchangeMode === 'COIN_TO_TOKEN' ? 'text-yellow-400' : exchangeMode === 'TOKEN_TO_SPIN' ? 'text-cyan-400' : 'text-green-400'} font-bold text-lg`}>
+                {exchangeMode === 'COIN_TO_TOKEN' && `${(exchangeAmount * 1000).toLocaleString()} Coins`}
+                {exchangeMode === 'TOKEN_TO_SPIN' && `${exchangeAmount.toLocaleString()} Spin Tokens`}
+                {exchangeMode === 'KTM_TO_INR' && `₹${(exchangeAmount * 340000).toLocaleString()}`}
+                {exchangeMode === 'IPHONE_TO_INR' && `₹${(exchangeAmount * 149000).toLocaleString()}`}
+                {exchangeMode === 'TOKEN_TO_INR' && `₹${exchangeAmount.toLocaleString()}`}
               </span>
             </div>
 
@@ -743,10 +991,10 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
 
             <button
               onClick={handleConfirmExchange}
-              disabled={exchangeAmount > MAX_EXCHANGE || coins < 1000}
+              disabled={exchangeAmount < 1 || (exchangeMode === 'COIN_TO_TOKEN' ? coins < 1000 : exchangeMode === 'TOKEN_TO_SPIN' ? eTokens < 1 : exchangeMode === 'KTM_TO_INR' ? ktmTokens < 1 : exchangeMode === 'IPHONE_TO_INR' ? iphoneTokens < 1 : eTokens < 1)}
               className="w-full py-3 bg-white text-black font-black uppercase tracking-widest rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Confirm Exchange
+              Confirm {exchangeMode === 'COIN_TO_TOKEN' || exchangeMode === 'TOKEN_TO_SPIN' ? 'Exchange' : 'Redeem'}
             </button>
 
           </div>

@@ -21,19 +21,14 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
    };
 
    const handleShare = () => {
-      const shareUrl = `${window.location.origin}?ref=${referralCode}`;
-      const shareData = {
-         title: 'Lucky Chakra',
-         text: `Use my code ${referralCode} to join Lucky Chakra and win prizes!`,
-         url: shareUrl
-      };
-
       if (navigator.share) {
-         navigator.share(shareData).catch(console.error);
+         navigator.share({
+            title: 'Lucky Chakra',
+            text: `Use my code ${referralCode} to join Lucky Chakra and win prizes!`,
+            url: window.location.href
+         }).catch(console.error);
       } else {
-         navigator.clipboard.writeText(`${shareData.text} ${shareData.url}`);
-         setCopied(true);
-         setTimeout(() => setCopied(false), 2000);
+         handleCopyCode();
       }
    };
 
@@ -99,8 +94,8 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
                   <span className="text-xs text-purple-300 font-bold uppercase">Friends Referred</span>
                </div>
                <div className="flex flex-col items-end">
-                  <span className="text-xl font-bold text-yellow-400">+{referralCount * 5} Tokens</span>
-                  <span className="text-xs text-gray-400 uppercase">Total Earned</span>
+                  <span className="text-xl font-bold text-yellow-400">+{referralCount * 105}</span>
+                  <span className="text-xs text-gray-400 uppercase">Max Tokens Earned</span>
                </div>
             </div>
 
@@ -109,16 +104,21 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
                className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
             >
                <Share2 size={18} />
-               Share Link
+               Share with Friends
             </button>
 
-            <div className="mt-4 space-y-2">
-               <p className="text-center text-[10px] text-gray-400">
-                  <span className="text-cyan-400 font-bold">5 Tokens</span> when they join using your link/code.
-               </p>
-               <p className="text-center text-[10px] text-gray-400">
-                  <span className="text-yellow-400 font-bold">1 Token</span> per level up (up to 100 levels).
-               </p>
+            <div className="mt-4 p-3 bg-white/5 rounded-lg border border-white/5">
+               <h4 className="text-xs font-bold text-white uppercase mb-2">Rewards Breakdown:</h4>
+               <ul className="space-y-1 text-[10px] text-gray-400">
+                  <li className="flex items-center gap-2">
+                     <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                     <span><strong className="text-white">5 Tokens</strong> instantly when they join</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                     <span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>
+                     <span><strong className="text-white">1 Token</strong> for every level they gain (up to Lvl 100)</span>
+                  </li>
+               </ul>
             </div>
          </div>
 
