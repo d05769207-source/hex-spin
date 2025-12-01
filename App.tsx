@@ -164,6 +164,7 @@ const App: React.FC = () => {
 
   // User & Auth State
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true); // Add loading state
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [showUsernameModal, setShowUsernameModal] = useState<boolean>(false);
 
@@ -339,6 +340,7 @@ const App: React.FC = () => {
           setShowUsernameModal(true);
         }
         setShowLoginModal(false);
+        setIsLoading(false); // Auth check complete
       } else {
         // User is signed out - Load guest data from localStorage
         setUser(null);
@@ -351,6 +353,7 @@ const App: React.FC = () => {
         setInrBalance(0); // Guests don't get real money
         setTotalSpins(0); // Guests don't track spins for now or load from local if needed
         totalSpinsRef.current = 0; // SYNC REF
+        setIsLoading(false); // Auth check complete (Guest mode)
       }
     });
 
@@ -797,6 +800,14 @@ const App: React.FC = () => {
     setLongPressProgress(0);
     pressStartTime.current = null;
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-cyan-500"></div>
+      </div>
+    );
+  }
 
   // --- RENDER CONTENT BASED ON PAGE ---
   const renderContent = () => {
