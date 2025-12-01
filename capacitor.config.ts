@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Hexfire Royal Spin',
   webDir: 'dist',
   server: {
-    url: 'http://10.0.2.2:3000', // Android Emulator localhost
+    url: 'http://192.168.1.195:3000', // Local IP for Physical Device
     cleartext: true
   }
 };

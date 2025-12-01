@@ -25,6 +25,7 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
+import { ensureUserHasDisplayId } from './services/userService';
 import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
 import { processLevelUpReward } from './services/referralService';
@@ -193,8 +194,11 @@ const App: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
   const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
 
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false); // Prevent sync until data is loaded
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true); // Sync State
+  const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(true);
+  const lastLeaderboardSync = useRef<number>(0); // Track last sync time
+  const lastSyncedCoins = useRef<number>(0);     // Track last synced coin value
+  // Prevent sync until data is loaded
 
   console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
 
@@ -244,10 +248,12 @@ const App: React.FC = () => {
               setTotalSpins(loadedSpins);
               totalSpinsRef.current = loadedSpins; // SYNC REF WITH LOADED DATA
 
-              // Update user object with photoURL from Firestore
-              if (userData.photoURL) {
-                setUser(prev => prev ? { ...prev, photoURL: userData.photoURL } : null);
-              }
+              // Update user object with photoURL and displayId from Firestore
+              setUser(prev => prev ? {
+                ...prev,
+                photoURL: userData.photoURL || prev.photoURL,
+                displayId: userData.displayId
+              } : null);
 
               console.log('✅ User data loaded successfully:', {
                 tokens: userData.tokens || 10,
@@ -273,6 +279,20 @@ const App: React.FC = () => {
               if (!userData.referredBy && !userData.referralDismissed) {
                 // Small delay to let UI settle
                 setTimeout(() => setShowReferralModal(true), 2000);
+              }
+
+              // BACKFILL: Ensure user has a numeric ID and Referral Code
+              if (!userData.displayId || !userData.referralCode) {
+                // Pass both id and uid to be safe
+                ensureUserHasDisplayId({ ...userData, uid: firebaseUser.uid, id: firebaseUser.uid } as any).then(updatedUser => {
+                  if (updatedUser.displayId || updatedUser.referralCode) {
+                    setUser(prev => prev ? {
+                      ...prev,
+                      displayId: updatedUser.displayId,
+                      referralCode: updatedUser.referralCode
+                    } : null);
+                  }
+                });
               }
             } else {
               console.log('⚠️ No user document found in Firestore, creating default data...');
@@ -388,13 +408,34 @@ const App: React.FC = () => {
 
         console.log('✅ User Data Synced to Firestore:', updates);
 
-        // Also sync to leaderboard if coins changed (handled by service, but we can do it here too if needed)
-        // Note: Leaderboard sync is now handled by the useEffect hook in App.tsx
-        // watching the 'coins' state change.
-        // For now, we keep leaderboard sync separate or rely on this update if the leaderboard service listens to changes?
-        // Assuming syncUserToLeaderboard writes to a separate 'leaderboard' collection, we should call it here too if coins changed.
-        // But to save quota, let's only call it if we really need to. 
-        // For now, let's just stick to updating the USER document.
+        // --- LEADERBOARD SYNC (Throttled) ---
+        // Prevent excessive writes (20k+ issue) by syncing only when needed.
+        const now = Date.now();
+        const timeDiff = now - lastLeaderboardSync.current;
+        const coinDiff = Math.abs(coins - lastSyncedCoins.current);
+
+        // Sync if:
+        // 1. More than 1 minute has passed since last sync (timeDiff > 60000)
+        // 2. OR Coins changed by more than 5000 (coinDiff > 5000)
+        // 3. AND we have a valid user ID
+        if (user.id && (timeDiff > 60000 || coinDiff > 5000)) {
+          console.log(`🏆 Syncing to Leaderboard... (TimeDiff: ${timeDiff}ms, CoinDiff: ${coinDiff})`);
+
+          syncUserToLeaderboard(
+            user.id,
+            user.username || 'Player',
+            coins,
+            user.photoURL
+          ).then(() => {
+            lastLeaderboardSync.current = now;
+            lastSyncedCoins.current = coins;
+            console.log('✅ Leaderboard Synced Successfully');
+          }).catch(err => {
+            console.error('❌ Leaderboard Sync Failed:', err);
+          });
+        } else {
+          console.log(`Skipping Leaderboard Sync (TimeDiff: ${timeDiff}ms, CoinDiff: ${coinDiff})`);
+        }
 
         // CHECK FOR REFERRAL REWARD (Level Up)
         if (user.referredBy) {

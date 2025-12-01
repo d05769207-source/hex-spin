@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Loader2, Plus, X, UserPlus, User as UserIcon, Bell, Search, Check, UserMinus } from 'lucide-react';
+import { Trophy, Users, Loader2, Plus, X, UserPlus, User as UserIcon, Bell, Search, Check, UserMinus, Copy } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
 import { LeaderboardEntry, User } from '../../types';
@@ -654,12 +654,29 @@ const Leaderboard: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Middle: Name & Email */}
+                    {/* Middle: Name & UID */}
                     <div className="flex-1 flex flex-col justify-center px-4">
                       <h3 className="text-base font-bold text-white truncate max-w-[150px]">{viewProfileUser.username || 'Guest Player'}</h3>
-                      <p className="text-gray-500 text-[10px] truncate max-w-[150px]">
-                        {viewProfileUser.email || 'No email linked'}
-                      </p>
+
+                      {/* UID Display with Copy */}
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">UID:</span>
+                        <span className="text-[10px] text-yellow-500 font-mono font-bold">
+                          {viewProfileUser.displayId ? viewProfileUser.displayId : '---'}
+                        </span>
+                        {viewProfileUser.displayId && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(viewProfileUser.displayId?.toString() || '');
+                            }}
+                            className="ml-1 p-0.5 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                            title="Copy UID"
+                          >
+                            <Copy size={10} />
+                          </button>
+                        )}
+                      </div>
 
                       {/* Level Progress Bar */}
                       <div className="w-full mt-2">

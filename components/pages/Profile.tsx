@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera, Trophy, Lock, CheckCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera, Trophy, Lock, CheckCircle, RefreshCw, Copy } from 'lucide-react';
 import { User } from '../../types';
 import { db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -471,12 +471,54 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                 </div>
               </div>
 
-              {/* Middle: Name & Email */}
+              {/* Middle: Name & UID */}
               <div className="flex-1 flex flex-col justify-center px-4 border-r border-white/10">
-                <h3 className="text-sm font-bold text-white truncate max-w-[120px]">{user?.username || 'Guest Player'}</h3>
-                <p className="text-gray-500 text-[10px] truncate max-w-[120px]">
-                  {user?.email || 'No email linked'}
-                </p>
+                <h3 className="text-xl font-black text-white truncate max-w-[200px] uppercase tracking-wide drop-shadow-md">
+                  {user.username || 'Guest Player'}
+                </h3>
+
+                {/* UID Display with Copy */}
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="bg-black/40 border border-white/10 rounded px-2 py-0.5 flex items-center gap-2">
+                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">UID:</span>
+                    <span className="text-xs text-yellow-500 font-mono font-bold">
+                      {user.displayId ? user.displayId : '---'}
+                    </span>
+                  </div>
+                  {user.displayId ? (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(user.displayId?.toString() || '');
+                        // Optional: Show toast
+                      }}
+                      className="p-1 bg-white/5 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                      title="Copy UID"
+                    >
+                      <Copy size={12} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async () => {
+                        // Manual trigger for ID generation
+                        try {
+                          const { ensureUserHasDisplayId } = await import('../../services/userService');
+                          const updatedUser = await ensureUserHasDisplayId(user);
+                          if (updatedUser.displayId) {
+                            // Force reload or update parent state (simplest is to alert user to reload for now, or we can try to update local state if we had a setter)
+                            alert('UID Generated! Please reload the app to see it.');
+                            window.location.reload();
+                          }
+                        } catch (e) {
+                          console.error(e);
+                          alert('Failed to generate UID. Check console.');
+                        }
+                      }}
+                      className="px-2 py-0.5 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500/50 rounded text-[10px] text-yellow-500 font-bold transition-colors"
+                    >
+                      GENERATE
+                    </button>
+                  )}
+                </div>
 
                 {/* Level Progress Bar */}
                 <div className="w-full mt-2">

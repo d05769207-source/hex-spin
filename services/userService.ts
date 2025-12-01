@@ -1,6 +1,37 @@
-import { doc, setDoc, getDoc, updateDoc, Timestamp, increment } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, Timestamp, increment, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from '../types';
+
+// Generate the next numeric User ID using a transaction
+export const getNextUserId = async (): Promise<number> => {
+    const counterRef = doc(db, 'counters', 'userStats');
+
+    try {
+        return await runTransaction(db, async (transaction) => {
+            const counterDoc = await transaction.get(counterRef);
+
+            let newId = 100000; // Default start ID
+
+            if (counterDoc.exists()) {
+                const currentId = counterDoc.data().lastUserId;
+                newId = currentId + 1;
+            }
+
+            transaction.set(counterRef, { lastUserId: newId }, { merge: true });
+            return newId;
+        });
+    } catch (error) {
+        console.error("Error generating User ID:", error);
+        throw error;
+    }
+};
+
+// Helper to generate a simple referral code
+const generateReferralCode = (displayId: number): string => {
+    // Simple strategy: HEX + displayId (e.g., HEX100001)
+    // This ensures uniqueness since displayId is unique.
+    return `HEX${displayId}`;
+};
 
 // Create user profile in Firestore
 export const createUserProfile = async (user: User): Promise<void> => {
@@ -13,6 +44,10 @@ export const createUserProfile = async (user: User): Promise<void> => {
         const userDoc = await getDoc(userRef);
 
         if (!userDoc.exists()) {
+            // Generate a numeric ID for the new user
+            const displayId = await getNextUserId();
+            const referralCode = generateReferralCode(displayId);
+
             await setDoc(userRef, {
                 uid: user.uid,
                 email: user.email || '',
@@ -21,6 +56,9 @@ export const createUserProfile = async (user: User): Promise<void> => {
                 eTokens: user.eTokens || 0,
                 weeklyCoins: 0,
                 photoURL: user.photoURL || null,
+                displayId: displayId, // Save the numeric ID
+                referralCode: referralCode, // Save the generated referral code
+                referralCount: 0,
                 createdAt: Timestamp.now(),
                 lastActive: Timestamp.now(),
                 weekStartDate: Timestamp.now()
@@ -49,6 +87,11 @@ export const getUserProfile = async (uid: string): Promise<User | null> => {
                 eTokens: data.eTokens,
                 weeklyCoins: data.weeklyCoins,
                 photoURL: data.photoURL,
+                displayId: data.displayId,
+                referralCode: data.referralCode,
+                referralCount: data.referralCount,
+                referredBy: data.referredBy,
+                referralDismissed: data.referralDismissed,
                 createdAt: data.createdAt?.toDate(),
                 lastActive: data.lastActive?.toDate(),
                 weekStartDate: data.weekStartDate?.toDate()
@@ -100,4 +143,48 @@ export const updateUserETokens = async (uid: string, tokensToAdd: number): Promi
         console.error('Error updating user e-tokens:', error);
         throw error;
     }
+};
+
+// Ensure user has a numeric display ID and Referral Code (Backfill for existing users)
+export const ensureUserHasDisplayId = async (user: User): Promise<User> => {
+    let updates: any = {};
+    let updatedUser = { ...user };
+    let needsUpdate = false;
+
+    // 1. Check for Display ID
+    if (!user.displayId) {
+        console.log(`User ${user.uid} missing displayId, generating one...`);
+        try {
+            const newId = await getNextUserId();
+            updates.displayId = newId;
+            updatedUser.displayId = newId;
+            needsUpdate = true;
+        } catch (error) {
+            console.error("Error generating display ID:", error);
+        }
+    }
+
+    // 2. Check for Referral Code
+    // We need a displayId to generate a referral code (using our strategy HEX + ID)
+    if (!user.referralCode && updatedUser.displayId) {
+        console.log(`User ${user.uid} missing referralCode, generating one...`);
+        const newCode = generateReferralCode(updatedUser.displayId);
+        updates.referralCode = newCode;
+        updatedUser.referralCode = newCode;
+        needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+        try {
+            const userRef = doc(db, 'users', user.uid!);
+            await updateDoc(userRef, updates);
+            console.log(`✅ Backfilled missing data for user ${user.uid}:`, updates);
+            return updatedUser;
+        } catch (error) {
+            console.error("Error updating user profile with backfilled data:", error);
+            return user;
+        }
+    }
+
+    return user;
 };

@@ -34,6 +34,7 @@ export interface User {
   photoURL?: string;
   weeklyCoins?: number;
   coins?: number; // Total coins for leaderboard sync
+  displayId?: number; // Numeric ID for display (e.g., 100000)
   createdAt?: Date;
   lastActive?: Date;
   weekStartDate?: Date;
