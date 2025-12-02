@@ -25,10 +25,10 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
-import { ensureUserHasDisplayId } from './services/userService';
+import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
 import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
-import { processLevelUpReward } from './services/referralService';
+import { processLevelUpReward, validateReferralCode, applyReferral } from './services/referralService';
 
 // --- WEB AUDIO API SYSTEM ---
 // Synthesizing sounds guarantees playback without network issues, CORS errors, or loading delays.
@@ -195,7 +195,7 @@ const App: React.FC = () => {
   const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true); // Sync State
-  const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(true);
+  const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false);
   const lastLeaderboardSync = useRef<number>(0); // Track last sync time
   const lastSyncedCoins = useRef<number>(0);     // Track last synced coin value
   // Prevent sync until data is loaded
@@ -276,10 +276,8 @@ const App: React.FC = () => {
                 referralDismissed: userData.referralDismissed
               });
 
-              if (!userData.referredBy && !userData.referralDismissed) {
-                // Small delay to let UI settle
-                setTimeout(() => setShowReferralModal(true), 2000);
-              }
+              // Referral modal logic removed as it is now handled in UsernameModal
+
 
               // BACKFILL: Ensure user has a numeric ID and Referral Code
               if (!userData.displayId || !userData.referralCode) {
@@ -295,39 +293,10 @@ const App: React.FC = () => {
                 });
               }
             } else {
-              console.log('⚠️ No user document found in Firestore, creating default data...');
-
-              // Create user document if it doesn't exist
-              const defaultUserData = {
-                uid: firebaseUser.uid,
-                email: firebaseUser.email,
-                username: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-                coins: 0,
-                tokens: 10,
-                eTokens: 0,
-                ktmTokens: 0,
-                iphoneTokens: 0,
-                inrBalance: 0,
-                totalSpins: 0,
-                createdAt: new Date(),
-                isGuest: false
-              };
-
-              try {
-                await setDoc(userDocRef, defaultUserData);
-                console.log('✅ Default user data created in Firestore');
-              } catch (createError) {
-                console.error('❌ Failed to create user document:', createError);
-              }
-
-              setBalance(10);
-              setCoins(0);
-              setETokens(0);
-              setKtmTokens(0);
-              setIphoneTokens(0);
-              setInrBalance(0);
-              setTotalSpins(0);
-              totalSpinsRef.current = 0; // SYNC REF
+              console.log('⚠️ No user document found in Firestore, prompting for username...');
+              // New User Flow: Show Username Modal to collect username & referral code
+              // We DO NOT create the user document here anymore. It happens in handleUsernameSet.
+              setShowUsernameModal(true);
             }
 
             // Enable sync AFTER data is loaded with a small delay
@@ -740,29 +709,74 @@ const App: React.FC = () => {
     // If user has no username, useEffect will trigger UsernameModal
   };
 
-  const handleUsernameSet = async (username: string) => {
+  const handleUsernameSet = async (username: string, referralCode?: string) => {
     if (auth.currentUser) {
       try {
+        // 1. Update Auth Profile
         await updateProfile(auth.currentUser, {
           displayName: username
         });
 
-        // Force update local state
-        setUser({
+        // 2. Create User Profile in Firestore
+        const newUser: User = {
           id: auth.currentUser.uid,
           uid: auth.currentUser.uid,
           username: username,
           email: auth.currentUser.email || undefined,
           isGuest: false,
-          photoURL: auth.currentUser.photoURL || undefined
+          photoURL: auth.currentUser.photoURL || undefined,
+          tokens: 10, // Welcome Bonus
+          coins: 0,
+          eTokens: 0,
+          ktmTokens: 0,
+          iphoneTokens: 0,
+          inrBalance: 0,
+          totalSpins: 0
+        };
+
+        await createUserProfile(newUser);
+        console.log('✅ User profile created via handleUsernameSet');
+
+        // 3. Handle Referral Code (if provided)
+        if (referralCode) {
+          console.log('Processing referral code:', referralCode);
+          const referrerId = await validateReferralCode(referralCode, auth.currentUser.uid);
+
+          if (referrerId) {
+            const result = await applyReferral(auth.currentUser.uid, referrerId);
+            if (result.success) {
+              console.log('✅ Referral applied successfully');
+              // Optional: Show success toast
+            } else {
+              console.warn('❌ Failed to apply referral:', result.message);
+              alert(`Referral failed: ${result.message}`);
+            }
+          } else {
+            console.warn('❌ Invalid referral code');
+            alert('Invalid referral code. Account created without referral.');
+          }
+        }
+
+        // 4. Force update local state
+        setUser({
+          ...newUser,
+          displayId: undefined, // Will be loaded/generated on next fetch or by createUserProfile
+          referralCode: undefined
         });
 
-        // REWARD: Add 10 Free Spins
-        setBalance(prev => prev + 10);
+        // REWARD: Add 10 Free Spins (Already in createUserProfile, but update local state)
+        setBalance(10);
 
         setShowUsernameModal(false);
+
+        // Reload page to ensure everything syncs perfectly (optional but safer for initial load)
+        // window.location.reload(); 
+        // Better: Re-trigger auth check or just let the state update handle it. 
+        // Since we set User state, the app should unlock.
+
       } catch (error) {
         console.error("Error setting username:", error);
+        alert("Error creating account. Please try again.");
       }
     }
   };

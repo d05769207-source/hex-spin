@@ -31,6 +31,9 @@ export interface User {
   username?: string;
   isGuest: boolean;
   eTokens?: number;
+  tokens?: number; // Spin tokens
+  ktmTokens?: number;
+  iphoneTokens?: number;
   photoURL?: string;
   weeklyCoins?: number;
   coins?: number; // Total coins for leaderboard sync
