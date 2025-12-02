@@ -34,7 +34,7 @@ const generateReferralCode = (displayId: number): string => {
 };
 
 // Create user profile in Firestore
-export const createUserProfile = async (user: User): Promise<void> => {
+export const createUserProfile = async (user: User): Promise<{ displayId: number, referralCode: string } | void> => {
     try {
         if (!user.uid) {
             throw new Error('User UID is required');
@@ -63,6 +63,15 @@ export const createUserProfile = async (user: User): Promise<void> => {
                 lastActive: Timestamp.now(),
                 weekStartDate: Timestamp.now()
             });
+
+            return { displayId, referralCode };
+        } else {
+            // User already exists, return existing data
+            const data = userDoc.data();
+            return {
+                displayId: data.displayId,
+                referralCode: data.referralCode
+            };
         }
     } catch (error) {
         console.error('Error creating user profile:', error);

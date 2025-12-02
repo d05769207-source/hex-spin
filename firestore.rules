@@ -1,12 +1,8 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    
     // Users: 
-    // - Anyone authenticated can READ user profiles (needed for Leaderboard/View Profile)
-    // - Users can only WRITE their own data
+    // - Authenticated users can READ profiles
+    // - Authenticated users can WRITE (Needed for Referral System to update other users)
     match /users/{userId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // Leaderboard: Authenticated users can read/write

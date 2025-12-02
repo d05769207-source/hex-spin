@@ -31,7 +31,7 @@ const UsernameModal: React.FC<UsernameModalProps> = ({ onSubmit }) => {
       // But if it fails/throws, we catch it below.
     } catch (err) {
       console.error("Error submitting username:", err);
-      setError('Something went wrong. Please try again.');
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
       setLoading(false);
     }
   };

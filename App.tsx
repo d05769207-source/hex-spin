@@ -252,7 +252,11 @@ const App: React.FC = () => {
               setUser(prev => prev ? {
                 ...prev,
                 photoURL: userData.photoURL || prev.photoURL,
-                displayId: userData.displayId
+                displayId: userData.displayId,
+                referralCode: userData.referralCode,
+                referralCount: userData.referralCount,
+                referredBy: userData.referredBy,
+                referralDismissed: userData.referralDismissed
               } : null);
 
               console.log('✅ User data loaded successfully:', {
@@ -734,8 +738,8 @@ const App: React.FC = () => {
           totalSpins: 0
         };
 
-        await createUserProfile(newUser);
-        console.log('✅ User profile created via handleUsernameSet');
+        const result = await createUserProfile(newUser);
+        console.log('✅ User profile created via handleUsernameSet', result);
 
         // 3. Handle Referral Code (if provided)
         if (referralCode) {
@@ -743,25 +747,25 @@ const App: React.FC = () => {
           const referrerId = await validateReferralCode(referralCode, auth.currentUser.uid);
 
           if (referrerId) {
-            const result = await applyReferral(auth.currentUser.uid, referrerId);
-            if (result.success) {
+            const referralResult = await applyReferral(auth.currentUser.uid, referrerId);
+            if (referralResult.success) {
               console.log('✅ Referral applied successfully');
               // Optional: Show success toast
             } else {
-              console.warn('❌ Failed to apply referral:', result.message);
-              alert(`Referral failed: ${result.message}`);
+              console.warn('❌ Failed to apply referral:', referralResult.message);
+              throw new Error(referralResult.message || 'Referral failed');
             }
           } else {
             console.warn('❌ Invalid referral code');
-            alert('Invalid referral code. Account created without referral.');
+            throw new Error('Invalid referral code');
           }
         }
 
         // 4. Force update local state
         setUser({
           ...newUser,
-          displayId: undefined, // Will be loaded/generated on next fetch or by createUserProfile
-          referralCode: undefined
+          displayId: result ? result.displayId : undefined,
+          referralCode: result ? result.referralCode : undefined
         });
 
         // REWARD: Add 10 Free Spins (Already in createUserProfile, but update local state)

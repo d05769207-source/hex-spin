@@ -11,7 +11,7 @@ interface ShopProps {
 const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
    const [copied, setCopied] = useState(false);
 
-   const referralCode = user?.referralCode || user?.uid?.substring(0, 6).toUpperCase() || '------';
+   const referralCode = user?.referralCode || 'LOADING...';
    const referralCount = user?.referralCount || 0;
 
    const handleCopyCode = () => {
@@ -94,8 +94,8 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
                   <span className="text-xs text-purple-300 font-bold uppercase">Friends Referred</span>
                </div>
                <div className="flex flex-col items-end">
-                  <span className="text-xl font-bold text-yellow-400">+{referralCount * 105}</span>
-                  <span className="text-xs text-gray-400 uppercase">Max Tokens Earned</span>
+                  <span className="text-xl font-bold text-yellow-400">+{referralCount * 5}</span>
+                  <span className="text-xs text-gray-400 uppercase">Tokens Earned</span>
                </div>
             </div>
 
