@@ -23,7 +23,7 @@ import InfoModal from './components/InfoModal';
 import { Volume2, VolumeX, Info } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
 import { calculateLevel } from './utils/levelUtils';
@@ -191,6 +191,8 @@ const App: React.FC = () => {
   const totalSpinsRef = useRef<number>(0);
   const [ktmTokens, setKtmTokens] = useState<number>(0); // Placeholder for now
   const [iphoneTokens, setIphoneTokens] = useState<number>(0); // Placeholder for now
+  const [spinsToday, setSpinsToday] = useState<number>(0);
+  const [superModeEndTime, setSuperModeEndTime] = useState<Date | null>(null);
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
   const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
 
@@ -244,6 +246,17 @@ const App: React.FC = () => {
               setKtmTokens(userData.ktmTokens || 0);
               setIphoneTokens(userData.iphoneTokens || 0);
               setInrBalance(userData.inrBalance || 0);
+
+              // Daily Reset Logic
+              const lastDate = userData.lastSpinDate ? userData.lastSpinDate.toDate() : new Date();
+              const today = new Date();
+              const isSameDay = lastDate.getDate() === today.getDate() &&
+                lastDate.getMonth() === today.getMonth() &&
+                lastDate.getFullYear() === today.getFullYear();
+
+              setSpinsToday(isSameDay ? (userData.spinsToday || 0) : 0);
+              setSuperModeEndTime(userData.superModeEndTime ? userData.superModeEndTime.toDate() : null);
+
               const loadedSpins = userData.totalSpins || 0;
               setTotalSpins(loadedSpins);
               totalSpinsRef.current = loadedSpins; // SYNC REF WITH LOADED DATA
@@ -374,7 +387,10 @@ const App: React.FC = () => {
           iphoneTokens: iphoneTokens,
           inrBalance: inrBalance,
           totalSpins: totalSpins,
-          level: currentLevel
+          level: currentLevel,
+          spinsToday: spinsToday,
+          lastSpinDate: Timestamp.now(),
+          superModeEndTime: superModeEndTime ? Timestamp.fromDate(superModeEndTime) : null
         };
 
         await updateDoc(userDocRef, updates);
@@ -428,7 +444,7 @@ const App: React.FC = () => {
     // This allows multiple rapid spins/changes to be batched into ONE write
     const timeoutId = setTimeout(syncUserData, 2000);
     return () => clearTimeout(timeoutId);
-  }, [balance, coins, eTokens, ktmTokens, iphoneTokens, inrBalance, totalSpins, user, isSyncEnabled]);
+  }, [balance, coins, eTokens, ktmTokens, iphoneTokens, inrBalance, totalSpins, user, isSyncEnabled, spinsToday, superModeEndTime]);
 
   // SYNC GUEST DATA TO LOCALSTORAGE (Guest users only)
   useEffect(() => {
@@ -546,6 +562,19 @@ const App: React.FC = () => {
     totalSpinsRef.current = newTotalSpins;
     setTotalSpins(newTotalSpins);
 
+    // SUPER MODE TRACKING
+    const today = new Date();
+    setSpinsToday(prev => {
+      const newVal = prev + count;
+      // Activate Super Mode if threshold reached
+      if (prev < 100 && newVal >= 100) {
+        const endTime = new Date(today.getTime() + 60 * 60 * 1000); // 1 Hour
+        setSuperModeEndTime(endTime);
+        console.log('🔥 SUPER MODE ACTIVATED!');
+      }
+      return newVal;
+    });
+
     // DIRECT SYNC TO FIRESTORE (Bypass useEffect for critical update)
     if (user && !user.isGuest) {
       console.log('🔄 Starting direct sync for user:', user.id);
@@ -553,7 +582,9 @@ const App: React.FC = () => {
       const userDocRef = doc(db, 'users', user.id);
       updateDoc(userDocRef, {
         totalSpins: newTotalSpins,
-        level: currentLevel
+        level: currentLevel,
+        spinsToday: spinsToday + count, // Optimistic update
+        lastSpinDate: Timestamp.now()
       }).then(() => {
         console.log('✅ DIRECT SYNC SUCCESS: Spins:', newTotalSpins, 'Level:', currentLevel);
       }).catch(err => {
@@ -568,9 +599,19 @@ const App: React.FC = () => {
 
     // 1. Decide Winners
     const winners: GameItem[] = [];
+    const isSuperMode = superModeEndTime && new Date() < superModeEndTime;
+
     for (let i = 0; i < count; i++) {
-      const randomIndex = Math.floor(Math.random() * ITEMS.length);
-      winners.push(ITEMS[randomIndex]);
+      let randomIndex = Math.floor(Math.random() * ITEMS.length);
+      let item = ITEMS[randomIndex];
+
+      // SUPER MODE LUCK BOOST: Re-roll if Common (50% chance)
+      if (isSuperMode && item.rarity === 'COMMON' && Math.random() > 0.5) {
+        console.log('🔥 Super Mode Luck Boost! Re-rolling...');
+        randomIndex = Math.floor(Math.random() * ITEMS.length);
+        item = ITEMS[randomIndex];
+      }
+      winners.push(item);
     }
     setWonItems(winners);
 
@@ -594,7 +635,13 @@ const App: React.FC = () => {
 
       // Calculate Reward
       if (winners[i].name.includes('Coins') && winners[i].amount) {
-        const coinsEarned = winners[i].amount!;
+        let coinsEarned = winners[i].amount!;
+
+        // SUPER MODE COIN BOOST
+        if (isSuperMode) {
+          coinsEarned *= 2;
+          console.log('🔥 Super Mode Coin Boost! 2x Applied');
+        }
         setCoins(prev => prev + coinsEarned);
 
         // Update leaderboard for logged-in users (not guests)
@@ -933,6 +980,8 @@ const App: React.FC = () => {
                 isSpinning={isSpinning}
                 balance={balance}
                 isAdminMode={isAdminMode}
+                spinsToday={spinsToday}
+                superModeEndTime={superModeEndTime}
               />
             </div>
           </>

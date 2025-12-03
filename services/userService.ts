@@ -61,7 +61,10 @@ export const createUserProfile = async (user: User): Promise<{ displayId: number
                 referralCount: 0,
                 createdAt: Timestamp.now(),
                 lastActive: Timestamp.now(),
-                weekStartDate: Timestamp.now()
+                weekStartDate: Timestamp.now(),
+                spinsToday: 0,
+                lastSpinDate: Timestamp.now(),
+                superModeEndTime: null
             });
 
             return { displayId, referralCode };
@@ -103,7 +106,10 @@ export const getUserProfile = async (uid: string): Promise<User | null> => {
                 referralDismissed: data.referralDismissed,
                 createdAt: data.createdAt?.toDate(),
                 lastActive: data.lastActive?.toDate(),
-                weekStartDate: data.weekStartDate?.toDate()
+                weekStartDate: data.weekStartDate?.toDate(),
+                spinsToday: data.spinsToday || 0,
+                lastSpinDate: data.lastSpinDate?.toDate(),
+                superModeEndTime: data.superModeEndTime?.toDate()
             };
         }
 

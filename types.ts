@@ -49,6 +49,9 @@ export interface User {
   referralDismissed?: boolean; // Has user permanently dismissed the referral prompt?
   lastLevelRewardTriggered?: number; // The last level for which the referrer received a reward
   inrBalance?: number; // Real money balance in Rupees (INR)
+  spinsToday?: number; // Spins performed today (resets daily)
+  lastSpinDate?: Date; // Date of the last spin (for daily reset)
+  superModeEndTime?: Date; // When the Super Mode expires
 }
 
 export interface LeaderboardEntry {

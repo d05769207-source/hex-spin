@@ -6,6 +6,8 @@ interface SpinControlsProps {
   isSpinning: boolean;
   balance: number;
   isAdminMode?: boolean;
+  spinsToday: number;
+  superModeEndTime: Date | null;
 }
 
 // Professional P-Token Icon (Futuristic Hexagon Chip)
@@ -33,68 +35,135 @@ const TokenIcon = () => (
   </div>
 );
 
-const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance, isAdminMode = false }) => {
+const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance, isAdminMode = false, spinsToday, superModeEndTime }) => {
+  const [timeLeft, setTimeLeft] = React.useState<string>('');
+  const isSuperMode = superModeEndTime && new Date() < superModeEndTime;
+
+  React.useEffect(() => {
+    if (!superModeEndTime) return;
+
+    const updateTimer = () => {
+      const now = new Date();
+      const diff = superModeEndTime.getTime() - now.getTime();
+      if (diff <= 0) {
+        setTimeLeft('00:00');
+        return;
+      }
+      const m = Math.floor(diff / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(`${m}:${s.toString().padStart(2, '0')}`);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [superModeEndTime]);
+
+  const progress = Math.min((spinsToday / 100) * 100, 100);
+
   return (
-    <div className="w-full max-w-2xl mx-auto flex justify-center items-end gap-4 sm:gap-12 px-4">
+    <div className="w-full flex flex-col items-center gap-4 mb-4">
 
-      {/* 1 Spin Button - Blue Crystal Shape */}
-      <button
-        onClick={() => onSpin(1)}
-        disabled={isSpinning}
-        className={`
-          relative group transition-all duration-200 active:scale-95
-          ${isSpinning ? 'opacity-60 grayscale' : 'hover:brightness-110'}
-        `}
-      >
-        {/* Button Shape */}
-        <div className="
-          w-32 h-10 md:w-48 md:h-16 
-          bg-gradient-to-r from-cyan-600 via-blue-500 to-blue-700
-          skew-x-[-20deg]
-          border-t-2 border-l-2 border-cyan-300
-          border-b-4 border-r-4 border-blue-900
-          shadow-[0_0_20px_rgba(6,182,212,0.6)]
-          flex flex-col items-center justify-center
-        ">
-          <div className="skew-x-[20deg] text-center">
-            <div className="text-white font-bold text-sm md:text-xl drop-shadow-md leading-none">1 Spin</div>
-            <div className="flex items-center justify-center gap-1.5 mt-0.5 md:mt-1">
-              <TokenIcon />
-              <span className="text-white font-bold text-sm md:text-lg">1</span>
+      {/* SUPER MODE UI */}
+      <div className="w-full max-w-xs px-4">
+        {isSuperMode ? (
+          <div className="relative w-full bg-gradient-to-r from-purple-900/80 to-pink-900/80 rounded-xl p-3 border border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.4)] animate-pulse">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🔥</span>
+                <div>
+                  <h3 className="text-white font-black text-sm italic uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-400">Super Mode Active</h3>
+                  <p className="text-[10px] text-purple-200 font-bold">2x Coins • Lucky Re-rolls</p>
+                </div>
+              </div>
+              <div className="bg-black/40 px-3 py-1 rounded-lg border border-purple-500/30">
+                <span className="font-mono font-bold text-yellow-400 text-sm">{timeLeft}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </button>
-
-      {/* 5 Spins Button - Yellow Crystal Shape */}
-      <button
-        onClick={() => onSpin(5)}
-        disabled={isSpinning}
-        className={`
-          relative group transition-all duration-200 active:scale-95
-          ${isSpinning ? 'opacity-60 grayscale' : 'hover:brightness-110'}
-        `}
-      >
-        {/* Button Shape */}
-        <div className="
-          w-32 h-10 md:w-48 md:h-16 
-          bg-gradient-to-r from-yellow-400 via-orange-500 to-orange-600
-          skew-x-[-20deg]
-          border-t-2 border-l-2 border-yellow-200
-          border-b-4 border-r-4 border-orange-900
-          shadow-[0_0_20px_rgba(234,179,8,0.6)]
-          flex flex-col items-center justify-center
-        ">
-          <div className="skew-x-[20deg] text-center">
-            <div className="text-black font-extrabold text-sm md:text-xl leading-none">5 Spins</div>
-            <div className="flex items-center justify-center gap-1.5 mt-0.5 md:mt-1">
-              <TokenIcon />
-              <span className="text-black font-extrabold text-sm md:text-lg">5</span>
+        ) : (
+          <div className="w-full flex flex-col gap-1">
+            <div className="flex justify-between items-end px-1">
+              <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-wider">Daily Goal</span>
+              <span className="text-[10px] font-bold text-cyan-100">{spinsToday}/100 Spins</span>
+            </div>
+            <div className="w-full h-3 bg-slate-900/80 rounded-full overflow-hidden border border-slate-700/50 relative">
+              {/* Progress Bar */}
+              <div
+                className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500 transition-all duration-500 ease-out relative"
+                style={{ width: `${progress}%` }}
+              >
+                <div className="absolute inset-0 bg-white/20 animate-[shimmer_2s_infinite]" />
+              </div>
+            </div>
+            <div className="text-center">
+              <span className="text-[9px] text-gray-400">Reach 100 spins for <span className="text-yellow-400 font-bold">1 Hour Super Mode (2x Rewards)</span></span>
             </div>
           </div>
-        </div>
-      </button>
+        )}
+      </div>
 
+      <div className="w-full max-w-2xl mx-auto flex justify-center items-end gap-4 sm:gap-12 px-4">
+
+        {/* 1 Spin Button - Blue Crystal Shape */}
+        <button
+          onClick={() => onSpin(1)}
+          disabled={isSpinning}
+          className={`
+            relative group transition-all duration-200 active:scale-95
+            ${isSpinning ? 'opacity-60 grayscale' : 'hover:brightness-110'}
+          `}
+        >
+          {/* Button Shape */}
+          <div className="
+            w-32 h-10 md:w-48 md:h-16 
+            bg-gradient-to-r from-cyan-600 via-blue-500 to-blue-700
+            skew-x-[-20deg]
+            border-t-2 border-l-2 border-cyan-300
+            border-b-4 border-r-4 border-blue-900
+            shadow-[0_0_20px_rgba(6,182,212,0.6)]
+            flex flex-col items-center justify-center
+          ">
+            <div className="skew-x-[20deg] text-center">
+              <div className="text-white font-bold text-sm md:text-xl drop-shadow-md leading-none">1 Spin</div>
+              <div className="flex items-center justify-center gap-1.5 mt-0.5 md:mt-1">
+                <TokenIcon />
+                <span className="text-white font-bold text-sm md:text-lg">1</span>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        {/* 5 Spins Button - Yellow Crystal Shape */}
+        <button
+          onClick={() => onSpin(5)}
+          disabled={isSpinning}
+          className={`
+            relative group transition-all duration-200 active:scale-95
+            ${isSpinning ? 'opacity-60 grayscale' : 'hover:brightness-110'}
+          `}
+        >
+          {/* Button Shape */}
+          <div className="
+            w-32 h-10 md:w-48 md:h-16 
+            bg-gradient-to-r from-yellow-400 via-orange-500 to-orange-600
+            skew-x-[-20deg]
+            border-t-2 border-l-2 border-yellow-200
+            border-b-4 border-r-4 border-orange-900
+            shadow-[0_0_20px_rgba(234,179,8,0.6)]
+            flex flex-col items-center justify-center
+          ">
+            <div className="skew-x-[20deg] text-center">
+              <div className="text-black font-extrabold text-sm md:text-xl leading-none">5 Spins</div>
+              <div className="flex items-center justify-center gap-1.5 mt-0.5 md:mt-1">
+                <TokenIcon />
+                <span className="text-black font-extrabold text-sm md:text-lg">5</span>
+              </div>
+            </div>
+          </div>
+        </button>
+
+      </div>
     </div>
   );
 };
