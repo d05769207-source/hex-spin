@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, memo, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useRef, useCallback, memo, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { ITEMS } from '../constants';
 import { GameItem } from '../types';
 import Hexagon from './Hexagon';
@@ -94,8 +94,32 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     const currentIndexRef = useRef<number>(0);
     const isSkippingRef = useRef<boolean>(false);
 
+    // Refs for Direct DOM Manipulation
+    const hexagonRefs = useRef<(HTMLDivElement | null)[]>([]);
+
     // Helper to wait
     const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // Helper to toggle active class directly on DOM
+    const toggleActiveHexagon = (index: number, isActive: boolean) => {
+        const el = hexagonRefs.current[index];
+        if (el) {
+            if (isActive) {
+                el.classList.add('hexagon-active');
+            } else {
+                el.classList.remove('hexagon-active');
+            }
+        }
+    };
+
+    const clearAllActive = () => {
+        hexagonRefs.current.forEach(el => {
+            if (el) {
+                el.classList.remove('hexagon-active');
+                el.classList.remove('hexagon-winner');
+            }
+        });
+    };
 
     // Spin Segment Logic
     const spinToTarget = async (targetItem: GameItem, isFirst: boolean) => {
@@ -122,8 +146,16 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                         }
                     }
 
+                    // Deactivate previous
+                    toggleActiveHexagon(currentIndexRef.current, false);
+
+                    // Move to next
                     currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
-                    setActiveIndex(currentIndexRef.current);
+
+                    // Activate current (Direct DOM)
+                    toggleActiveHexagon(currentIndexRef.current, true);
+
+                    // NOTE: We DO NOT call setActiveIndex here to avoid React Re-renders!
 
                     if (soundEnabled) {
                         playTickSound(isSkippingRef.current || (!isFirst));
@@ -156,6 +188,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             isSkippingRef.current = false;
             setIsSpinning(true);
             setWonItems([]); // Clear previous winners
+            clearAllActive(); // Clear any previous active states
 
             // Execute Sequence
             for (let i = 0; i < winners.length; i++) {
@@ -176,8 +209,11 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
 
             setIsSpinning(false);
             setWonItems(winners); // Set winners to show glow
+
+            // Sync React state with final position
+            setActiveIndex(currentIndexRef.current);
+
             onSpinComplete(winners);
-            setActiveIndex(-1); // Reset active index after completion
         },
         skip: () => {
             if (audioCtx.state === 'suspended') {
@@ -188,6 +224,15 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             }
         }
     }));
+
+    const handleScreenTap = () => {
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => { });
+        }
+        if (isSpinning) {
+            isSkippingRef.current = true;
+        }
+    };
 
     return (
         <div
@@ -230,11 +275,16 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             <div className="absolute inset-0">
                 {ITEMS.map((item, index) => {
                     const isWon = wonItems.some(w => w.id === item.id);
+                    // Only pass isActive/isWon for initial/static states. 
+                    // Animation is handled via Refs.
+                    const isActive = index === activeIndex;
+
                     return (
                         <Hexagon
                             key={item.id}
+                            ref={el => hexagonRefs.current[index] = el}
                             item={item}
-                            isActive={index === activeIndex}
+                            isActive={isActive}
                             isWon={isWon}
                         />
                     );

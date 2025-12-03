@@ -1,34 +1,28 @@
-
-import React, { memo } from 'react';
+import React, { memo, forwardRef } from 'react';
 import { GameItem } from '../types';
 
 interface HexagonProps {
   item: GameItem;
-  isActive: boolean;
-  isWon: boolean;
-  debugIndex?: number; // Added for debugging
+  isActive: boolean; // Kept for initial render/static states
+  isWon: boolean;    // Kept for static winner state
+  debugIndex?: number;
 }
 
-const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugIndex }) => {
+const Hexagon = memo(forwardRef<HTMLDivElement, HexagonProps>(({ item, isActive, isWon, debugIndex }, ref) => {
 
   let sizeClasses = '';
   let zIndex = 'z-10';
 
   // --- VISUAL CONFIG (Size & Z-Index) ---
-  // Mobile: Compact (75px/65px/54px)
-  // Desktop: Larger & Grand for 420px container (105px/90px/74px)
   if (item.isInner) {
     if (item.id === 'inner-left' || item.id === 'inner-right') {
-      // TIER 1: LARGEST (Bundles) - Left & Right
       sizeClasses = 'w-[75px] h-[65px] md:w-[105px] md:h-[90px]';
       zIndex = 'z-30';
     } else if (item.id === 'inner-top' || item.id === 'inner-bottom') {
-      // TIER 2: MEDIUM (Gun & Car) - Top & Bottom
       sizeClasses = 'w-[65px] h-[56px] md:w-[90px] md:h-[78px]';
       zIndex = 'z-20';
     }
   } else {
-    // TIER 3: SMALLEST (Outer Items)
     sizeClasses = 'w-[54px] h-[47px] md:w-[74px] md:h-[65px]';
     zIndex = 'z-10';
   }
@@ -36,7 +30,6 @@ const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugInde
   // SVG ViewBox and Points for a FLAT-TOPPED Hexagon
   const viewBox = "0 0 100 87";
   const points = "25,0 75,0 100,43.5 75,87 25,87 0,43.5";
-
   const uniqueId = item.id;
 
   // --- COLOR CONFIGURATION ---
@@ -46,34 +39,29 @@ const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugInde
 
   if (item.isInner) {
     if (item.id === 'inner-left') {
-      // KTM - Yellow/Gold Theme
       strokeColor = "#fbbf24";
       gradientStart = "#f59e0b";
       gradientEnd = "#451a03";
     } else if (item.id === 'inner-right') {
-      // iPhone - ORANGE Theme (Requested)
-      strokeColor = "#fb923c"; // orange-400
-      gradientStart = "#ea580c"; // orange-600
-      gradientEnd = "#7c2d12"; // orange-900
+      strokeColor = "#fb923c";
+      gradientStart = "#ea580c";
+      gradientEnd = "#7c2d12";
     } else if (item.id === 'inner-top') {
-      // 10K Coins - Cyan Theme
       strokeColor = "#22d3ee";
       gradientStart = "#06b6d4";
       gradientEnd = "#083344";
     } else if (item.id === 'inner-bottom') {
-      // 5K Coins - Purple Theme
       strokeColor = "#c084fc";
       gradientStart = "#a855f7";
       gradientEnd = "#3b0764";
     }
   } else {
-    // Outer Items - Metallic Silver/Dark Blue hint
     strokeColor = "#e2e8f0";
     gradientStart = "#475569";
     gradientEnd = "#020617";
   }
 
-  // Prepare CSS Variables for positioning to handle responsive switching cleanly
+  // Prepare CSS Variables for positioning
   const style = {
     '--m-x': `${item.position.x}%`,
     '--m-y': `${item.position.y}%`,
@@ -81,28 +69,11 @@ const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugInde
     '--d-y': `${item.desktopPosition?.y ?? item.position.y}%`,
   } as React.CSSProperties;
 
-  // --- GLOW LOGIC ---
-  // Spinning (isActive && !isWon): Normal Gold Glow
-  // Stopped/Winner (isActive && isWon): Intense "Takda" Glow
-  let filterStyle = 'drop-shadow(0 4px 6px rgba(0,0,0,0.5))';
-  let strokeWidth = item.isInner ? "3" : "2.5"; // Slightly thicker default borders
-  let activeStrokeColor = strokeColor;
+  // Initial Classes based on props (for static rendering)
+  // Dynamic updates will happen via direct DOM manipulation of classes
+  const activeClass = isActive ? (isWon ? 'hexagon-winner' : 'hexagon-active') : '';
+  const filterStyle = isActive ? undefined : 'drop-shadow(0 4px 6px rgba(0,0,0,0.5))'; // Default shadow when inactive
 
-  if (isActive) {
-    activeStrokeColor = "#ffd700"; // Always gold when active
-
-    if (isWon) {
-      // "TAKDA GLOW" - Only on result
-      filterStyle = `drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5)`;
-      strokeWidth = "4";
-    } else {
-      // "SPIN GLOW" - Moving state (Softer)
-      filterStyle = `drop-shadow(0 0 15px #ffd700) brightness(1.3)`;
-      strokeWidth = "3.5";
-    }
-  }
-
-  // Special render for 10K/5K Coins to look like icons
   const is10K = item.name === '10K Coins';
   const is5K = item.name === '5K Coins';
 
@@ -114,11 +85,11 @@ const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugInde
       `}
       style={style}
     >
-      {/* Main Wrapper */}
+      {/* Main Wrapper - Ref attached here for Direct DOM Manipulation */}
       <div
-        className={`relative ${sizeClasses} group transition-transform duration-150 will-change-transform
-          ${isActive ? 'scale-105 z-50' : 'hover:scale-105'}`}
-        style={{ filter: filterStyle }}
+        ref={ref}
+        className={`relative ${sizeClasses} hexagon-container group ${activeClass}`}
+        style={{ filter: filterStyle }} // Inline filter only for inactive state, active overrides via CSS
       >
         {/* SVG SHAPE */}
         <svg viewBox={viewBox} className="absolute inset-0 w-full h-full overflow-visible z-0">
@@ -159,14 +130,14 @@ const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugInde
             </g>
           )}
 
-          {/* Border Stroke */}
+          {/* Border Stroke - Class added for CSS targeting */}
           <polygon
             points={points}
             fill="none"
-            stroke={activeStrokeColor}
-            strokeWidth={strokeWidth}
+            stroke={strokeColor}
+            strokeWidth={item.isInner ? "3" : "2.5"}
             strokeLinejoin="round"
-            className="drop-shadow-[0_0_3px_rgba(255,255,255,0.3)]"
+            className="hexagon-border drop-shadow-[0_0_3px_rgba(255,255,255,0.3)] transition-all duration-150"
           />
 
           {/* Glass Reflection */}
@@ -258,6 +229,6 @@ const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugInde
       </div>
     </div>
   );
-});
+}));
 
 export default Hexagon;

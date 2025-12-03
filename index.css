@@ -29,3 +29,34 @@
 .animate-shine {
     animation: shine-sweep 3s infinite;
 }
+
+/* --- DIRECT DOM MANIPULATION CLASSES --- */
+/* These classes are toggled directly via JS refs to bypass React render cycle */
+
+.hexagon-container {
+    transition: transform 0.15s ease-out;
+    will-change: transform, filter;
+}
+
+.hexagon-active {
+    transform: scale(1.05);
+    z-index: 50 !important;
+    filter: drop-shadow(0 0 15px #ffd700) brightness(1.3) !important;
+}
+
+.hexagon-active .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 3.5px !important;
+}
+
+/* Winner State (Takda Glow) */
+.hexagon-winner {
+    transform: scale(1.05);
+    z-index: 50 !important;
+    filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5) !important;
+}
+
+.hexagon-winner .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 4px !important;
+}
