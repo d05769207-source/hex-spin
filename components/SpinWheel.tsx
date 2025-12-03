@@ -103,37 +103,45 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             const targetIndex = ITEMS.findIndex(i => i.id === targetItem.id);
             let steps = 0;
             let speed = isFirst ? 50 : 15;
+            let lastTickTime = performance.now();
+            let animationFrameId: number;
 
             const current = currentIndexRef.current;
             const distance = (targetIndex - current + ITEMS.length) % ITEMS.length;
             const totalStepsNeeded = isFirst ? (30 + distance) : (distance + 14);
 
-            const tick = () => {
-                if (isSkippingRef.current) {
-                    speed = 10;
-                } else if (isFirst) {
-                    if (steps > totalStepsNeeded - 10) {
-                        speed += 20;
+            const tick = (now: number) => {
+                const elapsed = now - lastTickTime;
+
+                if (elapsed >= speed) {
+                    if (isSkippingRef.current) {
+                        speed = 10;
+                    } else if (isFirst) {
+                        if (steps > totalStepsNeeded - 10) {
+                            speed += 20;
+                        }
                     }
+
+                    currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
+                    setActiveIndex(currentIndexRef.current);
+
+                    if (soundEnabled) {
+                        playTickSound(isSkippingRef.current || (!isFirst));
+                    }
+
+                    steps++;
+                    lastTickTime = now;
                 }
-
-                currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
-                setActiveIndex(currentIndexRef.current);
-
-                if (soundEnabled) {
-                    playTickSound(isSkippingRef.current || (!isFirst));
-                }
-
-                steps++;
 
                 if ((steps >= totalStepsNeeded && currentIndexRef.current === targetIndex)) {
+                    cancelAnimationFrame(animationFrameId);
                     resolve();
                 } else {
-                    setTimeout(tick, speed);
+                    animationFrameId = requestAnimationFrame(tick);
                 }
             };
 
-            tick();
+            animationFrameId = requestAnimationFrame(tick);
         });
     };
 
