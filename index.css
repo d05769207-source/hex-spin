@@ -50,10 +50,26 @@
 }
 
 /* Winner State (Takda Glow) */
+@keyframes winner-pulse {
+    0% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+
+    50% {
+        transform: scale(1.15);
+        filter: drop-shadow(0 0 40px #ffd700) drop-shadow(0 0 80px #ea580c) brightness(2);
+    }
+
+    100% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+}
+
 .hexagon-winner {
-    transform: scale(1.05);
     z-index: 50 !important;
-    filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5) !important;
+    animation: winner-pulse 1.5s ease-in-out infinite !important;
 }
 
 .hexagon-winner .hexagon-border {

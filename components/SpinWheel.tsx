@@ -3,76 +3,6 @@ import { ITEMS } from '../constants';
 import { GameItem } from '../types';
 import Hexagon from './Hexagon';
 
-// --- WEB AUDIO API SYSTEM ---
-const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-const audioCtx = new AudioContextClass();
-
-const playTickSound = (isFast: boolean) => {
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume().catch(() => { });
-    }
-
-    const t = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.type = 'triangle';
-
-    if (isFast) {
-        osc.frequency.setValueAtTime(800, t);
-        osc.frequency.exponentialRampToValueAtTime(400, t + 0.02);
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.05, t + 0.002);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.025);
-        osc.start(t);
-        osc.stop(t + 0.03);
-    } else {
-        osc.frequency.setValueAtTime(600, t);
-        osc.frequency.exponentialRampToValueAtTime(150, t + 0.08);
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.15, t + 0.005);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-        osc.start(t);
-        osc.stop(t + 0.1);
-    }
-};
-
-const playWinSound = () => {
-    if (audioCtx.state === 'suspended') {
-        audioCtx.resume().catch(() => { });
-    }
-
-    const t = audioCtx.currentTime;
-
-    // Layer 1: The "Thud"
-    const oscLow = audioCtx.createOscillator();
-    const gainLow = audioCtx.createGain();
-    oscLow.connect(gainLow);
-    gainLow.connect(audioCtx.destination);
-
-    oscLow.frequency.setValueAtTime(150, t);
-    oscLow.frequency.exponentialRampToValueAtTime(40, t + 0.4);
-    gainLow.gain.setValueAtTime(0.8, t);
-    gainLow.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-    oscLow.start(t);
-    oscLow.stop(t + 0.4);
-
-    // Layer 2: The "Clang"
-    const oscHigh = audioCtx.createOscillator();
-    const gainHigh = audioCtx.createGain();
-    oscHigh.connect(gainHigh);
-    gainHigh.connect(audioCtx.destination);
-
-    oscHigh.type = 'triangle';
-    oscHigh.frequency.setValueAtTime(600, t);
-    gainHigh.gain.setValueAtTime(0.2, t);
-    gainHigh.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-    oscHigh.start(t);
-    oscHigh.stop(t + 0.3);
-};
-
 export interface SpinWheelRef {
     spin: (winners: GameItem[]) => Promise<void>;
     skip: () => void;
@@ -97,6 +27,34 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     // Refs for Direct DOM Manipulation
     const hexagonRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+    // Audio Refs
+    const tickAudioRef = useRef<HTMLAudioElement | null>(null);
+    const winAudioRef = useRef<HTMLAudioElement | null>(null);
+
+    useEffect(() => {
+        tickAudioRef.current = new Audio('/sounds/spin_tick.mp3');
+        winAudioRef.current = new Audio('/sounds/win_impact.mp3');
+
+        // Preload
+        tickAudioRef.current.load();
+        winAudioRef.current.load();
+    }, []);
+
+    const playTickSound = (isFast: boolean) => {
+        if (!tickAudioRef.current) return;
+
+        // For fast spin, we want to ensure it plays rapidly without cutting off too awkwardly,
+        // but for a mechanical tick, resetting to 0 is usually best to get the "attack" of the sound.
+        tickAudioRef.current.currentTime = 0;
+        tickAudioRef.current.play().catch(() => { });
+    };
+
+    const playWinSound = () => {
+        if (!winAudioRef.current) return;
+        winAudioRef.current.currentTime = 0;
+        winAudioRef.current.play().catch(() => { });
+    };
+
     // Helper to wait
     const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -108,6 +66,17 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                 el.classList.add('hexagon-active');
             } else {
                 el.classList.remove('hexagon-active');
+            }
+        }
+    };
+
+    const toggleWinnerHexagon = (index: number, isWinner: boolean) => {
+        const el = hexagonRefs.current[index];
+        if (el) {
+            if (isWinner) {
+                el.classList.add('hexagon-winner');
+            } else {
+                el.classList.remove('hexagon-winner');
             }
         }
     };
@@ -139,15 +108,11 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
 
                 if (elapsed >= speed) {
                     if (isSkippingRef.current) {
-                        speed = 4; // Ultra fast skip (250 FPS cap)
+                        speed = 10;
                     } else if (isFirst) {
                         if (steps > totalStepsNeeded - 10) {
                             speed += 20;
                         }
-                    } else {
-                        // Default fast spin speed
-                        // 6ms = ~166 FPS (Covers 144Hz)
-                        speed = 6;
                     }
 
                     // Deactivate previous
@@ -185,10 +150,6 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
         spin: async (winners: GameItem[]) => {
             if (isSpinning) return;
 
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume().catch(() => { });
-            }
-
             isSkippingRef.current = false;
             setIsSpinning(true);
             setWonItems([]); // Clear previous winners
@@ -205,38 +166,33 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
 
                 if (soundEnabled) playWinSound();
 
+                // Highlight Winner
+                const winnerIndex = ITEMS.findIndex(item => item.id === winners[i].id);
+                if (winnerIndex !== -1) {
+                    toggleWinnerHexagon(winnerIndex, true);
+                }
+
                 const wasSkipped = isSkippingRef.current;
                 isSkippingRef.current = false;
-                const pauseTime = (wasSkipped || i > 0) ? 200 : 500;
+                const pauseTime = (wasSkipped || i > 0) ? 1500 : 2000; // Increased pause to let animation play
                 await wait(pauseTime);
             }
 
             setIsSpinning(false);
-            setWonItems(winners); // Set winners to show glow
 
-            // Sync React state with final position
-            setActiveIndex(currentIndexRef.current);
+            // RESET STATE: No glow after spin ends (User Request)
+            setWonItems([]);
+            setActiveIndex(-1);
+            clearAllActive();
 
             onSpinComplete(winners);
         },
         skip: () => {
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume().catch(() => { });
-            }
             if (isSpinning) {
                 isSkippingRef.current = true;
             }
         }
     }));
-
-    const handleScreenTap = () => {
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => { });
-        }
-        if (isSpinning) {
-            isSkippingRef.current = true;
-        }
-    };
 
     return (
         <div
