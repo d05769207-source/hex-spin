@@ -139,11 +139,15 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
 
                 if (elapsed >= speed) {
                     if (isSkippingRef.current) {
-                        speed = 10;
+                        speed = 4; // Ultra fast skip (250 FPS cap)
                     } else if (isFirst) {
                         if (steps > totalStepsNeeded - 10) {
                             speed += 20;
                         }
+                    } else {
+                        // Default fast spin speed
+                        // 6ms = ~166 FPS (Covers 144Hz)
+                        speed = 6;
                     }
 
                     // Deactivate previous
