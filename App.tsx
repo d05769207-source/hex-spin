@@ -1,10 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import './index.css';
 import { ITEMS } from './constants';
 import { GameItem, Page, User } from './types';
-import SpinWheel, { SpinWheelRef } from './components/SpinWheel';
-import SpinControls from './components/SpinControls';
+import SpinWheel from './components/SpinWheel';
 import WinnerModal from './components/WinnerModal';
 import Navigation from './components/Navigation';
 import Profile from './components/pages/Profile';
@@ -22,6 +20,7 @@ import IPhoneToken from './components/iPhoneToken';
 import EToken from './components/EToken';
 import InfoModal from './components/InfoModal';
 import { Volume2, VolumeX, Info } from 'lucide-react';
+import './index.css';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot } from 'firebase/firestore';
@@ -31,96 +30,7 @@ import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
 import { processLevelUpReward, validateReferralCode, applyReferral } from './services/referralService';
 
-// --- WEB AUDIO API SYSTEM ---
-// Synthesizing sounds guarantees playback without network issues, CORS errors, or loading delays.
-// This creates a "Perfect" robust sound system.
-
-// Initialize Audio Context safely
-const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-// We create the context lazily or globally. Ideally, it needs to be resumed on interaction.
-const audioCtx = new AudioContextClass();
-
-const playTickSound = (isFast: boolean) => {
-  // Resume context if suspended (browser autoplay policy)
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => { });
-  }
-
-  const t = audioCtx.currentTime;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-
-  // "Triangle" wave gives a crisp 'mechanical' feel without the harshness of a square wave
-  osc.type = 'triangle';
-
-  if (isFast) {
-    // FAST MODE (Skip): High pitch, extremely short, low volume "Zip"
-    // Simulates a rapid-fire mechanical counter
-    osc.frequency.setValueAtTime(800, t);
-    osc.frequency.exponentialRampToValueAtTime(400, t + 0.02);
-
-    // Volume envelope: Fast attack, fast decay
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(0.05, t + 0.002); // Very quiet (5%)
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.025);
-
-    osc.start(t);
-    osc.stop(t + 0.03);
-  } else {
-    // NORMAL MODE: "Card Flick" / "Plastic Stopper" sound
-    // Sweep from mid-high to low frequency creates the 'click' character
-    osc.frequency.setValueAtTime(600, t);
-    osc.frequency.exponentialRampToValueAtTime(150, t + 0.08);
-
-    // Volume envelope: Sharp snap
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(0.15, t + 0.005); // Moderate volume
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-
-    osc.start(t);
-    osc.stop(t + 0.1);
-  }
-};
-
-const playWinSound = () => {
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume().catch(() => { });
-  }
-
-  const t = audioCtx.currentTime;
-
-  // Layer 1: The "Thud" (Kick Drum) - Heavy Low Frequency
-  const oscLow = audioCtx.createOscillator();
-  const gainLow = audioCtx.createGain();
-  oscLow.connect(gainLow);
-  gainLow.connect(audioCtx.destination);
-
-  oscLow.frequency.setValueAtTime(150, t); // Start punch
-  oscLow.frequency.exponentialRampToValueAtTime(40, t + 0.4); // Drop to sub-bass
-
-  gainLow.gain.setValueAtTime(0.8, t); // High volume impact
-  gainLow.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-
-  oscLow.start(t);
-  oscLow.stop(t + 0.4);
-
-  // Layer 2: The "Clang" (Metallic Overtone) - High Frequency
-  const oscHigh = audioCtx.createOscillator();
-  const gainHigh = audioCtx.createGain();
-  oscHigh.connect(gainHigh);
-  gainHigh.connect(audioCtx.destination);
-
-  oscHigh.type = 'triangle';
-  oscHigh.frequency.setValueAtTime(600, t);
-  gainHigh.gain.setValueAtTime(0.2, t);
-  gainHigh.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-
-  oscHigh.start(t);
-  oscHigh.stop(t + 0.3);
-};
+// --- AUDIO SYSTEM MOVED TO SpinWheel.tsx ---
 
 // --- GUEST DATA MANAGEMENT (localStorage) ---
 const GUEST_BALANCE_KEY = 'guest_balance';
@@ -179,8 +89,6 @@ const App: React.FC = () => {
   const [profileInitialTab, setProfileInitialTab] = useState<'PROFILE' | 'REDEEM' | 'LEVEL'>('PROFILE');
 
   // Game State
-  const spinWheelRef = useRef<SpinWheelRef>(null);
-  const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const [wonItems, setWonItems] = useState<GameItem[]>([]);
   const [showWinnerModal, setShowWinnerModal] = useState<boolean>(false);
 
@@ -201,15 +109,14 @@ const App: React.FC = () => {
   const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false);
   const lastLeaderboardSync = useRef<number>(0); // Track last sync time
   const lastSyncedCoins = useRef<number>(0);     // Track last synced coin value
-  // Prevent sync until data is loaded
-
-  console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
-
-  // Use refs for values that change rapidly inside the spin loop without triggering re-renders
 
   // Long press detection refs
   const pressStartTime = useRef<number | null>(null);
   const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Prevent sync until data is loaded
+
+  console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
 
   // AUTH LISTENER
   useEffect(() => {
@@ -490,21 +397,8 @@ const App: React.FC = () => {
     saveGuestETokens(eTokens);
   }, [eTokens, user]);
 
-  // Helper to wait for a specific amount of time
-  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-  const handleSpin = useCallback(async (count: number) => {
-    console.log('🚀 handleSpin CALLED with count:', count);
-
-    if (isSpinning) {
-      console.log('⏸️ Already spinning, returning early');
-      return;
-    }
-
-    // Resume Audio Context on user interaction to ensure sounds play
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => { });
-    }
+  const handleSpinRequest = useCallback(async (count: number): Promise<GameItem[] | null> => {
+    console.log('🚀 handleSpinRequest CALLED with count:', count);
 
     // TOKEN COST LOGIC: 1 Spin = 1 P-Token
     const cost = count;
@@ -514,13 +408,11 @@ const App: React.FC = () => {
     if (!isAdminMode && balance < cost) {
       console.log('❌ Insufficient balance, showing login/shop');
       if (!user) {
-        // If Guest -> Trigger Login Flow
         setShowLoginModal(true);
       } else {
-        // If Logged In -> Go to Shop
         setCurrentPage('SHOP');
       }
-      return;
+      return null;
     }
 
     console.log('✅ Balance check passed, proceeding with spin');
@@ -585,65 +477,32 @@ const App: React.FC = () => {
       }
       winners.push(item);
     }
+
+    return winners;
+  }, [balance, user, isAdminMode, spinsToday, superModeEndTime]);
+
+  const handleSpinComplete = useCallback((winners: GameItem[]) => {
     setWonItems(winners);
 
-    // 2. Execute Sequence
-    for (let i = 0; i < winners.length; i++) {
-      // Start spinning phase
-      setIsSpinning(true);
+    // Calculate Reward
+    const isSuperMode = superModeEndTime && new Date() < superModeEndTime;
 
-      // Run the animation to this target
-      // i === 0 (First Spin): Uses Normal Physics
-      // i > 0 (Next Spins): Uses Auto-Fast Logic (15ms speed)
-      const wasSkipped = await spinWheelRef.current?.spinTo(winners[i], i === 0);
-
-      // Stop spinning phase -> Triggers "Takda Glow" via isWon prop
-      setIsSpinning(false);
-
-      // VIBRATION LOGIC (Haptic Feedback)
-      if (winners[i].isInner && window.navigator && window.navigator.vibrate) {
-        window.navigator.vibrate([100, 50, 100, 50, 100]);
-      }
-
-      // Calculate Reward
-      if (winners[i].name.includes('Coins') && winners[i].amount) {
-        let coinsEarned = winners[i].amount!;
-
-        // SUPER MODE COIN BOOST
+    winners.forEach(item => {
+      if (item.name.includes('Coins') && item.amount) {
+        let coinsEarned = item.amount!;
         if (isSuperMode) {
           coinsEarned *= 2;
-          console.log('🔥 Super Mode Coin Boost! 2x Applied');
         }
         setCoins(prev => prev + coinsEarned);
-      } else if (winners[i].name.includes('KTM')) {
+      } else if (item.name.includes('KTM')) {
         setKtmTokens(prev => prev + 1);
-      } else if (winners[i].name.includes('iPhone')) {
+      } else if (item.name.includes('iPhone')) {
         setIphoneTokens(prev => prev + 1);
       }
+    });
 
-      if (soundEnabled) playWinSound(); // Hard Impact Sound
-
-      // Pause Logic:
-      // Shorter pause if we just skipped OR if it's part of the auto-fast sequence (i>0)
-      const pauseTime = (wasSkipped || i > 0) ? 200 : 500;
-      await wait(pauseTime);
-    }
-
-    // 3. All done, show modal
-    // setActiveIndex(-1); // Handled in SpinWheel reset if needed, or just visual
-    spinWheelRef.current?.reset();
     setShowWinnerModal(true);
-
-  }, [balance, isSpinning, soundEnabled, user, isAdminMode]);
-
-  const handleScreenTap = () => {
-    // Resume audio context on tap as well
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => { });
-    }
-
-    spinWheelRef.current?.skip();
-  };
+  }, [superModeEndTime]);
 
   const handleExchange = (amount: number) => {
     // Exchange Rate: 1000 Coins = 1 E-Token
@@ -698,6 +557,9 @@ const App: React.FC = () => {
   };
 
   const handleWatchAd = async () => {
+    // Helper to wait
+    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
     // Mock Ad Logic
     console.log('📺 Watching Ad...');
 
@@ -829,7 +691,7 @@ const App: React.FC = () => {
 
   // Long Press Detection
   const handlePressStart = () => {
-    if (currentPage !== 'HOME' || isSpinning) return;
+    if (currentPage !== 'HOME') return;
 
     pressStartTime.current = Date.now();
 
@@ -881,62 +743,13 @@ const App: React.FC = () => {
             {/* Main Game Area */}
             <div className="flex-1 relative flex items-center justify-center z-10 mt-14 md:mt-10 pb-8 md:pb-0 md:pr-24">
 
-              {/* Responsive Container */}
-              <div className="relative w-[95vw] max-w-[380px] aspect-square md:w-[420px] md:max-w-none md:h-[420px]">
-
-                {/* CENTRAL GLOW (BACKLIGHT) */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-radial-gradient from-orange-500/20 via-transparent to-transparent z-0 pointer-events-none mix-blend-screen"></div>
-
-                {/* THE GOLDEN FIRE RING */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[105%] h-[105%] md:w-[125%] md:h-[125%] z-0 pointer-events-none select-none">
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[85%] bg-orange-600/20 blur-[100px] rounded-full mix-blend-screen"></div>
-                  <div className="absolute inset-0 animate-[spin_25s_linear_infinite]">
-                    <svg viewBox="0 0 400 400" className="w-full h-full overflow-visible">
-                      <defs>
-                        <linearGradient id="fireRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#fbbf24" stopOpacity="0" />
-                          <stop offset="25%" stopColor="#fbbf24" stopOpacity="1" />
-                          <stop offset="50%" stopColor="#ea580c" stopOpacity="0.8" />
-                          <stop offset="75%" stopColor="#fbbf24" stopOpacity="1" />
-                          <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
-                        </linearGradient>
-                        <filter id="fireGlow" x="-20%" y="-20%" width="140%" height="140%">
-                          <feGaussianBlur stdDeviation="3" result="blur" />
-                          <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                        </filter>
-                      </defs>
-                      <circle cx="200" cy="200" r="190" fill="none" stroke="url(#fireRingGradient)" strokeWidth="3" strokeDasharray="150 80" strokeLinecap="round" filter="url(#fireGlow)" />
-                      <circle cx="200" cy="200" r="180" fill="none" stroke="#fcd34d" strokeWidth="1" strokeDasharray="4 30" opacity="0.6" />
-                    </svg>
-                  </div>
-                  <div className="absolute inset-[5%] animate-[spin_18s_linear_infinite_reverse]">
-                    <svg viewBox="0 0 400 400" className="w-full h-full overflow-visible">
-                      <circle cx="200" cy="200" r="185" fill="none" stroke="url(#fireRingGradient)" strokeWidth="2" strokeDasharray="60 100" opacity="0.7" filter="url(#fireGlow)" />
-                    </svg>
-                  </div>
-                  <div className="absolute inset-[10%] rounded-full border-[1px] border-orange-500/30 shadow-[0_0_60px_rgba(234,88,12,0.2)] opacity-50"></div>
-                </div>
-
-                {/* HEXAGON GRID */}
-                <SpinWheel
-                  ref={spinWheelRef}
-                  isSpinning={isSpinning}
-                  showWinnerModal={showWinnerModal}
-                  onTick={(isFast) => playTickSound(isFast)}
-                />
-
-              </div>
-            </div>
-
-            {/* Footer / Controls */}
-            <div className="relative z-20 w-full pb-14 md:pb-12 mt-auto md:pr-24">
-              <SpinControls
-                onSpin={handleSpin}
-                isSpinning={isSpinning}
+              <SpinWheel
                 balance={balance}
                 isAdminMode={isAdminMode}
-                spinsToday={spinsToday}
-                superModeEndTime={superModeEndTime}
+                isSuperMode={!!(superModeEndTime && new Date() < superModeEndTime)}
+                onSpinRequest={handleSpinRequest}
+                onSpinComplete={handleSpinComplete}
+                soundEnabled={soundEnabled}
               />
             </div>
           </>
@@ -999,7 +812,6 @@ const App: React.FC = () => {
   return (
     <div
       className="min-h-screen w-full bg-gray-900 text-white font-sans pb-20 md:pb-0 md:pl-20 relative overflow-x-hidden flex flex-col"
-      onClick={handleScreenTap}
       onMouseDown={handlePressStart}
       onMouseUp={handlePressEnd}
       onMouseLeave={handlePressEnd}
@@ -1008,15 +820,15 @@ const App: React.FC = () => {
     >
 
       {/* Intense Background Image */}
-      <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center opacity-40 mix-blend-hard-light pointer-events-none"></div>
+      < div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center opacity-40 mix-blend-hard-light pointer-events-none" ></div >
 
       {/* Streaks/Speed lines */}
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2a0505]/50 to-[#1a0505] pointer-events-none"></div>
+      < div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2a0505]/50 to-[#1a0505] pointer-events-none" ></div >
 
       {/* Header - Always Visible */}
-      <div className="absolute top-0 left-0 w-full z-50 flex justify-between items-start p-4">
+      < div className="absolute top-0 left-0 w-full z-50 flex justify-between items-start p-4" >
         {/* Top Left Brand Badge */}
-        <div className="flex items-center gap-2 md:gap-3" onClick={() => setCurrentPage('HOME')}>
+        < div className="flex items-center gap-2 md:gap-3" onClick={() => setCurrentPage('HOME')}>
           <div className="relative w-8 h-8 md:w-10 md:h-10 flex items-center justify-center bg-gradient-to-br from-yellow-500 to-yellow-700 rounded-sm border border-yellow-300 shadow-[0_0_10px_rgba(234,179,8,0.6)] skew-x-[-10deg]">
             <div className="absolute inset-0.5 bg-black skew-x-0 flex items-center justify-center">
               <span className="text-yellow-500 font-black text-sm md:text-base tracking-tighter leading-none skew-x-[10deg]">LK</span>
@@ -1033,14 +845,16 @@ const App: React.FC = () => {
               </span>
             </div>
           </div>
-        </div>
+        </div >
 
         {/* Weekly Timer - Below Logo (Only on Home Page) */}
-        {currentPage === 'HOME' && (
-          <div className="absolute top-16 md:top-20 left-4">
-            <WeeklyTimer />
-          </div>
-        )}
+        {
+          currentPage === 'HOME' && (
+            <div className="absolute top-16 md:top-20 left-4">
+              <WeeklyTimer />
+            </div>
+          )
+        }
 
         {/* Top Right Menu */}
         <div className="flex flex-col items-end gap-1 md:pr-24">
@@ -1120,7 +934,7 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
+      </div >
 
       {/* RENDER CURRENT PAGE */}
       {renderContent()}
@@ -1129,53 +943,65 @@ const App: React.FC = () => {
       <Navigation currentPage={currentPage} onNavigate={setCurrentPage} user={user} />
 
       {/* Winner Modal */}
-      {showWinnerModal && (
-        <WinnerModal
-          items={wonItems}
-          onClose={() => setShowWinnerModal(false)}
-        />
-      )}
+      {
+        showWinnerModal && (
+          <WinnerModal
+            items={wonItems}
+            onClose={() => setShowWinnerModal(false)}
+          />
+        )
+      }
 
       {/* AUTH MODALS */}
-      {showLoginModal && (
-        <LoginModal
-          onLoginSuccess={handleLoginSuccess}
-          onClose={() => setShowLoginModal(false)}
-        />
-      )}
-      {showUsernameModal && (
-        <UsernameModal
-          onSubmit={handleUsernameSet}
-        />
-      )}
+      {
+        showLoginModal && (
+          <LoginModal
+            onLoginSuccess={handleLoginSuccess}
+            onClose={() => setShowLoginModal(false)}
+          />
+        )
+      }
+      {
+        showUsernameModal && (
+          <UsernameModal
+            onSubmit={handleUsernameSet}
+          />
+        )
+      }
 
       {/* ADMIN COMPONENTS */}
       {isAdminMode && <AdminBadge onLogout={handleAdminLogout} />}
 
-      {showAdminLogin && (
-        <AdminLoginModal
-          onLogin={handleAdminLogin}
-          onClose={() => setShowAdminLogin(false)}
-        />
-      )}
+      {
+        showAdminLogin && (
+          <AdminLoginModal
+            onLogin={handleAdminLogin}
+            onClose={() => setShowAdminLogin(false)}
+          />
+        )
+      }
 
       {/* INFO MODAL */}
-      {showInfoModal && (
-        <InfoModal onClose={() => setShowInfoModal(false)} />
-      )}
+      {
+        showInfoModal && (
+          <InfoModal onClose={() => setShowInfoModal(false)} />
+        )
+      }
 
       {/* Referral Modal */}
-      {showReferralModal && user && (
-        <ReferralModal
-          currentUserId={user.id}
-          onClose={() => setShowReferralModal(false)}
-          onSuccess={() => {
-            setBalance(prev => prev + 0); // No immediate reward for the referred user in this plan, but we could add one if needed.
-            // Referrer gets 5 tokens.
-          }}
-        />
-      )}
-    </div>
+      {
+        showReferralModal && user && (
+          <ReferralModal
+            currentUserId={user.id}
+            onClose={() => setShowReferralModal(false)}
+            onSuccess={() => {
+              setBalance(prev => prev + 0); // No immediate reward for the referred user in this plan, but we could add one if needed.
+              // Referrer gets 5 tokens.
+            }}
+          />
+        )
+      }
+    </div >
   );
 };
 

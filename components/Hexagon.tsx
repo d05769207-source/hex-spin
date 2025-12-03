@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { memo } from 'react';
 import { GameItem } from '../types';
 
 interface HexagonProps {
@@ -9,7 +9,7 @@ interface HexagonProps {
   debugIndex?: number; // Added for debugging
 }
 
-const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) => {
+const Hexagon: React.FC<HexagonProps> = memo(({ item, isActive, isWon, debugIndex }) => {
 
   let sizeClasses = '';
   let zIndex = 'z-10';
@@ -88,13 +88,19 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
   let strokeWidth = item.isInner ? "3" : "2.5"; // Slightly thicker default borders
   let activeStrokeColor = strokeColor;
 
-  // Direct DOM Manipulation Optimization:
-  // We no longer use inline styles for active/won states during the spin.
-  // Instead, we rely on the 'hex-active' and 'hex-won' classes toggled by SpinWheel.tsx.
-  // The 'isActive' prop is now only used for initial render or static states.
+  if (isActive) {
+    activeStrokeColor = "#ffd700"; // Always gold when active
 
-  // Base filter (always present)
-  // const filterStyle = `drop-shadow(0 0 5px ${color}40)`; // Removed for performance, handled by CSS if needed
+    if (isWon) {
+      // "TAKDA GLOW" - Only on result
+      filterStyle = `drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5)`;
+      strokeWidth = "4";
+    } else {
+      // "SPIN GLOW" - Moving state (Softer)
+      filterStyle = `drop-shadow(0 0 15px #ffd700) brightness(1.3)`;
+      strokeWidth = "3.5";
+    }
+  }
 
   // Special render for 10K/5K Coins to look like icons
   const is10K = item.name === '10K Coins';
@@ -102,7 +108,6 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
 
   return (
     <div
-      id={`hex-${item.id}`} // CRITICAL: ID for Direct DOM Manipulation
       className={`absolute transform -translate-x-1/2 -translate-y-1/2 transition-all duration-300 ${zIndex}
         left-[calc(50%+var(--m-x))] top-[calc(50%+var(--m-y))]
         md:left-[calc(50%+var(--d-x))] md:top-[calc(50%+var(--d-y))]
@@ -111,31 +116,10 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
     >
       {/* Main Wrapper */}
       <div
-        className={`relative ${sizeClasses} group hex-transition 
-          ${isActive ? 'hex-active' : ''} 
-          ${isWon ? 'hex-won' : ''}
-          hover:scale-105`}
+        className={`relative ${sizeClasses} group transition-transform duration-150 will-change-transform
+          ${isActive ? 'scale-105 z-50' : 'hover:scale-105'}`}
+        style={{ filter: filterStyle }}
       >
-        {/* CSS Animation Style for Rising Lines & Sweep Shine */}
-        <style>
-          {`
-              @keyframes rise {
-                from { stroke-dashoffset: 20; }
-                to { stroke-dashoffset: 0; }
-              }
-              .animate-rise {
-                animation: rise 1s linear infinite;
-              }
-              @keyframes shine-sweep {
-                0% { transform: translateX(-150%) skewX(-25deg); }
-                100% { transform: translateX(250%) skewX(-25deg); }
-              }
-              .animate-shine {
-                animation: shine-sweep 3s infinite;
-              }
-            `}
-        </style>
-
         {/* SVG SHAPE */}
         <svg viewBox={viewBox} className="absolute inset-0 w-full h-full overflow-visible z-0">
           <defs>
@@ -182,7 +166,7 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
             stroke={activeStrokeColor}
             strokeWidth={strokeWidth}
             strokeLinejoin="round"
-            className="md:drop-shadow-[0_0_3px_rgba(255,255,255,0.3)]"
+            className="drop-shadow-[0_0_3px_rgba(255,255,255,0.3)]"
           />
 
           {/* Glass Reflection */}
@@ -274,6 +258,6 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
       </div>
     </div>
   );
-};
+});
 
-export default React.memo(Hexagon);
+export default Hexagon;
