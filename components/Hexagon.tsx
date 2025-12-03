@@ -93,11 +93,13 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
 
     if (isWon) {
       // "TAKDA GLOW" - Only on result
-      filterStyle = `drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5)`;
+      // Simplified for performance: Single strong shadow instead of multiple
+      filterStyle = `drop-shadow(0 0 15px #ffd700) brightness(1.5)`;
       strokeWidth = "4";
     } else {
       // "SPIN GLOW" - Moving state (Softer)
-      filterStyle = `drop-shadow(0 0 15px #ffd700) brightness(1.3)`;
+      // Removed drop-shadow during spin for 60fps performance
+      filterStyle = `brightness(1.3)`;
       strokeWidth = "3.5";
     }
   }
@@ -186,7 +188,7 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
             stroke={activeStrokeColor}
             strokeWidth={strokeWidth}
             strokeLinejoin="round"
-            className="drop-shadow-[0_0_3px_rgba(255,255,255,0.3)]"
+            className="md:drop-shadow-[0_0_3px_rgba(255,255,255,0.3)]"
           />
 
           {/* Glass Reflection */}

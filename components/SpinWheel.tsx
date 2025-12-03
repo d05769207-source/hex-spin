@@ -80,7 +80,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({ isSpinning, showWi
                 isSkippingRef.current = true;
             }
         }
-    }), []);
+    }), [isSpinning]);
 
     const handleTap = () => {
         if (isSpinning) {
