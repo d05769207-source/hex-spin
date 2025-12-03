@@ -280,4 +280,4 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
   );
 };
 
-export default Hexagon;
+export default React.memo(Hexagon);

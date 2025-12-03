@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ITEMS } from './constants';
 import { GameItem, Page, User } from './types';
-import Hexagon from './components/Hexagon';
+import SpinWheel, { SpinWheelRef } from './components/SpinWheel';
 import SpinControls from './components/SpinControls';
 import WinnerModal from './components/WinnerModal';
 import Navigation from './components/Navigation';
@@ -23,7 +23,7 @@ import InfoModal from './components/InfoModal';
 import { Volume2, VolumeX, Info } from 'lucide-react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
 import { calculateLevel } from './utils/levelUtils';
@@ -178,7 +178,7 @@ const App: React.FC = () => {
   const [profileInitialTab, setProfileInitialTab] = useState<'PROFILE' | 'REDEEM' | 'LEVEL'>('PROFILE');
 
   // Game State
-  const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const spinWheelRef = useRef<SpinWheelRef>(null);
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const [wonItems, setWonItems] = useState<GameItem[]>([]);
   const [showWinnerModal, setShowWinnerModal] = useState<boolean>(false);
@@ -205,8 +205,6 @@ const App: React.FC = () => {
   console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
 
   // Use refs for values that change rapidly inside the spin loop without triggering re-renders
-  const currentIndexRef = useRef<number>(0);
-  const isSkippingRef = useRef<boolean>(false);
 
   // Long press detection refs
   const pressStartTime = useRef<number | null>(null);
@@ -446,6 +444,35 @@ const App: React.FC = () => {
     return () => clearTimeout(timeoutId);
   }, [balance, coins, eTokens, ktmTokens, iphoneTokens, inrBalance, totalSpins, user, isSyncEnabled, spinsToday, superModeEndTime]);
 
+  // REAL-TIME LISTENER FOR EXTERNAL UPDATES (e.g. Admin Actions)
+  useEffect(() => {
+    if (!user || user.isGuest) return;
+
+    const userDocRef = doc(db, 'users', user.id);
+    const unsubscribe = onSnapshot(userDocRef, (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const data = docSnapshot.data();
+
+        // Update Spins Today if changed externally
+        if (data.spinsToday !== undefined && data.spinsToday !== spinsToday) {
+          console.log('🔄 External update detected for spinsToday:', data.spinsToday);
+          setSpinsToday(data.spinsToday);
+        }
+
+        // Update Super Mode End Time if changed externally
+        if (data.superModeEndTime) {
+          const newEndTime = data.superModeEndTime.toDate();
+          if (!superModeEndTime || newEndTime.getTime() !== superModeEndTime.getTime()) {
+            console.log('🔄 External update detected for superModeEndTime:', newEndTime);
+            setSuperModeEndTime(newEndTime);
+          }
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user, spinsToday, superModeEndTime]);
+
   // SYNC GUEST DATA TO LOCALSTORAGE (Guest users only)
   useEffect(() => {
     if (user) return; // Only for guests
@@ -465,57 +492,6 @@ const App: React.FC = () => {
   // Helper to wait for a specific amount of time
   const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-  // Helper to perform a single spin segment (from current position to target)
-  const spinToTarget = async (targetItem: GameItem, isFirst: boolean) => {
-    return new Promise<void>((resolve) => {
-      const targetIndex = ITEMS.findIndex(i => i.id === targetItem.id);
-      let steps = 0;
-
-      // BASE SPEED:
-      // If isFirst (Item 1): 50ms start (Normal Physics)
-      // If !isFirst (Items 2-5): 15ms start (Auto Fast / 10x feeling)
-      let speed = isFirst ? 50 : 15;
-
-      const current = currentIndexRef.current;
-      const distance = (targetIndex - current + ITEMS.length) % ITEMS.length;
-
-      // Steps Calculation:
-      const totalStepsNeeded = isFirst ? (30 + distance) : (distance + 14);
-
-      const tick = () => {
-        // Skip Logic: If user tapped, make it instant (10ms) regardless of phase
-        if (isSkippingRef.current) {
-          speed = 10; // Ultra fast
-        } else if (isFirst) {
-          // Normal deceleration only for the first item
-          if (steps > totalStepsNeeded - 10) {
-            speed += 20;
-          }
-        }
-
-        // Move to next index
-        currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
-        setActiveIndex(currentIndexRef.current);
-
-        // Play sound
-        if (soundEnabled) {
-          playTickSound(isSkippingRef.current || (!isFirst)); // Use fast sound for skip OR auto-fast phases
-        }
-
-        steps++;
-
-        // Check if done
-        if ((steps >= totalStepsNeeded && currentIndexRef.current === targetIndex)) {
-          resolve();
-        } else {
-          setTimeout(tick, speed);
-        }
-      };
-
-      tick();
-    });
-  };
-
   const handleSpin = useCallback(async (count: number) => {
     console.log('🚀 handleSpin CALLED with count:', count);
 
@@ -528,9 +504,6 @@ const App: React.FC = () => {
     if (audioCtx.state === 'suspended') {
       audioCtx.resume().catch(() => { });
     }
-
-    // RESET SKIP STATE at the start of every new spin action
-    isSkippingRef.current = false;
 
     // TOKEN COST LOGIC: 1 Spin = 1 P-Token
     const cost = count;
@@ -593,8 +566,6 @@ const App: React.FC = () => {
     }
 
     setShowWinnerModal(false);
-
-    setShowWinnerModal(false);
     setWonItems([]);
 
     // 1. Decide Winners
@@ -623,7 +594,7 @@ const App: React.FC = () => {
       // Run the animation to this target
       // i === 0 (First Spin): Uses Normal Physics
       // i > 0 (Next Spins): Uses Auto-Fast Logic (15ms speed)
-      await spinToTarget(winners[i], i === 0);
+      const wasSkipped = await spinWheelRef.current?.spinTo(winners[i], i === 0);
 
       // Stop spinning phase -> Triggers "Takda Glow" via isWon prop
       setIsSpinning(false);
@@ -643,10 +614,6 @@ const App: React.FC = () => {
           console.log('🔥 Super Mode Coin Boost! 2x Applied');
         }
         setCoins(prev => prev + coinsEarned);
-
-        // Update leaderboard for logged-in users (not guests)
-        // Note: Leaderboard sync is now handled by the useEffect hook in App.tsx
-        // watching the 'coins' state change.
       } else if (winners[i].name.includes('KTM')) {
         setKtmTokens(prev => prev + 1);
       } else if (winners[i].name.includes('iPhone')) {
@@ -655,13 +622,6 @@ const App: React.FC = () => {
 
       if (soundEnabled) playWinSound(); // Hard Impact Sound
 
-      // Capture skip state to determine pause time
-      const wasSkipped = isSkippingRef.current;
-
-      // RESET SKIP immediately after a reward is found
-      // This ensures manual skip only applies to the current item.
-      isSkippingRef.current = false;
-
       // Pause Logic:
       // Shorter pause if we just skipped OR if it's part of the auto-fast sequence (i>0)
       const pauseTime = (wasSkipped || i > 0) ? 200 : 500;
@@ -669,7 +629,8 @@ const App: React.FC = () => {
     }
 
     // 3. All done, show modal
-    setActiveIndex(-1);
+    // setActiveIndex(-1); // Handled in SpinWheel reset if needed, or just visual
+    spinWheelRef.current?.reset();
     setShowWinnerModal(true);
 
   }, [balance, isSpinning, soundEnabled, user, isAdminMode]);
@@ -680,12 +641,7 @@ const App: React.FC = () => {
       audioCtx.resume().catch(() => { });
     }
 
-    if (isSpinning) {
-      isSkippingRef.current = true;
-    }
-    if (isSpinning) {
-      isSkippingRef.current = true;
-    }
+    spinWheelRef.current?.skip();
   };
 
   const handleExchange = (amount: number) => {
@@ -961,14 +917,12 @@ const App: React.FC = () => {
                 </div>
 
                 {/* HEXAGON GRID */}
-                {ITEMS.map((item, index) => (
-                  <Hexagon
-                    key={item.id}
-                    item={item}
-                    isActive={index === activeIndex}
-                    isWon={!isSpinning && index === activeIndex && !showWinnerModal}
-                  />
-                ))}
+                <SpinWheel
+                  ref={spinWheelRef}
+                  isSpinning={isSpinning}
+                  showWinnerModal={showWinnerModal}
+                  onTick={(isFast) => playTickSound(isFast)}
+                />
 
               </div>
             </div>
