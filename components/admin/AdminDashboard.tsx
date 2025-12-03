@@ -13,8 +13,13 @@ import {
     PlayCircle,
     PauseCircle,
     DollarSign,
-    Gift
+    Gift,
+    Zap,
+    Menu,
+    X
 } from 'lucide-react';
+import { auth, db } from '../../firebase';
+import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 
 interface AdminDashboardProps {
     onLogout: () => void;
@@ -35,6 +40,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
     const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings'>('dashboard');
     const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
     const [isSundayBypass, setIsSundayBypass] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     // Mock Stats
     const stats = {
@@ -63,12 +69,61 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
         setBroadcastMsg('');
     };
 
-    return (
-        <div className="min-h-screen bg-black text-white font-sans flex overflow-hidden">
+    const handleForceSuperMode = async () => {
+        if (!auth.currentUser) {
+            alert("Error: No user logged in.");
+            return;
+        }
 
-            {/* SIDEBAR */}
-            <div className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
-                <div className="p-6 border-b border-gray-800 flex items-center gap-3">
+        try {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            const endTime = new Date(Date.now() + 60 * 60 * 1000); // 1 Hour from now
+
+            await updateDoc(userRef, {
+                spinsToday: 100, // Force trigger threshold
+                superModeEndTime: Timestamp.fromDate(endTime)
+            });
+
+            alert("⚡ Super Mode Activated for 1 Hour!");
+        } catch (error) {
+            console.error("Error activating Super Mode:", error);
+            alert("Failed to activate Super Mode.");
+        }
+    };
+
+    const NavItem = ({ id, icon: Icon, label }: any) => (
+        <button
+            onClick={() => {
+                setActiveTab(id);
+                setIsMobileMenuOpen(false);
+            }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === id ? 'bg-red-600/20 text-red-400 border border-red-600/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
+        >
+            <Icon size={20} />
+            <span className="font-bold">{label}</span>
+        </button>
+    );
+
+    return (
+        <div className="min-h-screen bg-black text-white font-sans flex flex-col md:flex-row overflow-hidden">
+
+            {/* MOBILE HEADER */}
+            <div className="md:hidden p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/90 backdrop-blur-md sticky top-0 z-50">
+                <div className="flex items-center gap-2">
+                    <Shield className="text-red-500" size={20} />
+                    <span className="font-black text-lg tracking-wider">HEX ADMIN</span>
+                </div>
+                <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-gray-400">
+                    {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+                </button>
+            </div>
+
+            {/* SIDEBAR (Desktop: Visible, Mobile: Toggleable Overlay) */}
+            <div className={`
+                fixed inset-0 z-40 bg-black/95 backdrop-blur-xl transition-transform duration-300 md:translate-x-0 md:relative md:w-64 md:bg-gray-900 md:border-r md:border-gray-800 flex flex-col
+                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+            `}>
+                <div className="hidden md:flex p-6 border-b border-gray-800 items-center gap-3">
                     <div className="w-10 h-10 bg-gradient-to-br from-red-600 to-yellow-500 rounded-lg flex items-center justify-center shadow-lg shadow-red-500/20">
                         <Shield className="text-white" size={24} />
                     </div>
@@ -78,33 +133,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     </div>
                 </div>
 
-                <nav className="flex-1 p-4 space-y-2">
-                    <button
-                        onClick={() => setActiveTab('dashboard')}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'dashboard' ? 'bg-red-600/20 text-red-400 border border-red-600/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-                    >
-                        <Activity size={20} />
-                        <span className="font-bold">Live Overview</span>
-                    </button>
-
-                    <button
-                        onClick={() => setActiveTab('users')}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'users' ? 'bg-yellow-600/20 text-yellow-400 border border-yellow-600/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-                    >
-                        <Users size={20} />
-                        <span className="font-bold">User Monitor</span>
-                    </button>
-
-                    <button
-                        onClick={() => setActiveTab('settings')}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${activeTab === 'settings' ? 'bg-green-600/20 text-green-400 border border-green-600/50' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-                    >
-                        <Settings size={20} />
-                        <span className="font-bold">Master Controls</span>
-                    </button>
+                <nav className="flex-1 p-4 space-y-2 mt-16 md:mt-0">
+                    <NavItem id="dashboard" icon={Activity} label="Live Overview" />
+                    <NavItem id="users" icon={Users} label="User Monitor" />
+                    <NavItem id="settings" icon={Settings} label="Master Controls" />
                 </nav>
 
-                <div className="p-4 border-t border-gray-800 space-y-2">
+                <div className="p-4 border-t border-gray-800 space-y-2 mb-8 md:mb-0">
                     <button
                         onClick={onBackToGame}
                         className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-white transition-all"
@@ -123,11 +158,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
             </div>
 
             {/* MAIN CONTENT */}
-            <div className="flex-1 overflow-y-auto bg-black relative">
+            <div className="flex-1 overflow-y-auto bg-black relative h-[calc(100vh-60px)] md:h-screen">
                 {/* Background Grid Effect */}
                 <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f2937_1px,transparent_1px),linear-gradient(to_bottom,#1f2937_1px,transparent_1px)] bg-[size:40px_40px] opacity-10 pointer-events-none"></div>
 
-                <header className="p-6 border-b border-gray-800 flex justify-between items-center bg-black/50 backdrop-blur-md sticky top-0 z-10">
+                <header className="hidden md:flex p-6 border-b border-gray-800 justify-between items-center bg-black/50 backdrop-blur-md sticky top-0 z-10">
                     <h2 className="text-2xl font-black text-white uppercase tracking-wide">
                         {activeTab === 'dashboard' && 'Mission Control'}
                         {activeTab === 'users' && 'User Database'}
@@ -146,13 +181,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     </div>
                 </header>
 
-                <main className="p-8 relative z-0">
+                <main className="p-4 md:p-8 relative z-0 pb-24 md:pb-8">
 
                     {/* DASHBOARD TAB */}
                     {activeTab === 'dashboard' && (
-                        <div className="space-y-8">
+                        <div className="space-y-6 md:space-y-8">
                             {/* Stats Grid */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                                 <StatCard
                                     title="Live Users"
                                     value={stats.onlineUsers}
@@ -184,11 +219,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                             </div>
 
                             {/* Broadcast Section */}
-                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4 md:p-6">
                                 <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
                                     <Bell className="text-yellow-500" size={20} /> Global Broadcast
                                 </h3>
-                                <form onSubmit={handleBroadcast} className="flex gap-4">
+                                <form onSubmit={handleBroadcast} className="flex flex-col md:flex-row gap-4">
                                     <input
                                         type="text"
                                         value={broadcastMsg}
@@ -198,7 +233,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     />
                                     <button
                                         type="submit"
-                                        className="px-6 py-3 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded-lg transition-all flex items-center gap-2"
+                                        className="px-6 py-3 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded-lg transition-all flex items-center justify-center gap-2"
                                     >
                                         SEND <PlayCircle size={18} />
                                     </button>
@@ -210,59 +245,86 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     {/* USERS TAB */}
                     {activeTab === 'users' && (
                         <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
-                            <div className="p-4 border-b border-gray-800 flex justify-between items-center">
-                                <div className="relative">
+                            <div className="p-4 border-b border-gray-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                <div className="relative w-full md:w-auto">
                                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" size={18} />
                                     <input
                                         type="text"
                                         placeholder="Search users..."
-                                        className="bg-black border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-blue-500 focus:outline-none w-64"
+                                        className="bg-black border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-blue-500 focus:outline-none w-full md:w-64"
                                     />
                                 </div>
                                 <div className="flex gap-2">
                                     <button className="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs font-mono text-gray-300">Export CSV</button>
                                 </div>
                             </div>
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-900 text-gray-400 text-xs uppercase font-bold">
-                                    <tr>
-                                        <th className="px-6 py-4">User</th>
-                                        <th className="px-6 py-4">Status</th>
-                                        <th className="px-6 py-4">Balance</th>
-                                        <th className="px-6 py-4">IP Address</th>
-                                        <th className="px-6 py-4">Last Login</th>
-                                        <th className="px-6 py-4 text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-800">
-                                    {users.map(user => (
-                                        <tr key={user.id} className="hover:bg-gray-800/50 transition-colors">
-                                            <td className="px-6 py-4 font-medium text-white">{user.username}</td>
-                                            <td className="px-6 py-4">
-                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold ${user.status === 'online' ? 'bg-green-900/30 text-green-400 border border-green-900' : 'bg-gray-800 text-gray-500 border border-gray-700'
-                                                    }`}>
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${user.status === 'online' ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`}></span>
-                                                    {user.status.toUpperCase()}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 font-mono text-yellow-400">{user.balance} P</td>
-                                            <td className="px-6 py-4 text-gray-500 font-mono text-xs">{user.ip}</td>
-                                            <td className="px-6 py-4 text-gray-400 text-sm">{user.lastLogin}</td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button className="text-red-500 hover:text-red-400 text-xs font-bold border border-red-900 bg-red-900/20 px-3 py-1 rounded hover:bg-red-900/40 transition-all">
-                                                    KICK
-                                                </button>
-                                            </td>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left whitespace-nowrap">
+                                    <thead className="bg-gray-900 text-gray-400 text-xs uppercase font-bold">
+                                        <tr>
+                                            <th className="px-6 py-4">User</th>
+                                            <th className="px-6 py-4">Status</th>
+                                            <th className="px-6 py-4">Balance</th>
+                                            <th className="px-6 py-4">IP Address</th>
+                                            <th className="px-6 py-4">Last Login</th>
+                                            <th className="px-6 py-4 text-right">Actions</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800">
+                                        {users.map(user => (
+                                            <tr key={user.id} className="hover:bg-gray-800/50 transition-colors">
+                                                <td className="px-6 py-4 font-medium text-white">{user.username}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold ${user.status === 'online' ? 'bg-green-900/30 text-green-400 border border-green-900' : 'bg-gray-800 text-gray-500 border border-gray-700'
+                                                        }`}>
+                                                        <span className={`w-1.5 h-1.5 rounded-full ${user.status === 'online' ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`}></span>
+                                                        {user.status.toUpperCase()}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 font-mono text-yellow-400">{user.balance} P</td>
+                                                <td className="px-6 py-4 text-gray-500 font-mono text-xs">{user.ip}</td>
+                                                <td className="px-6 py-4 text-gray-400 text-sm">{user.lastLogin}</td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <button className="text-red-500 hover:text-red-400 text-xs font-bold border border-red-900 bg-red-900/20 px-3 py-1 rounded hover:bg-red-900/40 transition-all">
+                                                        KICK
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
 
                     {/* SETTINGS TAB */}
                     {activeTab === 'settings' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+
+                            {/* FORCE SUPER MODE (NEW) */}
+                            <div className="p-6 rounded-xl border-2 bg-purple-900/20 border-purple-500/50">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-3 rounded-lg bg-purple-600 text-white">
+                                            <Zap size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">Force Super Mode</h3>
+                                            <p className="text-sm text-gray-400">Activate 1h Boost for Self</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={handleForceSuperMode}
+                                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-purple-900/50 active:scale-95 transition-all"
+                                    >
+                                        ACTIVATE
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    Instantly sets your daily spins to 100 and enables Super Mode for 1 hour. Useful for testing.
+                                </p>
+                            </div>
+
                             {/* Maintenance Mode */}
                             <div className={`p-6 rounded-xl border-2 transition-all ${isMaintenanceMode ? 'bg-red-900/20 border-red-500' : 'bg-gray-900/50 border-gray-800'}`}>
                                 <div className="flex justify-between items-start mb-4">
