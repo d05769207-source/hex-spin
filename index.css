@@ -1,0 +1,22 @@
+/* Hexagon Active States for Direct DOM Manipulation */
+
+/* Base state is handled by Tailwind classes in the component */
+
+/* Active State (Spinning) */
+.hex-active {
+  z-index: 50 !important;
+  transform: scale(1.05) !important;
+  filter: brightness(1.3) !important;
+}
+
+/* Won State (Result) */
+.hex-won {
+  z-index: 50 !important;
+  transform: scale(1.05) !important;
+  filter: drop-shadow(0 0 15px #ffd700) brightness(1.5) !important;
+}
+
+/* Ensure smooth transitions */
+.hex-transition {
+  transition: transform 150ms ease-out, filter 150ms ease-out !important;
+}

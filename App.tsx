@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import './index.css';
 import { ITEMS } from './constants';
 import { GameItem, Page, User } from './types';
 import SpinWheel, { SpinWheelRef } from './components/SpinWheel';

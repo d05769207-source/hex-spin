@@ -88,21 +88,13 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
   let strokeWidth = item.isInner ? "3" : "2.5"; // Slightly thicker default borders
   let activeStrokeColor = strokeColor;
 
-  if (isActive) {
-    activeStrokeColor = "#ffd700"; // Always gold when active
+  // Direct DOM Manipulation Optimization:
+  // We no longer use inline styles for active/won states during the spin.
+  // Instead, we rely on the 'hex-active' and 'hex-won' classes toggled by SpinWheel.tsx.
+  // The 'isActive' prop is now only used for initial render or static states.
 
-    if (isWon) {
-      // "TAKDA GLOW" - Only on result
-      // Simplified for performance: Single strong shadow instead of multiple
-      filterStyle = `drop-shadow(0 0 15px #ffd700) brightness(1.5)`;
-      strokeWidth = "4";
-    } else {
-      // "SPIN GLOW" - Moving state (Softer)
-      // Removed drop-shadow during spin for 60fps performance
-      filterStyle = `brightness(1.3)`;
-      strokeWidth = "3.5";
-    }
-  }
+  // Base filter (always present)
+  // const filterStyle = `drop-shadow(0 0 5px ${color}40)`; // Removed for performance, handled by CSS if needed
 
   // Special render for 10K/5K Coins to look like icons
   const is10K = item.name === '10K Coins';
@@ -110,6 +102,7 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
 
   return (
     <div
+      id={`hex-${item.id}`} // CRITICAL: ID for Direct DOM Manipulation
       className={`absolute transform -translate-x-1/2 -translate-y-1/2 transition-all duration-300 ${zIndex}
         left-[calc(50%+var(--m-x))] top-[calc(50%+var(--m-y))]
         md:left-[calc(50%+var(--d-x))] md:top-[calc(50%+var(--d-y))]
@@ -118,9 +111,10 @@ const Hexagon: React.FC<HexagonProps> = ({ item, isActive, isWon, debugIndex }) 
     >
       {/* Main Wrapper */}
       <div
-        className={`relative ${sizeClasses} group transition-transform duration-150 
-          ${isActive ? 'scale-105 z-50' : 'hover:scale-105'}`}
-        style={{ filter: filterStyle }}
+        className={`relative ${sizeClasses} group hex-transition 
+          ${isActive ? 'hex-active' : ''} 
+          ${isWon ? 'hex-won' : ''}
+          hover:scale-105`}
       >
         {/* CSS Animation Style for Rising Lines & Sweep Shine */}
         <style>

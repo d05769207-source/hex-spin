@@ -16,9 +16,44 @@ interface SpinWheelProps {
 }
 
 const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({ isSpinning, showWinnerModal, onTick }, ref) => {
-    const [activeIndex, setActiveIndex] = useState<number>(-1);
+    // REMOVED: activeIndex state (Direct DOM Manipulation for 60fps)
+    // const [activeIndex, setActiveIndex] = useState<number>(-1);
+
     const currentIndexRef = useRef<number>(0);
     const isSkippingRef = useRef<boolean>(false);
+
+    // Helper to safely toggle classes on Hexagon elements
+    const setHexagonActive = (index: number, isActive: boolean) => {
+        const item = ITEMS[index];
+        if (!item) return;
+
+        // Find the inner div which has the 'hex-transition' class
+        // Structure: #hex-{id} -> div.hex-transition
+        const wrapper = document.getElementById(`hex-${item.id}`);
+        if (wrapper) {
+            const innerDiv = wrapper.firstElementChild as HTMLElement;
+            if (innerDiv) {
+                if (isActive) {
+                    innerDiv.classList.add('hex-active');
+                } else {
+                    innerDiv.classList.remove('hex-active');
+                }
+            }
+        }
+    };
+
+    const clearAllActive = () => {
+        ITEMS.forEach((item) => {
+            const wrapper = document.getElementById(`hex-${item.id}`);
+            if (wrapper) {
+                const innerDiv = wrapper.firstElementChild as HTMLElement;
+                if (innerDiv) {
+                    innerDiv.classList.remove('hex-active');
+                    innerDiv.classList.remove('hex-won');
+                }
+            }
+        });
+    };
 
     useImperativeHandle(ref, () => ({
         spinTo: async (targetItem: GameItem, isFirst: boolean) => {
@@ -51,9 +86,14 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({ isSpinning, showWi
                         }
                     }
 
+                    // Deactivate previous
+                    setHexagonActive(currentIndexRef.current, false);
+
                     // Move to next index
                     currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
-                    setActiveIndex(currentIndexRef.current);
+
+                    // Activate new (Direct DOM)
+                    setHexagonActive(currentIndexRef.current, true);
 
                     // Play sound
                     onTick(isSkippingRef.current || (!isFirst));
@@ -72,7 +112,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({ isSpinning, showWi
             });
         },
         reset: () => {
-            setActiveIndex(-1);
+            clearAllActive();
             currentIndexRef.current = 0;
         },
         skip: () => {
@@ -131,8 +171,8 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({ isSpinning, showWi
                 <Hexagon
                     key={item.id}
                     item={item}
-                    isActive={index === activeIndex}
-                    isWon={!isSpinning && index === activeIndex && !showWinnerModal}
+                    isActive={false} // Managed by Direct DOM
+                    isWon={!isSpinning && !showWinnerModal && index === currentIndexRef.current && false} // Managed by Direct DOM or Parent
                 />
             ))}
         </div>
