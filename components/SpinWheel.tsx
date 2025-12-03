@@ -1,8 +1,7 @@
-import React, { useState, useRef, useCallback, memo, useEffect } from 'react';
+import React, { useState, useRef, useCallback, memo, forwardRef, useImperativeHandle } from 'react';
 import { ITEMS } from '../constants';
 import { GameItem } from '../types';
 import Hexagon from './Hexagon';
-import SpinControls from './SpinControls';
 
 // --- WEB AUDIO API SYSTEM ---
 const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -74,23 +73,20 @@ const playWinSound = () => {
     oscHigh.stop(t + 0.3);
 };
 
+export interface SpinWheelRef {
+    spin: (winners: GameItem[]) => Promise<void>;
+    skip: () => void;
+}
+
 interface SpinWheelProps {
-    balance: number;
-    isAdminMode: boolean;
-    isSuperMode: boolean;
-    onSpinRequest: (count: number) => Promise<GameItem[] | null>;
     onSpinComplete: (winners: GameItem[]) => void;
     soundEnabled: boolean;
 }
 
-const SpinWheel: React.FC<SpinWheelProps> = ({
-    balance,
-    isAdminMode,
-    isSuperMode,
-    onSpinRequest,
+const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     onSpinComplete,
     soundEnabled
-}) => {
+}, ref) => {
     const [activeIndex, setActiveIndex] = useState<number>(-1);
     const [isSpinning, setIsSpinning] = useState<boolean>(false);
     const [wonItems, setWonItems] = useState<GameItem[]>([]);
@@ -141,63 +137,87 @@ const SpinWheel: React.FC<SpinWheelProps> = ({
         });
     };
 
-    const handleSpinClick = useCallback(async (count: number) => {
-        if (isSpinning) return;
+    useImperativeHandle(ref, () => ({
+        spin: async (winners: GameItem[]) => {
+            if (isSpinning) return;
 
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => { });
-        }
-
-        isSkippingRef.current = false;
-
-        // Request winners from parent
-        const winners = await onSpinRequest(count);
-
-        if (!winners) {
-            // Balance check failed or error
-            return;
-        }
-
-        setIsSpinning(true);
-        setWonItems([]); // Clear previous winners
-
-        // Execute Sequence
-        for (let i = 0; i < winners.length; i++) {
-            await spinToTarget(winners[i], i === 0);
-
-            // Vibration
-            if (winners[i].isInner && window.navigator && window.navigator.vibrate) {
-                window.navigator.vibrate([100, 50, 100, 50, 100]);
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => { });
             }
 
-            if (soundEnabled) playWinSound();
-
-            const wasSkipped = isSkippingRef.current;
             isSkippingRef.current = false;
-            const pauseTime = (wasSkipped || i > 0) ? 200 : 500;
-            await wait(pauseTime);
-        }
+            setIsSpinning(true);
+            setWonItems([]); // Clear previous winners
 
-        setIsSpinning(false);
-        setWonItems(winners); // Set winners to show glow
-        onSpinComplete(winners);
-        setActiveIndex(-1); // Reset active index after completion
-    }, [isSpinning, onSpinRequest, onSpinComplete, soundEnabled]);
+            // Execute Sequence
+            for (let i = 0; i < winners.length; i++) {
+                await spinToTarget(winners[i], i === 0);
 
-    const handleScreenTap = () => {
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => { });
+                // Vibration
+                if (winners[i].isInner && window.navigator && window.navigator.vibrate) {
+                    window.navigator.vibrate([100, 50, 100, 50, 100]);
+                }
+
+                if (soundEnabled) playWinSound();
+
+                const wasSkipped = isSkippingRef.current;
+                isSkippingRef.current = false;
+                const pauseTime = (wasSkipped || i > 0) ? 200 : 500;
+                await wait(pauseTime);
+            }
+
+            setIsSpinning(false);
+            setWonItems(winners); // Set winners to show glow
+            onSpinComplete(winners);
+            setActiveIndex(-1); // Reset active index after completion
+        },
+        skip: () => {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => { });
+            }
+            if (isSpinning) {
+                isSkippingRef.current = true;
+            }
         }
-        if (isSpinning) {
-            isSkippingRef.current = true;
-        }
-    };
+    }));
 
     return (
         <div
-            className="relative w-full max-w-[420px] aspect-square mx-auto mt-8 mb-12"
-            onClick={handleScreenTap}
+            className="relative w-[95vw] max-w-[380px] aspect-square md:w-[420px] md:max-w-none md:h-[420px] mx-auto mt-8 mb-12"
         >
+            {/* CENTRAL GLOW (BACKLIGHT) */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-radial-gradient from-orange-500/20 via-transparent to-transparent z-0 pointer-events-none mix-blend-screen"></div>
+
+            {/* THE GOLDEN FIRE RING */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[105%] h-[105%] md:w-[125%] md:h-[125%] z-0 pointer-events-none select-none">
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[85%] bg-orange-600/20 blur-[100px] rounded-full mix-blend-screen"></div>
+                <div className="absolute inset-0 animate-[spin_25s_linear_infinite]">
+                    <svg viewBox="0 0 400 400" className="w-full h-full overflow-visible">
+                        <defs>
+                            <linearGradient id="fireRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stopColor="#fbbf24" stopOpacity="0" />
+                                <stop offset="25%" stopColor="#fbbf24" stopOpacity="1" />
+                                <stop offset="50%" stopColor="#ea580c" stopOpacity="0.8" />
+                                <stop offset="75%" stopColor="#fbbf24" stopOpacity="1" />
+                                <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
+                            </linearGradient>
+                            <filter id="fireGlow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="3" result="blur" />
+                                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                            </filter>
+                        </defs>
+                        <circle cx="200" cy="200" r="190" fill="none" stroke="url(#fireRingGradient)" strokeWidth="3" strokeDasharray="150 80" strokeLinecap="round" filter="url(#fireGlow)" />
+                        <circle cx="200" cy="200" r="180" fill="none" stroke="#fcd34d" strokeWidth="1" strokeDasharray="4 30" opacity="0.6" />
+                    </svg>
+                </div>
+                <div className="absolute inset-[5%] animate-[spin_18s_linear_infinite_reverse]">
+                    <svg viewBox="0 0 400 400" className="w-full h-full overflow-visible">
+                        <circle cx="200" cy="200" r="185" fill="none" stroke="url(#fireRingGradient)" strokeWidth="2" strokeDasharray="60 100" opacity="0.7" filter="url(#fireGlow)" />
+                    </svg>
+                </div>
+                <div className="absolute inset-[10%] rounded-full border-[1px] border-orange-500/30 shadow-[0_0_60px_rgba(234,88,12,0.2)] opacity-50"></div>
+            </div>
+
             {/* Hexagon Grid */}
             <div className="absolute inset-0">
                 {ITEMS.map((item, index) => {
@@ -212,20 +232,8 @@ const SpinWheel: React.FC<SpinWheelProps> = ({
                     );
                 })}
             </div>
-
-            {/* Center Controls */}
-            <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
-                <div className="pointer-events-auto">
-                    <SpinControls
-                        onSpin={handleSpinClick}
-                        disabled={isSpinning}
-                        balance={balance}
-                        isAdminMode={isAdminMode}
-                    />
-                </div>
-            </div>
         </div>
     );
-};
+});
 
 export default memo(SpinWheel);

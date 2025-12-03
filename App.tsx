@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ITEMS } from './constants';
 import { GameItem, Page, User } from './types';
-import SpinWheel from './components/SpinWheel';
+import SpinWheel, { SpinWheelRef } from './components/SpinWheel';
+import SpinControls from './components/SpinControls';
 import WinnerModal from './components/WinnerModal';
 import Navigation from './components/Navigation';
 import Profile from './components/pages/Profile';
@@ -91,6 +92,8 @@ const App: React.FC = () => {
   // Game State
   const [wonItems, setWonItems] = useState<GameItem[]>([]);
   const [showWinnerModal, setShowWinnerModal] = useState<boolean>(false);
+  const [isSpinning, setIsSpinning] = useState<boolean>(false);
+  const wheelRef = useRef<SpinWheelRef>(null);
 
   const [balance, setBalance] = useState<number>(getGuestBalance()); // Load from localStorage for guests
   const [coins, setCoins] = useState<number>(getGuestCoins());       // Load from localStorage for guests
@@ -397,7 +400,7 @@ const App: React.FC = () => {
     saveGuestETokens(eTokens);
   }, [eTokens, user]);
 
-  const handleSpinRequest = useCallback(async (count: number): Promise<GameItem[] | null> => {
+  const handleSpin = useCallback(async (count: number) => {
     console.log('🚀 handleSpinRequest CALLED with count:', count);
 
     // TOKEN COST LOGIC: 1 Spin = 1 P-Token
@@ -412,7 +415,7 @@ const App: React.FC = () => {
       } else {
         setCurrentPage('SHOP');
       }
-      return null;
+      return;
     }
 
     console.log('✅ Balance check passed, proceeding with spin');
@@ -460,6 +463,7 @@ const App: React.FC = () => {
 
     setShowWinnerModal(false);
     setWonItems([]);
+    setIsSpinning(true);
 
     // 1. Decide Winners
     const winners: GameItem[] = [];
@@ -478,10 +482,14 @@ const App: React.FC = () => {
       winners.push(item);
     }
 
-    return winners;
-  }, [balance, user, isAdminMode, spinsToday, superModeEndTime]);
+    // Trigger Spin Animation
+    if (wheelRef.current) {
+      await wheelRef.current.spin(winners);
+    }
+  }, [balance, user, isAdminMode, spinsToday, superModeEndTime, isSpinning]);
 
   const handleSpinComplete = useCallback((winners: GameItem[]) => {
+    setIsSpinning(false);
     setWonItems(winners);
 
     // Calculate Reward
@@ -726,6 +734,12 @@ const App: React.FC = () => {
     pressStartTime.current = null;
   };
 
+  const handleScreenTap = () => {
+    if (wheelRef.current) {
+      wheelRef.current.skip();
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -744,12 +758,21 @@ const App: React.FC = () => {
             <div className="flex-1 relative flex items-center justify-center z-10 mt-14 md:mt-10 pb-8 md:pb-0 md:pr-24">
 
               <SpinWheel
-                balance={balance}
-                isAdminMode={isAdminMode}
-                isSuperMode={!!(superModeEndTime && new Date() < superModeEndTime)}
-                onSpinRequest={handleSpinRequest}
+                ref={wheelRef}
                 onSpinComplete={handleSpinComplete}
                 soundEnabled={soundEnabled}
+              />
+            </div>
+
+            {/* Footer / Controls */}
+            <div className="relative z-20 w-full pb-14 md:pb-12 mt-auto md:pr-24">
+              <SpinControls
+                onSpin={handleSpin}
+                isSpinning={isSpinning}
+                balance={balance}
+                isAdminMode={isAdminMode}
+                spinsToday={spinsToday}
+                superModeEndTime={superModeEndTime}
               />
             </div>
           </>
@@ -817,6 +840,7 @@ const App: React.FC = () => {
       onMouseLeave={handlePressEnd}
       onTouchStart={handlePressStart}
       onTouchEnd={handlePressEnd}
+      onClick={handleScreenTap}
     >
 
       {/* Intense Background Image */}
