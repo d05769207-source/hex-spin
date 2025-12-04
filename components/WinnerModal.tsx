@@ -54,65 +54,69 @@ const WinnerModal: React.FC<WinnerModalProps> = ({ items, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center p-4">
 
       {/* 1. Dark Overlay with Blur */}
-      <div className="absolute inset-0 bg-black/90 backdrop-blur-sm animate-in fade-in duration-300" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md animate-in fade-in duration-300" onClick={onClose}></div>
 
-      {/* 2. Rotating Sunburst / God Rays Effect */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none flex items-center justify-center">
-        <div className="w-[200vw] h-[200vw] bg-[conic-gradient(from_0deg,transparent_0deg,rgba(234,179,8,0.1)_20deg,transparent_40deg,rgba(234,179,8,0.1)_60deg,transparent_80deg)] animate-[spin_20s_linear_infinite] opacity-50"></div>
-      </div>
+      {/* 2. Content Container (No Box) */}
+      <div className="relative z-10 w-full max-w-4xl flex flex-col items-center animate-in zoom-in-95 duration-300 gap-8 md:gap-12">
 
-      {/* 3. Main Card Container */}
-      <div className="relative bg-gradient-to-b from-gray-900 via-black to-gray-900 w-full max-w-md rounded-2xl border-2 border-yellow-600/50 shadow-[0_0_50px_rgba(234,179,8,0.3)] flex flex-col items-center overflow-hidden animate-in zoom-in-95 duration-300">
-
-        {/* Decorative Top Header */}
-        <div className="w-full h-2 bg-gradient-to-r from-transparent via-yellow-500 to-transparent"></div>
-
-        {/* CONFETTI / STARS DECORATION */}
-        <Star className="absolute top-4 left-4 text-yellow-500 w-6 h-6 animate-pulse" fill="currentColor" />
-        <Star className="absolute top-8 right-6 text-orange-500 w-4 h-4 animate-bounce" fill="currentColor" />
-
-        {/* HEADER TEXT */}
-        <div className="mt-8 mb-2 flex flex-col items-center">
-          <h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 via-yellow-500 to-orange-600 drop-shadow-sm">
+        {/* HEADER */}
+        <div className="flex flex-col items-center text-center">
+          <h2 className="text-4xl md:text-6xl font-black italic uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 via-yellow-500 to-orange-600 drop-shadow-[0_2px_10px_rgba(234,179,8,0.5)]">
             CONGRATULATIONS
           </h2>
-          <div className="h-1 w-24 bg-yellow-600 rounded-full mt-1"></div>
-          <p className="text-gray-400 text-xs md:text-sm mt-2 uppercase tracking-widest">You Recieved</p>
+          <p className="text-yellow-200/80 text-xs md:text-sm mt-2 uppercase tracking-[0.2em] font-medium">
+            You Received Rewards
+          </p>
         </div>
 
-        {/* ITEMS GRID */}
-        <div className="w-full px-6 py-4">
-          <div className={`grid gap-3 ${items.length === 1 ? 'grid-cols-1 place-items-center' : 'grid-cols-2 md:grid-cols-3'}`}>
+        {/* ITEMS ROW */}
+        <div className="w-full flex justify-center">
+          <div className="flex flex-row flex-wrap justify-center items-end gap-2 md:gap-6">
             {items.map((item, idx) => {
               const isRarityHigh = item.isInner || item.rarity === 'LEGENDARY' || item.rarity === 'EPIC';
-              const borderColor = isRarityHigh ? 'border-yellow-500/60 bg-yellow-900/20' : 'border-gray-700 bg-gray-800/30';
-              const shadowColor = isRarityHigh ? 'shadow-[0_0_15px_rgba(234,179,8,0.2)]' : '';
+              // Rarity Colors for bottom border
+              const borderClass = item.isInner ? 'border-purple-500' :
+                item.name.includes('Coins') ? 'border-yellow-500' :
+                  'border-cyan-500';
+
+              const glowColor = item.isInner ? 'rgba(168,85,247,0.4)' :
+                item.name.includes('Coins') ? 'rgba(234,179,8,0.4)' :
+                  'rgba(6,182,212,0.4)';
 
               return (
                 <div
                   key={idx}
-                  className={`relative flex flex-col items-center justify-center p-3 rounded-xl border ${borderColor} ${shadowColor} animate-in slide-in-from-bottom-4 fade-in duration-500 fill-mode-backwards group`}
-                  style={{ animationDelay: `${idx * 100 + 200}ms` }}
+                  className="relative flex flex-col items-center group animate-in slide-in-from-bottom-8 fade-in duration-500 fill-mode-backwards"
+                  style={{ animationDelay: `${idx * 100}ms` }}
                 >
-                  {/* Glow behind item */}
-                  <div className={`absolute inset-0 bg-radial-gradient from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500`}></div>
+                  {/* Item Container */}
+                  <div
+                    className={`relative w-[16vw] h-[16vw] max-w-[100px] max-h-[100px] md:w-32 md:h-32 bg-gradient-to-b from-white/5 to-white/0 flex items-center justify-center border-b-4 ${borderClass}`}
+                    style={{
+                      boxShadow: `0 10px 20px -5px ${glowColor}`
+                    }}
+                  >
+                    {/* Visual */}
+                    <div className="scale-75 md:scale-90 transition-transform duration-300 group-hover:scale-100">
+                      {renderItemVisual(item)}
+                    </div>
 
-                  {/* Visual */}
-                  <div className="mb-2 relative z-10">
-                    {renderItemVisual(item)}
+                    {/* Quantity Badge - No Box, Bottom Right */}
+                    {!item.isInner && item.amount && (
+                      <div className="absolute bottom-0 right-1 md:bottom-0 md:right-2">
+                        <span className={`text-[10px] md:text-sm font-black ${item.name.includes('Coins') ? 'text-yellow-400' : 'text-cyan-400'} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]`} style={{ textShadow: '0 0 4px rgba(0,0,0,1)' }}>
+                          x{item.amount}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Name & Amount */}
-                  <div className="text-center z-10">
-                    <p className={`text-xs md:text-sm font-bold leading-tight ${item.isInner ? 'text-yellow-400' : 'text-white'}`}>
-                      {item.name.replace(/\bx\d+/, '').trim()} {/* Remove amount from name if present */}
-                    </p>
-                    {!item.isInner && item.amount && (
-                      <p className="text-yellow-300 font-black text-sm mt-0.5">x{item.amount}</p>
-                    )}
+                  {/* Name (Optional - kept minimal) */}
+                  <div className="mt-2 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 absolute -bottom-6 w-full">
+                    {/* Hidden by default to keep it clean, shown on hover if needed, or just remove if 'simple' means NO text */}
                   </div>
                 </div>
               );
@@ -121,13 +125,13 @@ const WinnerModal: React.FC<WinnerModalProps> = ({ items, onClose }) => {
         </div>
 
         {/* BUTTON */}
-        <div className="w-full px-6 pb-8 mt-2">
+        <div className="mt-4">
           <button
             onClick={onClose}
-            className="w-full py-3 relative overflow-hidden group rounded-lg bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 transition-all duration-200 shadow-lg active:scale-[0.98]"
+            className="px-12 py-3 bg-white text-black font-black text-lg md:text-xl uppercase tracking-widest hover:bg-gray-200 transition-colors shadow-[0_0_20px_rgba(255,255,255,0.3)] clip-path-button"
+            style={{ clipPath: 'polygon(10% 0, 100% 0, 100% 70%, 90% 100%, 0 100%, 0 30%)' }}
           >
-            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 skew-y-12"></div>
-            <span className="relative text-black font-black text-lg tracking-wide uppercase">COLLECT REWARDS</span>
+            OK
           </button>
         </div>
 
