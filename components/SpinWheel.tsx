@@ -107,9 +107,9 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             const distance = (targetIndex - current + ITEMS.length) % ITEMS.length;
 
             // Distance: 
-            // First spin: Long spin (30 + distance)
+            // First spin: Reduced base steps from 30 to 20 for faster spin (~2s total)
             // Silent spin: ABSOLUTE MINIMUM (distance + 1) - just moves to target
-            const totalStepsNeeded = isFirst ? (30 + distance) : (distance + 0);
+            const totalStepsNeeded = isFirst ? (20 + distance) : (distance + 0);
 
             const tick = (now: number) => {
                 // INSTANT SKIP CHECK
@@ -130,7 +130,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                 if (elapsed >= speed) {
                     // Deceleration for first spin only
                     if (isFirst && steps > totalStepsNeeded - 10) {
-                        speed += 20;
+                        speed += 15; // Reduced deceleration from 20 to 15
                     }
 
                     // Deactivate previous
@@ -210,7 +210,8 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
 
                 // Pause between spins
                 // If skipped, practically 0 pause (just enough to register the win sound/flash)
-                const pauseTime = wasSkipped ? 100 : (i > 0 ? 1000 : 2000);
+                // Standardized pause: 500ms for all spins
+                const pauseTime = wasSkipped ? 100 : 500;
                 await wait(pauseTime);
             }
 

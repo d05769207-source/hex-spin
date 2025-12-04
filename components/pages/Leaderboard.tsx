@@ -1,12 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Loader2, Plus, X, UserPlus, User as UserIcon, Bell, Search, Check, UserMinus, Copy } from 'lucide-react';
+import { Trophy, Users, Loader2, Plus, X, UserPlus, User as UserIcon, Bell, Search, Check, UserMinus, Copy, Send } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
 import { LeaderboardEntry, User } from '../../types';
 import EToken from '../EToken';
 import PrizeImage from '../PrizeImage';
-import { doc, getDoc, collection, query, where, getDocs, limit } from 'firebase/firestore';
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  limit,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  serverTimestamp,
+  runTransaction,
+  getCountFromServer
+} from 'firebase/firestore';
 import { getLevelProgress } from '../../utils/levelUtils';
+
+// Define FriendRequest type
+interface FriendRequest {
+  id: string; // senderId
+  username: string;
+  photoURL?: string;
+  timestamp: any;
+}
+
+// Define Friend type
+interface Friend {
+  id: string;
+  username: string;
+  photoURL?: string;
+  score?: number; // Optional, fetched from leaderboard or user doc
+  rank?: number;  // Optional
+  isOnline?: boolean;
+}
 
 const Leaderboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'PRIZE' | 'WEEKLY' | 'FRIENDS'>('WEEKLY');
@@ -31,14 +63,12 @@ const Leaderboard: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isSearchActive, setIsSearchActive] = useState(false); // New state to control view
+  const [isSearchActive, setIsSearchActive] = useState(false);
 
-  // Mock Friend Requests (Replace with real data later)
-  const [friendRequests, setFriendRequests] = useState([
-    { id: 'req1', username: 'Crypto_King', photoURL: '', time: '2h ago' },
-    { id: 'req2', username: 'Hex_Master', photoURL: '', time: '5h ago' },
-    { id: 'req3', username: 'Lucky_Spinner', photoURL: '', time: '1d ago' }
-  ]);
+  // Real Data States
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [sentRequests, setSentRequests] = useState<string[]>([]); // Track IDs of users we sent requests to
 
   useEffect(() => {
     if (currentUser && leaderboard.length > 0) {
@@ -57,6 +87,43 @@ const Leaderboard: React.FC = () => {
       }
     }
   }, [currentUser, leaderboard, userRank]);
+
+  // Real-time Listeners for Friends and Requests
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Listen for Friend Requests
+    const requestsRef = collection(db, 'users', currentUser.uid, 'friendRequests');
+    const unsubscribeRequests = onSnapshot(requestsRef, (snapshot) => {
+      const reqs: FriendRequest[] = [];
+      snapshot.forEach(doc => {
+        reqs.push({ id: doc.id, ...doc.data() } as FriendRequest);
+      });
+      setFriendRequests(reqs);
+    });
+
+    // Listen for Friends
+    const friendsRef = collection(db, 'users', currentUser.uid, 'friends');
+    const unsubscribeFriends = onSnapshot(friendsRef, (snapshot) => {
+      const friendsList: Friend[] = [];
+      snapshot.forEach(doc => {
+        friendsList.push({ id: doc.id, ...doc.data() } as Friend);
+      });
+      setFriends(friendsList);
+    });
+
+    const sentRef = collection(db, 'users', currentUser.uid, 'sentFriendRequests');
+    const unsubscribeSent = onSnapshot(sentRef, (snapshot) => {
+      const sentIds = snapshot.docs.map(doc => doc.id);
+      setSentRequests(sentIds);
+    });
+
+    return () => {
+      unsubscribeRequests();
+      unsubscribeFriends();
+      unsubscribeSent();
+    };
+  }, [currentUser]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -86,20 +153,50 @@ const Leaderboard: React.FC = () => {
     setIsSearching(true);
     try {
       const usersRef = collection(db, 'users');
-      // Simple search by username (exact match or starts with could be implemented with more complex queries)
-      // For now, we'll try to match username exactly or by ID
+      const resultsMap = new Map<string, User>();
 
-      const q = query(usersRef, where('username', '>=', searchQuery), where('username', '<=', searchQuery + '\uf8ff'), limit(5));
-      const querySnapshot = await getDocs(q);
+      // 1. Search by Username
+      const usernameQuery = query(
+        usersRef,
+        where('username', '>=', searchQuery),
+        where('username', '<=', searchQuery + '\uf8ff'),
+        limit(5)
+      );
 
-      const results: User[] = [];
-      querySnapshot.forEach((doc) => {
-        if (doc.id !== currentUser?.uid) { // Don't show self
-          results.push({ id: doc.id, ...doc.data() } as User);
+      // 2. Search by Display ID (if query is numeric)
+      let idQuery = null;
+      if (!isNaN(Number(searchQuery))) {
+        // Assuming displayId is stored as a number or string. 
+        // If it's a number in DB, we convert query. If string, we use string.
+        // Based on previous code `viewProfileUser.displayId` seems to be used.
+        // We'll try exact match for ID as partial match on numbers is hard/expensive without string conversion.
+        idQuery = query(usersRef, where('displayId', '==', Number(searchQuery)), limit(1));
+      }
+
+      const [usernameSnapshot, idSnapshot] = await Promise.all([
+        getDocs(usernameQuery),
+        idQuery ? getDocs(idQuery) : Promise.resolve({ empty: true, forEach: () => { } })
+      ]);
+
+      // Process Username Results
+      usernameSnapshot.forEach((doc) => {
+        if (doc.id !== currentUser?.uid) {
+          resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as User);
         }
       });
 
-      setSearchResults(results);
+      // Process ID Results
+      // @ts-ignore
+      if (!idSnapshot.empty) {
+        // @ts-ignore
+        idSnapshot.forEach((doc) => {
+          if (doc.id !== currentUser?.uid) {
+            resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as User);
+          }
+        });
+      }
+
+      setSearchResults(Array.from(resultsMap.values()));
     } catch (error) {
       console.error("Error searching users:", error);
     } finally {
@@ -122,16 +219,135 @@ const Leaderboard: React.FC = () => {
     }
   };
 
-  const handleAcceptRequest = (reqId: string) => {
-    // Logic to accept request
-    setFriendRequests(prev => prev.filter(req => req.id !== reqId));
-    // Here you would also update Firestore
+  // Toast State
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
-  const handleRejectRequest = (reqId: string) => {
-    // Logic to reject request
-    setFriendRequests(prev => prev.filter(req => req.id !== reqId));
-    // Here you would also update Firestore
+  // Send Friend Request
+  const handleSendRequest = async (targetUser: { id: string; username: string; photoURL?: string }) => {
+    if (!currentUser) return;
+    setMenuState(null); // Close menu if open
+
+    try {
+      // 1. Check if already friends
+      const friendDoc = await getDoc(doc(db, 'users', currentUser.uid, 'friends', targetUser.id));
+      if (friendDoc.exists()) {
+        showNotification("You are already friends!", 'error');
+        return;
+      }
+
+      // 2. Check if request already sent (locally check first)
+      if (sentRequests.includes(targetUser.id)) {
+        showNotification("Request already sent!", 'error');
+        return;
+      }
+
+      // 3. Check my friend limit (100)
+      if (friends.length >= 100) {
+        showNotification("You have reached the maximum limit of 100 friends.", 'error');
+        return;
+      }
+
+      // 4. Check target's pending request limit (50)
+      const targetRequestsRef = collection(db, 'users', targetUser.id, 'friendRequests');
+      const targetRequestsSnapshot = await getCountFromServer(targetRequestsRef);
+      if (targetRequestsSnapshot.data().count >= 50) {
+        showNotification("This user has too many pending friend requests.", 'error');
+        return;
+      }
+
+      // 5. Send Request (Write to target's friendRequests)
+      await setDoc(doc(db, 'users', targetUser.id, 'friendRequests', currentUser.uid), {
+        username: currentUser.displayName || 'Unknown',
+        photoURL: currentUser.photoURL || '',
+        timestamp: serverTimestamp()
+      });
+
+      // 6. Track Sent Request (Write to my sentFriendRequests)
+      await setDoc(doc(db, 'users', currentUser.uid, 'sentFriendRequests', targetUser.id), {
+        timestamp: serverTimestamp()
+      });
+
+      showNotification("Friend request sent!");
+
+    } catch (error) {
+      console.error("Error sending friend request:", error);
+      showNotification("Failed to send request.", 'error');
+    }
+  };
+
+  const handleAcceptRequest = async (req: FriendRequest) => {
+    if (!currentUser) {
+      console.error("No current user");
+      return;
+    }
+
+    if (!req || !req.id) {
+      console.error("Invalid request object passed to handleAcceptRequest:", req);
+      showNotification("Error: Invalid request data. Please try refreshing.", 'error');
+      return;
+    }
+
+    console.log("Accepting request from:", req.id, req.username);
+
+    try {
+      // Check my friend limit again before accepting
+      if (friends.length >= 100) {
+        showNotification("You cannot accept more friends. Limit of 100 reached.", 'error');
+        return;
+      }
+
+      await runTransaction(db, async (transaction) => {
+        // 1. Remove from my friendRequests
+        const reqRef = doc(db, 'users', currentUser.uid, 'friendRequests', req.id);
+        transaction.delete(reqRef);
+
+        // 2. Remove from sender's sentFriendRequests
+        const senderSentRef = doc(db, 'users', req.id, 'sentFriendRequests', currentUser.uid);
+        transaction.delete(senderSentRef);
+
+        // 3. Add to my friends
+        const myFriendRef = doc(db, 'users', currentUser.uid, 'friends', req.id);
+        transaction.set(myFriendRef, {
+          username: req.username,
+          photoURL: req.photoURL || '',
+          timestamp: serverTimestamp()
+        });
+
+        // 4. Add me to sender's friends
+        const senderFriendRef = doc(db, 'users', req.id, 'friends', currentUser.uid);
+        transaction.set(senderFriendRef, {
+          username: currentUser.displayName || 'Unknown',
+          photoURL: currentUser.photoURL || '',
+          timestamp: serverTimestamp()
+        });
+      });
+
+      showNotification(`You are now friends with ${req.username}!`);
+      // UI update happens automatically via listeners
+    } catch (error) {
+      console.error("Error accepting friend request:", error);
+      showNotification("Failed to accept request.", 'error');
+    }
+  };
+
+  const handleRejectRequest = async (reqId: string) => {
+    if (!currentUser) return;
+
+    try {
+      // 1. Remove from my friendRequests
+      await deleteDoc(doc(db, 'users', currentUser.uid, 'friendRequests', reqId));
+
+      // 2. Remove from sender's sentFriendRequests
+      await deleteDoc(doc(db, 'users', reqId, 'sentFriendRequests', currentUser.uid)).catch(e => console.log("Could not clear sender's sent status", e));
+
+    } catch (error) {
+      console.error("Error rejecting friend request:", error);
+    }
   };
 
   const prizeTiers = [
@@ -144,12 +360,7 @@ const Leaderboard: React.FC = () => {
     { ranks: '51-100', prize: '10 E-Tokens', icon: null, color: 'from-orange-400 to-red-500', textColor: 'text-orange-400', showEToken: true }
   ];
 
-  const friends = [
-    { rank: 45, name: 'Rahul_99', score: 45200, isOnline: true, isMe: false },
-    { rank: 128, name: 'Priya_Star', score: 32100, isOnline: false, isMe: false },
-    { rank: 567, name: 'Lucky_Gamer', score: 18900, isOnline: true, isMe: false },
-    { rank: 1245, name: 'You', score: 5420, isMe: true },
-  ];
+
 
   return (
     <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 pb-24 md:pb-0 relative">
@@ -386,42 +597,39 @@ const Leaderboard: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-            {friends.map((friend, idx) => {
-              if (friend.isMe) {
+            {friends.length > 0 ? (
+              friends.map((friend, idx) => {
+                // Merge with leaderboard data if available to show rank/score
+                const leaderboardEntry = leaderboard.find(p => p.userId === friend.id);
+                const rank = leaderboardEntry?.rank || '-';
+                const score = leaderboardEntry?.coins || 0;
+                const isOnline = false; // We don't have real online status yet
+
                 return (
-                  <div key={idx} className="sticky bottom-0 mt-4 mb-2">
-                    <div className="bg-cyan-900/40 backdrop-blur-md border border-cyan-500/50 rounded-xl p-3 flex items-center justify-between shadow-[0_0_20px_rgba(6,182,212,0.2)]">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-cyan-500 text-black font-black flex items-center justify-center text-xs">
-                          {friend.rank}
-                        </div>
-                        <span className="text-cyan-300 font-bold">{friend.name}</span>
+                  <div key={friend.id} className="flex items-center justify-between p-3 rounded-xl bg-black/60 border border-cyan-500/20 transition-transform hover:scale-[1.01] hover:border-cyan-500/40">
+                    <div className="flex items-center gap-4">
+                      <div className="w-8 h-8 rounded-full bg-cyan-800/50 text-cyan-200 font-black flex items-center justify-center text-sm border border-cyan-500/30">
+                        {rank}
                       </div>
-                      <span className="text-white font-bold">{friend.score.toLocaleString()} 💰</span>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-100">{friend.username}</span>
+                          {isOnline && (
+                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                          )}
+                        </div>
+                      </div>
                     </div>
+                    <span className="text-cyan-300 font-bold">{score.toLocaleString()} 💰</span>
                   </div>
                 );
-              }
-
-              return (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-black/60 border border-cyan-500/20 transition-transform hover:scale-[1.01] hover:border-cyan-500/40">
-                  <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 rounded-full bg-cyan-800/50 text-cyan-200 font-black flex items-center justify-center text-sm border border-cyan-500/30">
-                      {friend.rank}
-                    </div>
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-gray-100">{friend.name}</span>
-                        {friend.isOnline && (
-                          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-cyan-300 font-bold">{friend.score.toLocaleString()} 💰</span>
-                </div>
-              );
-            })}
+              })
+            ) : (
+              <div className="text-center py-10 opacity-50">
+                <Users size={32} className="mx-auto text-cyan-500 mb-2" />
+                <p className="text-gray-400 text-xs">No friends yet.</p>
+              </div>
+            )}
           </div>
 
           {/* Add Friends Placeholder */}
@@ -439,17 +647,34 @@ const Leaderboard: React.FC = () => {
           style={{ top: menuState.top, right: menuState.right }}
         >
           <div className="p-1">
-            <button
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                // Add friend logic here (placeholder)
-                setMenuState(null);
-              }}
-            >
-              <UserPlus size={14} className="text-cyan-400" />
-              Add Friend
-            </button>
+            {/* Check if already friends or request sent */}
+            {friends.some(f => f.id === menuState.id) ? (
+              <div className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-400 bg-white/5 rounded-lg cursor-default">
+                <Check size={14} />
+                Friends
+              </div>
+            ) : sentRequests.includes(menuState.id) ? (
+              <div className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-400 bg-white/5 rounded-lg cursor-default">
+                <Check size={14} />
+                Request Sent
+              </div>
+            ) : (
+              <button
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Find user details from leaderboard to pass to handleSendRequest
+                  const targetUser = leaderboard.find(u => u.userId === menuState.id);
+                  if (targetUser) {
+                    handleSendRequest({ id: targetUser.userId, username: targetUser.username });
+                  }
+                }}
+              >
+                <UserPlus size={14} className="text-cyan-400" />
+                Add Friend
+              </button>
+            )}
+
             <button
               className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               onClick={(e) => {
@@ -547,8 +772,26 @@ const Leaderboard: React.FC = () => {
                             <span className="text-[10px] text-gray-500">Lvl {getLevelProgress(user.totalSpins || 0).currentLevel} • {user.coins?.toLocaleString() || 0} Coins</span>
                           </div>
                         </div>
-                        <button className="p-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded-lg transition-colors">
-                          <UserPlus size={18} />
+                        <button
+                          className={`p-2 rounded-lg transition-colors ${friends.some(f => f.id === user.id)
+                            ? 'bg-green-500/20 text-green-400 cursor-default'
+                            : sentRequests.includes(user.id)
+                              ? 'bg-gray-500/20 text-gray-400 cursor-default'
+                              : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400'
+                            }`}
+                          onClick={() => {
+                            if (!friends.some(f => f.id === user.id) && !sentRequests.includes(user.id)) {
+                              handleSendRequest({ id: user.id, username: user.username || 'User', photoURL: user.photoURL || '' });
+                            }
+                          }}
+                        >
+                          {friends.some(f => f.id === user.id) ? (
+                            <Check size={18} />
+                          ) : sentRequests.includes(user.id) ? (
+                            <Check size={18} />
+                          ) : (
+                            <UserPlus size={18} />
+                          )}
                         </button>
                       </div>
                     ))
@@ -590,7 +833,7 @@ const Leaderboard: React.FC = () => {
                             <X size={16} />
                           </button>
                           <button
-                            onClick={() => handleAcceptRequest(req.id)}
+                            onClick={() => handleAcceptRequest(req)}
                             className="p-2 bg-green-500/10 hover:bg-green-500/20 text-green-400 rounded-lg transition-colors"
                           >
                             <Check size={16} />
@@ -729,6 +972,19 @@ const Leaderboard: React.FC = () => {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* TOAST NOTIFICATION */}
+      {toast && (
+        <div className="fixed bottom-20 md:bottom-8 left-1/2 -translate-x-1/2 z-[150] animate-in slide-in-from-bottom duration-300 fade-in">
+          <div className={`px-4 py-2 rounded-full shadow-2xl border backdrop-blur-md flex items-center gap-2 ${toast.type === 'success'
+              ? 'bg-green-500/10 border-green-500/50 text-green-400'
+              : 'bg-red-500/10 border-red-500/50 text-red-400'
+            }`}>
+            {toast.type === 'success' ? <Check size={14} /> : <X size={14} />}
+            <span className="text-xs font-bold">{toast.message}</span>
           </div>
         </div>
       )}
