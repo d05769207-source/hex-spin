@@ -113,6 +113,14 @@ const Hexagon = memo(forwardRef<HTMLDivElement, HexagonProps>(({ item, isActive,
             </clipPath>
           </defs>
 
+          {/* SHOCKWAVE RIPPLE LAYERS (SVG Polygons) */}
+          {/* These are hidden by default via CSS and triggered by .hexagon-winner */}
+          <g className="ripple-group">
+            <polygon points={points} fill="none" stroke="#f59e0b" strokeWidth="2" className="ripple-polygon" />
+            <polygon points={points} fill="none" stroke="#fbbf24" strokeWidth="2" className="ripple-polygon" />
+            <polygon points={points} fill="none" stroke="#fcd34d" strokeWidth="2" className="ripple-polygon" />
+          </g>
+
           {/* Background Color */}
           <polygon
             points={points}
@@ -226,6 +234,33 @@ const Hexagon = memo(forwardRef<HTMLDivElement, HexagonProps>(({ item, isActive,
             </>
           )}
         </div>
+
+        {/* SPARK OVERLAY - High Z-Index to be on top of everything */}
+        <svg viewBox={viewBox} className="absolute inset-0 w-full h-full overflow-visible z-50 pointer-events-none">
+          <g className="spark-group">
+            {[...Array(12)].map((_, i) => (
+              <g
+                key={`spark-wrapper-${i}`}
+                style={{
+                  transformOrigin: '50px 43.5px',
+                  transform: `rotate(${i * 30 + Math.random() * 20}deg)`
+                }}
+              >
+                <circle
+                  cx="50"
+                  cy="43.5"
+                  r={Math.random() * 2 + 1.5}
+                  className="spark-particle"
+                  style={{
+                    '--dist': `${70 + Math.random() * 50}px`,
+                    '--delay': `${Math.random() * 0.1}s`,
+                    '--dur': `${0.6 + Math.random() * 0.4}s`
+                  } as React.CSSProperties}
+                />
+              </g>
+            ))}
+          </g>
+        </svg>
       </div>
     </div>
   );

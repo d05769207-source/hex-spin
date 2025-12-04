@@ -20,9 +20,10 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     const [activeIndex, setActiveIndex] = useState<number>(-1);
     const [isSpinning, setIsSpinning] = useState<boolean>(false);
     const [wonItems, setWonItems] = useState<GameItem[]>([]);
+    const [showSkipText, setShowSkipText] = useState<boolean>(false); // New State for UI
 
     const currentIndexRef = useRef<number>(0);
-    const isSkippingRef = useRef<boolean>(false);
+    const isInstantSkipRef = useRef<boolean>(false); // New Ref for Logic
 
     // Refs for Direct DOM Manipulation
     const hexagonRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -91,28 +92,45 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     };
 
     // Spin Segment Logic
-    const spinToTarget = async (targetItem: GameItem, isFirst: boolean) => {
+    const spinToTarget = async (targetItem: GameItem, isFirst: boolean, silent: boolean = false) => {
         return new Promise<void>((resolve) => {
             const targetIndex = ITEMS.findIndex(i => i.id === targetItem.id);
             let steps = 0;
-            let speed = isFirst ? 50 : 15;
+
+            // Speed: Normal for first spin, Fast for silent spins
+            let speed = isFirst ? 50 : (silent ? 30 : 15);
+
             let lastTickTime = performance.now();
             let animationFrameId: number;
 
             const current = currentIndexRef.current;
             const distance = (targetIndex - current + ITEMS.length) % ITEMS.length;
-            const totalStepsNeeded = isFirst ? (30 + distance) : (distance + 14);
+
+            // Distance: 
+            // First spin: Long spin (30 + distance)
+            // Silent spin: ABSOLUTE MINIMUM (distance + 1) - just moves to target
+            const totalStepsNeeded = isFirst ? (30 + distance) : (distance + 0);
 
             const tick = (now: number) => {
+                // INSTANT SKIP CHECK
+                if (isInstantSkipRef.current) {
+                    cancelAnimationFrame(animationFrameId);
+                    // Deactivate current
+                    toggleActiveHexagon(currentIndexRef.current, false);
+                    // Jump to target
+                    currentIndexRef.current = targetIndex;
+                    // Activate target
+                    toggleActiveHexagon(currentIndexRef.current, true);
+                    resolve();
+                    return;
+                }
+
                 const elapsed = now - lastTickTime;
 
                 if (elapsed >= speed) {
-                    if (isSkippingRef.current) {
-                        speed = 10;
-                    } else if (isFirst) {
-                        if (steps > totalStepsNeeded - 10) {
-                            speed += 20;
-                        }
+                    // Deceleration for first spin only
+                    if (isFirst && steps > totalStepsNeeded - 10) {
+                        speed += 20;
                     }
 
                     // Deactivate previous
@@ -124,10 +142,9 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                     // Activate current (Direct DOM)
                     toggleActiveHexagon(currentIndexRef.current, true);
 
-                    // NOTE: We DO NOT call setActiveIndex here to avoid React Re-renders!
-
-                    if (soundEnabled) {
-                        playTickSound(isSkippingRef.current || (!isFirst));
+                    // Play tick sound only if NOT silent
+                    if (soundEnabled && !silent) {
+                        playTickSound(false);
                     }
 
                     steps++;
@@ -150,34 +167,55 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
         spin: async (winners: GameItem[]) => {
             if (isSpinning) return;
 
-            isSkippingRef.current = false;
+            isInstantSkipRef.current = false;
+            setShowSkipText(false);
             setIsSpinning(true);
             setWonItems([]); // Clear previous winners
             clearAllActive(); // Clear any previous active states
 
+            // Show "Tap to Skip" after 1 second
+            const skipTimer = setTimeout(() => {
+                setShowSkipText(true);
+            }, 1000);
+
             // Execute Sequence
             for (let i = 0; i < winners.length; i++) {
-                await spinToTarget(winners[i], i === 0);
+                // First spin: Normal animation (isFirst=true, silent=false)
+                // Subsequent spins: Short silent spin (isFirst=false, silent=true)
+                await spinToTarget(winners[i], i === 0, i > 0);
+
+                if (soundEnabled) playWinSound();
 
                 // Vibration
                 if (winners[i].isInner && window.navigator && window.navigator.vibrate) {
                     window.navigator.vibrate([100, 50, 100, 50, 100]);
                 }
 
-                if (soundEnabled) playWinSound();
-
                 // Highlight Winner
                 const winnerIndex = ITEMS.findIndex(item => item.id === winners[i].id);
                 if (winnerIndex !== -1) {
                     toggleWinnerHexagon(winnerIndex, true);
+
+                    // Remove winner animation class after it plays once (800ms animation)
+                    // This ensures it doesn't loop and returns to static active state
+                    setTimeout(() => {
+                        toggleWinnerHexagon(winnerIndex, false);
+                    }, 1000);
                 }
 
-                const wasSkipped = isSkippingRef.current;
-                isSkippingRef.current = false;
-                const pauseTime = (wasSkipped || i > 0) ? 1500 : 2000; // Increased pause to let animation play
+                // If skipped, we want to rush through everything.
+                // But the loop continues. spinToTarget handles the instant jump.
+                // We just need to minimize the pause time if skipped.
+                const wasSkipped = isInstantSkipRef.current;
+
+                // Pause between spins
+                // If skipped, practically 0 pause (just enough to register the win sound/flash)
+                const pauseTime = wasSkipped ? 100 : (i > 0 ? 1000 : 2000);
                 await wait(pauseTime);
             }
 
+            clearTimeout(skipTimer);
+            setShowSkipText(false);
             setIsSpinning(false);
 
             // RESET STATE: No glow after spin ends (User Request)
@@ -188,8 +226,10 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             onSpinComplete(winners);
         },
         skip: () => {
-            if (isSpinning) {
-                isSkippingRef.current = true;
+            // Only allow skip if the text is showing (after 1s)
+            if (isSpinning && showSkipText) {
+                isInstantSkipRef.current = true;
+                setShowSkipText(false); // Hide immediately after tapping
             }
         }
     }));
@@ -250,6 +290,15 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                     );
                 })}
             </div>
+
+            {/* TAP TO SKIP TEXT */}
+            {showSkipText && (
+                <div className="absolute top-[110%] left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none animate-pulse w-full text-center">
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-yellow-200 to-white text-sm md:text-base font-black tracking-[0.3em] uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" style={{ fontFamily: 'sans-serif', textShadow: '0 0 10px rgba(234, 179, 8, 0.5)' }}>
+                        Tap to Skip
+                    </span>
+                </div>
+            )}
         </div>
     );
 });

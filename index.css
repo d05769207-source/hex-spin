@@ -69,10 +69,397 @@
 
 .hexagon-winner {
     z-index: 50 !important;
-    animation: winner-pulse 1.5s ease-in-out infinite !important;
+    animation: winner-pulse 0.8s ease-in-out 1 !important;
+    animation-fill-mode: forwards !important;
 }
 
 .hexagon-winner .hexagon-border {
     stroke: #ffd700 !important;
     stroke-width: 4px !important;
+}
+
+/* --- SHOCKWAVE RIPPLE EFFECT --- */
+@keyframes ripple-expand {
+    0% {
+        transform: scale(1);
+        opacity: 0.8;
+        stroke-width: 3px;
+    }
+
+    100% {
+        transform: scale(2.5);
+        opacity: 0;
+        stroke-width: 0px;
+    }
+}
+
+.ripple-polygon {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    /* Hidden by default */
+    pointer-events: none;
+}
+
+/* Trigger animation only when parent has .hexagon-winner */
+.hexagon-winner .ripple-polygon {
+    animation: ripple-expand 0.8s ease-out 1 forwards;
+}
+
+/* Staggered delays for multiple layers */
+.hexagon-winner .ripple-polygon:nth-child(1) {
+    animation-delay: 0s;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes rise {
+    from {
+        stroke-dashoffset: 20;
+    }
+
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.animate-rise {
+    animation: rise 1s linear infinite;
+}
+
+@keyframes shine-sweep {
+    0% {
+        transform: translateX(-150%) skewX(-25deg);
+    }
+
+    100% {
+        transform: translateX(250%) skewX(-25deg);
+    }
+}
+
+.animate-shine {
+    animation: shine-sweep 3s infinite;
+}
+
+/* --- DIRECT DOM MANIPULATION CLASSES --- */
+/* These classes are toggled directly via JS refs to bypass React render cycle */
+
+.hexagon-container {
+    transition: transform 0.15s ease-out;
+    will-change: transform, filter;
+}
+
+.hexagon-active {
+    transform: scale(1.05);
+    z-index: 50 !important;
+    filter: drop-shadow(0 0 15px #ffd700) brightness(1.3) !important;
+}
+
+.hexagon-active .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 3.5px !important;
+}
+
+/* Winner State (Takda Glow) */
+@keyframes winner-pulse {
+    0% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+
+    50% {
+        transform: scale(1.15);
+        filter: drop-shadow(0 0 40px #ffd700) drop-shadow(0 0 80px #ea580c) brightness(2);
+    }
+
+    100% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+}
+
+.hexagon-winner {
+    z-index: 50 !important;
+    animation: winner-pulse 0.8s ease-in-out 1 !important;
+    animation-fill-mode: forwards !important;
+}
+
+.hexagon-winner .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 4px !important;
+}
+
+/* --- SHOCKWAVE RIPPLE EFFECT --- */
+@keyframes ripple-expand {
+    0% {
+        transform: scale(1);
+        opacity: 0.8;
+        stroke-width: 3px;
+    }
+
+    100% {
+        transform: scale(2.5);
+        opacity: 0;
+        stroke-width: 0px;
+    }
+}
+
+.ripple-polygon {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    /* Hidden by default */
+    pointer-events: none;
+}
+
+/* Trigger animation only when parent has .hexagon-winner */
+.hexagon-winner .ripple-polygon {
+    animation: ripple-expand 0.8s ease-out 1 forwards;
+}
+
+/* Staggered delays for multiple layers */
+.hexagon-winner .ripple-polygon:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.hexagon-winner .ripple-polygon:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.hexagon-container {
+    transition: transform 0.15s ease-out;
+    will-change: transform, filter;
+}
+
+.hexagon-active {
+    transform: scale(1.05);
+    z-index: 50 !important;
+    filter: drop-shadow(0 0 15px #ffd700) brightness(1.3) !important;
+}
+
+.hexagon-active .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 3.5px !important;
+}
+
+/* Winner State (Takda Glow) */
+@keyframes winner-pulse {
+    0% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+
+    50% {
+        transform: scale(1.15);
+        filter: drop-shadow(0 0 40px #ffd700) drop-shadow(0 0 80px #ea580c) brightness(2);
+    }
+
+    100% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+}
+
+.hexagon-winner {
+    z-index: 50 !important;
+    animation: winner-pulse 0.8s ease-in-out 1 !important;
+    animation-fill-mode: forwards !important;
+}
+
+.hexagon-winner .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 4px !important;
+}
+
+/* --- SHOCKWAVE RIPPLE EFFECT --- */
+@keyframes ripple-expand {
+    0% {
+        transform: scale(1);
+        opacity: 0.8;
+        stroke-width: 3px;
+    }
+
+    100% {
+        transform: scale(2.5);
+        opacity: 0;
+        stroke-width: 0px;
+    }
+}
+
+.ripple-polygon {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    /* Hidden by default */
+    pointer-events: none;
+}
+
+/* Trigger animation only when parent has .hexagon-winner */
+.hexagon-winner .ripple-polygon {
+    animation: ripple-expand 0.8s ease-out 1 forwards;
+}
+
+/* Staggered delays for multiple layers */
+.hexagon-winner .ripple-polygon:nth-child(1) {
+    animation-delay: 0s;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes rise {
+    from {
+        stroke-dashoffset: 20;
+    }
+
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.animate-rise {
+    animation: rise 1s linear infinite;
+}
+
+@keyframes shine-sweep {
+    0% {
+        transform: translateX(-150%) skewX(-25deg);
+    }
+
+    100% {
+        transform: translateX(250%) skewX(-25deg);
+    }
+}
+
+.animate-shine {
+    animation: shine-sweep 3s infinite;
+}
+
+/* --- DIRECT DOM MANIPULATION CLASSES --- */
+/* These classes are toggled directly via JS refs to bypass React render cycle */
+
+.hexagon-container {
+    transition: transform 0.15s ease-out;
+    will-change: transform, filter;
+}
+
+.hexagon-active {
+    transform: scale(1.05);
+    z-index: 50 !important;
+    filter: drop-shadow(0 0 15px #ffd700) brightness(1.3) !important;
+}
+
+.hexagon-active .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 3.5px !important;
+}
+
+/* Winner State (Takda Glow) */
+@keyframes winner-pulse {
+    0% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+
+    50% {
+        transform: scale(1.15);
+        filter: drop-shadow(0 0 40px #ffd700) drop-shadow(0 0 80px #ea580c) brightness(2);
+    }
+
+    100% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px #ffd700) drop-shadow(0 0 50px #fbbf24) brightness(1.5);
+    }
+}
+
+.hexagon-winner {
+    z-index: 50 !important;
+    animation: winner-pulse 0.8s ease-in-out 1 !important;
+    animation-fill-mode: forwards !important;
+}
+
+.hexagon-winner .hexagon-border {
+    stroke: #ffd700 !important;
+    stroke-width: 4px !important;
+}
+
+/* --- SHOCKWAVE RIPPLE EFFECT --- */
+@keyframes ripple-expand {
+    0% {
+        transform: scale(1);
+        opacity: 0.8;
+        stroke-width: 3px;
+    }
+
+    100% {
+        transform: scale(2.5);
+        opacity: 0;
+        stroke-width: 0px;
+    }
+}
+
+.ripple-polygon {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    /* Hidden by default */
+    pointer-events: none;
+}
+
+/* Trigger animation only when parent has .hexagon-winner */
+.hexagon-winner .ripple-polygon {
+    animation: ripple-expand 0.8s ease-out 1 forwards;
+}
+
+/* Staggered delays for multiple layers */
+.hexagon-winner .ripple-polygon:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.hexagon-winner .ripple-polygon:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.hexagon-winner .ripple-polygon:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+/* --- FIRE SPARK PARTICLES (Chingari) --- */
+@keyframes spark-fly {
+    0% {
+        transform: translateX(0) scale(0);
+        opacity: 0;
+    }
+
+    20% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+        fill: #ffffff;
+        /* Start white hot */
+    }
+
+    100% {
+        /* Move outwards (translateX works because parent is rotated) */
+        transform: translateX(var(--dist)) scale(0);
+        opacity: 0;
+        fill: #ea580c;
+        /* Fade to orange/red */
+    }
+}
+
+.spark-particle {
+    opacity: 0;
+    pointer-events: none;
+    fill: #fbbf24;
+    /* Default yellow-orange */
+    /* Removed transform-box/origin as we are just translating X now */
+}
+
+/* Trigger animation only when parent has .hexagon-winner */
+.hexagon-winner .spark-particle {
+    animation: spark-fly var(--dur) ease-out 1 forwards;
+    animation-delay: var(--delay);
 }
