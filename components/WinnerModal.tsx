@@ -106,7 +106,7 @@ const WinnerModal: React.FC<WinnerModalProps> = ({ items, onClose }) => {
 
                     {/* Quantity Badge - No Box, Bottom Right */}
                     {!item.isInner && item.amount && (
-                      <div className="absolute -bottom-2 right-1 md:-bottom-2 md:right-2">
+                      <div className="absolute -bottom-1 right-1 md:-bottom-1 md:right-2">
                         <span className={`text-[10px] md:text-sm font-black ${item.name.includes('Coins') ? 'text-yellow-400' : 'text-cyan-400'} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]`} style={{ textShadow: '0 0 4px rgba(0,0,0,1)' }}>
                           x{item.amount}
                         </span>
