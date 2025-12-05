@@ -70,20 +70,35 @@ const Leaderboard: React.FC = () => {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [sentRequests, setSentRequests] = useState<string[]>([]); // Track IDs of users we sent requests to
 
+  // Friends Leaderboard State
+  const [friendsLeaderboard, setFriendsLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [loadingFriendsBoard, setLoadingFriendsBoard] = useState(false);
+
   useEffect(() => {
-    if (currentUser && leaderboard.length > 0) {
+    if (currentUser) {
       const userData = leaderboard.find(entry => entry.userId === currentUser.uid);
       if (userData) {
         setCurrentUserData(userData);
       } else if (userRank > 0) {
-        // User not in top 100 but has a rank
-        setCurrentUserData({
-          userId: currentUser.uid,
-          username: currentUser.displayName || 'You',
-          coins: 0,
-          rank: userRank,
-          isMe: true
-        });
+        // User not in top 100 but has a rank. Fetch their coins for display.
+        const fetchUserCoins = async () => {
+          if (!currentUser) return;
+          try {
+            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+            if (userDoc.exists()) {
+              setCurrentUserData({
+                userId: currentUser.uid,
+                username: currentUser.displayName || 'You',
+                coins: userDoc.data().coins || 0,
+                rank: userRank,
+                isMe: true
+              });
+            }
+          } catch (e) {
+            console.error("Error fetching user coins for footer:", e);
+          }
+        };
+        fetchUserCoins();
       }
     }
   }, [currentUser, leaderboard, userRank]);
@@ -124,6 +139,65 @@ const Leaderboard: React.FC = () => {
       unsubscribeSent();
     };
   }, [currentUser]);
+
+  // Fetch Friends Leaderboard Data
+  useEffect(() => {
+    if (activeTab === 'FRIENDS' && currentUser && friends.length > 0) {
+      const fetchFriendsScores = async () => {
+        setLoadingFriendsBoard(true);
+        try {
+          // Fetch current user's latest data
+          const myDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          const myData = myDoc.data();
+          const me: LeaderboardEntry = {
+            userId: currentUser.uid,
+            username: myData?.username || currentUser.displayName || 'You',
+            photoURL: myData?.photoURL || currentUser.photoURL || '',
+            coins: myData?.coins || 0,
+            isMe: true
+          };
+
+          // Fetch all friends' data
+          const friendPromises = friends.map(async (friend) => {
+            const userDoc = await getDoc(doc(db, 'users', friend.id));
+            const userData = userDoc.data();
+            return {
+              userId: friend.id,
+              username: userData?.username || friend.username,
+              photoURL: userData?.photoURL || friend.photoURL,
+              coins: userData?.coins || 0,
+              isMe: false
+            } as LeaderboardEntry;
+          });
+
+          const friendsData = await Promise.all(friendPromises);
+
+          // Combine and Sort
+          const allPlayers = [me, ...friendsData];
+          allPlayers.sort((a, b) => b.coins - a.coins);
+
+          // Assign Ranks
+          const rankedPlayers = allPlayers.map((player, index) => ({
+            ...player,
+            rank: index + 1
+          }));
+
+          setFriendsLeaderboard(rankedPlayers);
+        } catch (error) {
+          console.error("Error fetching friends leaderboard:", error);
+        } finally {
+          setLoadingFriendsBoard(false);
+        }
+      };
+
+      fetchFriendsScores();
+    } else if (activeTab === 'FRIENDS' && currentUser && friends.length === 0) {
+      // If no friends, just show current user as rank 1? Or empty state?
+      // Let's show just current user for now or keep empty logic but we need to handle the list.
+      // Actually, if 0 friends, the JSX handles "No friends yet".
+      setFriendsLeaderboard([]);
+    }
+  }, [activeTab, friends, currentUser]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -166,17 +240,19 @@ const Leaderboard: React.FC = () => {
       // 2. Search by Display ID (if query is numeric)
       let idQuery = null;
       if (!isNaN(Number(searchQuery))) {
-        // Assuming displayId is stored as a number or string. 
-        // If it's a number in DB, we convert query. If string, we use string.
-        // Based on previous code `viewProfileUser.displayId` seems to be used.
-        // We'll try exact match for ID as partial match on numbers is hard/expensive without string conversion.
         idQuery = query(usersRef, where('displayId', '==', Number(searchQuery)), limit(1));
       }
 
-      const [usernameSnapshot, idSnapshot] = await Promise.all([
-        getDocs(usernameQuery),
-        idQuery ? getDocs(idQuery) : Promise.resolve({ empty: true, forEach: () => { } })
-      ]);
+      // Execute queries
+      const queries = [getDocs(usernameQuery)];
+      if (idQuery) {
+        queries.push(getDocs(idQuery));
+      }
+
+      const snapshots = await Promise.all(queries);
+
+      const usernameSnapshot = snapshots[0];
+      const idSnapshot = idQuery ? snapshots[1] : null;
 
       // Process Username Results
       usernameSnapshot.forEach((doc) => {
@@ -186,9 +262,7 @@ const Leaderboard: React.FC = () => {
       });
 
       // Process ID Results
-      // @ts-ignore
-      if (!idSnapshot.empty) {
-        // @ts-ignore
+      if (idSnapshot) {
         idSnapshot.forEach((doc) => {
           if (doc.id !== currentUser?.uid) {
             resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as User);
@@ -395,7 +469,7 @@ const Leaderboard: React.FC = () => {
         <button
           onClick={() => setActiveTab('FRIENDS')}
           className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'FRIENDS'
-            ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20'
+            ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20'
             : 'text-gray-300 hover:text-white'
             }`}
         >
@@ -508,25 +582,47 @@ const Leaderboard: React.FC = () => {
                         }`}
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
-                      <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm border shadow-inner ${rankBg}`}>
-                          {player.rank}
+                      <div className="flex items-center gap-2"> {/* Reduced gap */}
+                        {/* Rank Number & Photo */}
+                        <div className="flex items-center gap-1.5 mr-2">
+                          {/* Styled Rank Text - Fixed Width (w-9) & Left Aligned - Smaller text */}
+                          <div className="w-9 flex items-center justify-start gap-[1px]">
+                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>#</span>
+                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{player.rank}</span>
+                          </div>
+
+                          {/* User Photo */}
+                          <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full p-[1px] ${rankBg} overflow-hidden shadow-lg flex-shrink-0`}>
+                            <img
+                              src={player.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${player.username}`}
+                              alt={player.username}
+                              className="w-full h-full rounded-full object-cover bg-gray-900"
+                            />
+                          </div>
                         </div>
                         <div className="flex flex-col">
                           <span className={`font-bold text-sm md:text-base tracking-wide ${isCurrentUser ? 'text-yellow-300' : 'text-gray-100'}`}>
                             {player.username}
-                            {isCurrentUser && <span className="text-[10px] ml-2 bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded uppercase">You</span>}
                           </span>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span className={`font-black text-sm md:text-base tracking-wider ${isCurrentUser ? 'text-yellow-400 drop-shadow-[0_0_5px_rgba(234,179,8,0.5)]' : rankColor}`}>
-                          {player.coins.toLocaleString()}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <svg viewBox="0 0 36 36" className="w-5 h-5 md:w-6 md:h-6 drop-shadow-sm filter brightness-110">
+                            <circle cx="18" cy="18" r="16" fill="#eab308" stroke="#fef08a" strokeWidth="2" />
+                            <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
+                            <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
+                          </svg>
+                          <span className={`font-black text-sm md:text-base tracking-wider ${isCurrentUser ? 'text-yellow-400 drop-shadow-[0_0_5px_rgba(234,179,8,0.5)]' : rankColor}`}>
+                            {player.coins.toLocaleString()}
+                          </span>
+                        </div>
 
-                        {/* Add Friend / View Profile Menu Trigger */}
-                        {!isCurrentUser && (
+                        {/* Add Friend / View Profile Menu Trigger OR 'You' Badge */}
+                        {isCurrentUser ? (
+                          <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded uppercase font-bold border border-yellow-500/30">You</span>
+                        ) : (
                           <div className="relative">
                             <button
                               onClick={(e) => {
@@ -554,91 +650,181 @@ const Leaderboard: React.FC = () => {
                 })}
               </div>
             </div>
-          )}
-
-          {/* Current User Fixed Footer - ALWAYS VISIBLE */}
-          {!loading && currentUserData && currentUserData.rank && (
-            <div className="fixed bottom-16 md:bottom-4 left-0 right-0 mx-auto w-full max-w-md px-4 z-30">
-              <div className="bg-gradient-to-r from-yellow-900/90 via-black/90 to-yellow-900/90 backdrop-blur-xl border border-yellow-500/60 rounded-xl p-3 flex items-center justify-between shadow-[0_0_25px_rgba(234,179,8,0.25)]">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 text-black font-black flex items-center justify-center text-sm shadow-lg border border-yellow-200">
-                    {currentUserData.rank}
-                  </div>
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 to-yellow-500 font-bold text-base">
-                    {currentUserData.username}
-                  </span>
-                </div>
-                <span className="text-yellow-400 font-black text-base drop-shadow-sm">{currentUserData.coins.toLocaleString()} 💰</span>
-              </div>
-            </div>
-          )}
+          )
+          }
         </div>
-      )}
+      )
+      }
 
-      {/* Friends Section */}
-      {activeTab === 'FRIENDS' && (
-        <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
-          <div className="text-xs text-white mb-3 uppercase tracking-wider font-bold flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Users size={14} className="text-cyan-400" />
-              Friends Rankings
+
+      {
+        activeTab === 'FRIENDS' && (
+          <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
+            <div className="text-xs text-white mb-3 uppercase tracking-wider font-bold flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users size={14} className="text-yellow-400" />
+                Friends Rankings
+              </div>
+
+              {/* Friend Request Trigger */}
+              <button
+                onClick={() => setShowFriendModal(true)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500/20 transition-colors"
+              >
+                <Bell size={12} className="text-yellow-400" />
+                <span className="text-[10px] font-bold text-yellow-300">
+                  {friendRequests.length > 0 ? `${friendRequests.length} New` : 'Requests'}
+                </span>
+              </button>
             </div>
 
-            {/* Friend Request Trigger */}
-            <button
-              onClick={() => setShowFriendModal(true)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors"
-            >
-              <Bell size={12} className="text-cyan-400" />
-              <span className="text-[10px] font-bold text-cyan-300">
-                {friendRequests.length > 0 ? `${friendRequests.length} New` : 'Requests'}
-              </span>
-            </button>
-          </div>
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-hide">
+              {loadingFriendsBoard ? (
+                <div className="flex flex-col items-center justify-center py-10">
+                  <Loader2 className="w-8 h-8 text-yellow-400 animate-spin" />
+                  <p className="text-gray-400 text-xs mt-2">Updating ranks...</p>
+                </div>
+              ) : friends.length > 0 ? (
+                // Use Friend Leaderboard Data (Sorted)
+                friendsLeaderboard.map((player, index) => {
+                  const isCurrentUser = player.isMe;
 
-          <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-            {friends.length > 0 ? (
-              friends.map((friend, idx) => {
-                // Merge with leaderboard data if available to show rank/score
-                const leaderboardEntry = leaderboard.find(p => p.userId === friend.id);
-                const rank = leaderboardEntry?.rank || '-';
-                const score = leaderboardEntry?.coins || 0;
-                const isOnline = false; // We don't have real online status yet
+                  // Rank Styles (Same as Weekly)
+                  let rankBg = 'bg-gradient-to-br from-gray-800 to-black text-gray-300 border-gray-600 shadow-black/50';
+                  let rankColor = 'text-cyan-300'; // Default fallback, but usually overwritten
 
-                return (
-                  <div key={friend.id} className="flex items-center justify-between p-3 rounded-xl bg-black/60 border border-cyan-500/20 transition-transform hover:scale-[1.01] hover:border-cyan-500/40">
-                    <div className="flex items-center gap-4">
-                      <div className="w-8 h-8 rounded-full bg-cyan-800/50 text-cyan-200 font-black flex items-center justify-center text-sm border border-cyan-500/30">
-                        {rank}
-                      </div>
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-gray-100">{friend.username}</span>
-                          {isOnline && (
-                            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                          )}
+                  if (player.rank === 1) {
+                    rankBg = 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-black border-yellow-200 shadow-yellow-500/50';
+                    rankColor = 'text-yellow-400';
+                  } else if (player.rank === 2) {
+                    rankBg = 'bg-gradient-to-br from-gray-300 to-gray-500 text-black border-gray-200 shadow-gray-400/50';
+                    rankColor = 'text-gray-300';
+                  } else if (player.rank === 3) {
+                    rankBg = 'bg-gradient-to-br from-orange-400 to-orange-600 text-black border-orange-200 shadow-orange-500/50';
+                    rankColor = 'text-orange-400';
+                  } else if (isCurrentUser) {
+                    rankBg = 'bg-yellow-500 text-black border-yellow-300 shadow-yellow-900/50';
+                    rankColor = 'text-yellow-400';
+                  } else {
+                    rankColor = 'text-gray-300'; // Standard non-top-3 friend
+                  }
+
+                  return (
+                    <div
+                      key={player.userId}
+                      className={`flex items-center justify-between p-3 md:p-4 rounded-xl border transition-all duration-300 hover:scale-[1.02] animate-in slide-in-from-bottom ${isCurrentUser
+                        ? 'bg-gradient-to-r from-yellow-900/60 to-yellow-800/40 border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]'
+                        : 'bg-gradient-to-r from-white/10 to-transparent border-white/10 hover:border-white/30 hover:bg-white/15 backdrop-blur-md'
+                        }`}
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <div className="flex items-center gap-2">
+                        {/* Rank Number & Photo */}
+                        <div className="flex items-center gap-1.5 mr-2">
+                          <div className="w-9 flex items-center justify-start gap-[1px]">
+                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>#</span>
+                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{player.rank}</span>
+                          </div>
+
+                          <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full p-[1px] ${rankBg} overflow-hidden shadow-lg flex-shrink-0`}>
+                            <img
+                              src={player.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${player.username}`}
+                              alt={player.username}
+                              className="w-full h-full rounded-full object-cover bg-gray-900"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className={`font-bold text-sm md:text-base tracking-wide ${isCurrentUser ? 'text-yellow-300' : 'text-gray-100'}`}>
+                            {player.username}
+                          </span>
                         </div>
                       </div>
-                    </div>
-                    <span className="text-cyan-300 font-bold">{score.toLocaleString()} 💰</span>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="text-center py-10 opacity-50">
-                <Users size={32} className="mx-auto text-cyan-500 mb-2" />
-                <p className="text-gray-400 text-xs">No friends yet.</p>
-              </div>
-            )}
-          </div>
 
-          {/* Add Friends Placeholder */}
-          <div className="mt-4 p-4 bg-cyan-900/20 border border-cyan-500/30 rounded-xl text-center">
-            <p className="text-cyan-400 text-xs font-bold mb-2">Add more friends to compete!</p>
-            <p className="text-gray-500 text-[10px]">Invite your friends to join the leaderboard</p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <svg viewBox="0 0 36 36" className="w-5 h-5 md:w-6 md:h-6 drop-shadow-sm filter brightness-110">
+                            <circle cx="18" cy="18" r="16" fill="#eab308" stroke="#fef08a" strokeWidth="2" />
+                            <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
+                            <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
+                          </svg>
+                          <span className={`font-black text-sm md:text-base tracking-wider ${isCurrentUser ? 'text-yellow-400 drop-shadow-[0_0_5px_rgba(234,179,8,0.5)]' : rankColor}`}>
+                            {player.coins.toLocaleString()}
+                          </span>
+                        </div>
+
+                        {/* Friend Action / 'You' Badge */}
+                        {isCurrentUser ? (
+                          <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded uppercase font-bold border border-yellow-500/30">You</span>
+                        ) : (
+                          // No add friend button here since they are already friends
+                          <div className="w-8"></div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-10 opacity-50">
+                  <Users size={32} className="mx-auto text-yellow-500 mb-2" />
+                  <p className="text-gray-400 text-xs text-yellow-200/70">No friends yet.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Add Friends Placeholder */}
+            <div className="mt-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-xl text-center">
+              <p className="text-yellow-400 text-xs font-bold mb-2">Add more friends to compete!</p>
+              <p className="text-gray-500 text-[10px]">Invite your friends to join the leaderboard</p>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
+
+      {/* FIXED FOOTER LOGIC - Updated for both Weekly and Friends */}
+      {
+        !loading && (activeTab === 'WEEKLY' ? (currentUserData && currentUserData.rank) : (activeTab === 'FRIENDS' && friendsLeaderboard.find(p => p.isMe))) && (
+          (() => {
+            // Determined which data to show
+            const footerUser = activeTab === 'WEEKLY' ? currentUserData : friendsLeaderboard.find(p => p.isMe);
+            if (!footerUser || !footerUser.rank) return null;
+
+            return (
+              <div className="fixed bottom-16 md:bottom-4 left-0 right-0 mx-auto w-full max-w-md pl-4 pr-6 z-30">
+                <div className="bg-gradient-to-r from-yellow-900/90 via-black/90 to-yellow-900/90 backdrop-blur-xl border border-yellow-500/60 rounded-xl p-3 flex items-center justify-between shadow-[0_0_25px_rgba(234,179,8,0.25)]">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 mr-2">
+                      <div className="w-9 flex items-center justify-start gap-[1px]">
+                        <span className="text-base font-bold italic transform -rotate-2 tracking-normal text-yellow-400 drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" style={{ fontFamily: 'sans-serif' }}>#</span>
+                        <span className="text-base font-bold italic transform -rotate-2 tracking-normal text-yellow-400 drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" style={{ fontFamily: 'sans-serif' }}>{footerUser.rank}</span>
+                      </div>
+                      <div className="w-10 h-10 rounded-full p-[1px] bg-gradient-to-br from-yellow-400 to-yellow-600 overflow-hidden shadow-lg border border-yellow-200">
+                        <img
+                          src={footerUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${footerUser.username}`}
+                          alt={footerUser.username}
+                          className="w-full h-full rounded-full object-cover bg-gray-900"
+                        />
+                      </div>
+                    </div>
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 to-yellow-500 font-bold text-base">
+                      {footerUser.username}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <svg viewBox="0 0 36 36" className="w-5 h-5 md:w-6 md:h-6 drop-shadow-sm filter brightness-110">
+                      <circle cx="18" cy="18" r="16" fill="#eab308" stroke="#fef08a" strokeWidth="2" />
+                      <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
+                      <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
+                    </svg>
+                    <span className="text-yellow-400 font-black text-base drop-shadow-sm">{footerUser.coins.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()
+        )
+      }
+
 
       {/* FIXED MENU - RENDERED OUTSIDE SCROLL CONTAINER */}
       {menuState && (
@@ -664,7 +850,14 @@ const Leaderboard: React.FC = () => {
                 onClick={(e) => {
                   e.stopPropagation();
                   // Find user details from leaderboard to pass to handleSendRequest
-                  const targetUser = leaderboard.find(u => u.userId === menuState.id);
+                  // BUT wait, leaderboard only has Top 100.
+                  // Depending on where we clicked, we might need data from friendsLeaderboard or leaderboard.
+                  // Let's try finding in both or use the clicked user ID logic.
+
+                  // Actually, the previous logic was:
+                  const targetUser = leaderboard.find(u => u.userId === menuState.id) || friendsLeaderboard.find(u => u.userId === menuState.id);
+                  // Added friendsLeaderboard check in case we are in Friends tab and clicked someone not in top 100
+
                   if (targetUser) {
                     handleSendRequest({ id: targetUser.userId, username: targetUser.username });
                   }
@@ -679,7 +872,10 @@ const Leaderboard: React.FC = () => {
               className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               onClick={(e) => {
                 e.stopPropagation();
+                console.log('View Profile clicked for:', menuState.id);
+                // Explicitly set the user ID to view
                 handleViewProfile(menuState.id);
+                setMenuState(null); // Close menu
               }}
             >
               <UserIcon size={14} className="text-yellow-400" />
@@ -690,305 +886,308 @@ const Leaderboard: React.FC = () => {
       )}
 
       {/* FRIEND ZONE MODAL */}
-      {showFriendModal && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-sm bg-gray-900 border border-cyan-500/30 rounded-2xl overflow-hidden shadow-2xl relative flex flex-col max-h-[80vh]">
+      {
+        showFriendModal && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-sm bg-gray-900 border border-cyan-500/30 rounded-2xl overflow-hidden shadow-2xl relative flex flex-col max-h-[80vh]">
 
-            {/* Header */}
-            <div className="p-4 border-b border-white/10 flex items-center justify-between bg-gray-900/95 sticky top-0 z-10">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Users size={16} className="text-cyan-400" />
-                Friend Zone
-              </h3>
-              <button
-                onClick={() => {
-                  setShowFriendModal(false);
-                  setSearchQuery('');
-                  setIsSearchActive(false);
-                }}
-                className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Search Box */}
-            <div className="p-4 pb-2 flex gap-2">
-              <div className="relative flex-1">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Search Username or ID..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500/50 transition-colors"
-                />
+              {/* Header */}
+              <div className="p-4 border-b border-white/10 flex items-center justify-between bg-gray-900/95 sticky top-0 z-10">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Users size={16} className="text-cyan-400" />
+                  Friend Zone
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowFriendModal(false);
+                    setSearchQuery('');
+                    setIsSearchActive(false);
+                  }}
+                  className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <button
-                onClick={handleSearch}
-                className="bg-cyan-500 hover:bg-cyan-400 text-black p-3 rounded-xl transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.3)]"
-              >
-                <Search size={20} />
-              </button>
+
+              {/* Search Box */}
+              <div className="p-4 pb-2 flex gap-2">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="text"
+                    placeholder="Search Username or ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-cyan-500/50 transition-colors"
+                  />
+                </div>
+                <button
+                  onClick={handleSearch}
+                  className="bg-cyan-500 hover:bg-cyan-400 text-black p-3 rounded-xl transition-colors flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.3)]"
+                >
+                  <Search size={20} />
+                </button>
+              </div>
+
+              {/* Content Area */}
+              <div className="flex-1 overflow-y-auto p-4 pt-2 space-y-3">
+
+                {/* SEARCH RESULTS MODE */}
+                {isSearchActive ? (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Search Results</p>
+                      <button
+                        onClick={() => {
+                          setIsSearchActive(false);
+                          setSearchQuery('');
+                        }}
+                        className="text-[10px] text-cyan-400 hover:underline"
+                      >
+                        Clear Search
+                      </button>
+                    </div>
+
+                    {isSearching ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="w-6 h-6 text-cyan-500 animate-spin" />
+                      </div>
+                    ) : searchResults.length > 0 ? (
+                      searchResults.map(user => (
+                        <div key={user.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gray-800 border border-white/10 overflow-hidden">
+                              <img
+                                src={user.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
+                                alt={user.username}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-white">{user.username}</span>
+                              <span className="text-[10px] text-gray-500">Lvl {getLevelProgress(user.totalSpins || 0).currentLevel} • {user.coins?.toLocaleString() || 0} Coins</span>
+                            </div>
+                          </div>
+                          <button
+                            className={`p-2 rounded-lg transition-colors ${friends.some(f => f.id === user.id)
+                              ? 'bg-green-500/20 text-green-400 cursor-default'
+                              : sentRequests.includes(user.id)
+                                ? 'bg-gray-500/20 text-gray-400 cursor-default'
+                                : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400'
+                              }`}
+                            onClick={() => {
+                              if (!friends.some(f => f.id === user.id) && !sentRequests.includes(user.id)) {
+                                handleSendRequest({ id: user.id, username: user.username || 'User', photoURL: user.photoURL || '' });
+                              }
+                            }}
+                          >
+                            {friends.some(f => f.id === user.id) ? (
+                              <Check size={18} />
+                            ) : sentRequests.includes(user.id) ? (
+                              <Check size={18} />
+                            ) : (
+                              <UserPlus size={18} />
+                            )}
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-gray-500 text-xs">
+                        No users found matching "{searchQuery}"
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* PENDING REQUESTS MODE */
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Pending Requests</p>
+                      <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-bold">{friendRequests.length}</span>
+                    </div>
+
+                    {friendRequests.length > 0 ? (
+                      friendRequests.map(req => (
+                        <div key={req.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 animate-in slide-in-from-bottom duration-300">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gray-800 border border-white/10 overflow-hidden">
+                              <img
+                                src={req.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
+                                alt={req.username}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-white">{req.username}</span>
+                              <span className="text-[10px] text-gray-500">{req.time}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleRejectRequest(req.id)}
+                              className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                            >
+                              <X size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleAcceptRequest(req)}
+                              className="p-2 bg-green-500/10 hover:bg-green-500/20 text-green-400 rounded-lg transition-colors"
+                            >
+                              <Check size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-10 text-center opacity-50">
+                        <Bell size={32} className="text-gray-600 mb-3" />
+                        <p className="text-gray-400 text-xs font-bold">No pending requests</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
+          </div>
+        )
+      }
 
-            {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-4 pt-2 space-y-3">
+      {/* PROFILE MODAL */}
+      {
+        (viewProfileUser || loadingProfile) && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => !loadingProfile && setViewProfileUser(null)}>
+            <div className="w-full max-w-sm bg-gray-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
 
-              {/* SEARCH RESULTS MODE */}
-              {isSearchActive ? (
+              {loadingProfile ? (
+                <div className="p-8 flex flex-col items-center justify-center gap-4">
+                  <Loader2 className="w-8 h-8 text-yellow-500 animate-spin" />
+                  <p className="text-gray-400 text-sm font-bold">Loading Profile...</p>
+                </div>
+              ) : viewProfileUser && (
                 <>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Search Results</p>
-                    <button
-                      onClick={() => {
-                        setIsSearchActive(false);
-                        setSearchQuery('');
-                      }}
-                      className="text-[10px] text-cyan-400 hover:underline"
-                    >
-                      Clear Search
-                    </button>
-                  </div>
+                  {/* Close Button */}
+                  <button
+                    onClick={() => setViewProfileUser(null)}
+                    className="absolute top-3 right-3 p-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors z-20"
+                  >
+                    <X size={18} />
+                  </button>
 
-                  {isSearching ? (
-                    <div className="flex justify-center py-8">
-                      <Loader2 className="w-6 h-6 text-cyan-500 animate-spin" />
-                    </div>
-                  ) : searchResults.length > 0 ? (
-                    searchResults.map(user => (
-                      <div key={user.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-800 border border-white/10 overflow-hidden">
+                  {/* Profile Content */}
+                  <div className="p-4 relative">
+                    {/* Background Glow */}
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+
+                    <div className="flex items-center justify-between relative z-10 mb-6">
+                      {/* Left: Photo & Level */}
+                      <div className="flex items-center gap-3 pr-4 border-r border-white/10">
+                        <div className="relative w-16 h-16">
+                          <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full animate-pulse-fast blur-sm opacity-50"></div>
+                          <div className="relative w-full h-full rounded-full border-2 border-yellow-400 overflow-hidden bg-gray-800">
                             <img
-                              src={user.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
-                              alt={user.username}
+                              src={viewProfileUser.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
+                              alt="User"
                               className="w-full h-full object-cover"
                             />
                           </div>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-bold text-white">{user.username}</span>
-                            <span className="text-[10px] text-gray-500">Lvl {getLevelProgress(user.totalSpins || 0).currentLevel} • {user.coins?.toLocaleString() || 0} Coins</span>
+                          <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-black shadow-sm uppercase tracking-wider">
+                            LVL {getLevelProgress(viewProfileUser.totalSpins || 0).currentLevel}
                           </div>
                         </div>
-                        <button
-                          className={`p-2 rounded-lg transition-colors ${friends.some(f => f.id === user.id)
-                            ? 'bg-green-500/20 text-green-400 cursor-default'
-                            : sentRequests.includes(user.id)
-                              ? 'bg-gray-500/20 text-gray-400 cursor-default'
-                              : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400'
-                            }`}
-                          onClick={() => {
-                            if (!friends.some(f => f.id === user.id) && !sentRequests.includes(user.id)) {
-                              handleSendRequest({ id: user.id, username: user.username || 'User', photoURL: user.photoURL || '' });
-                            }
-                          }}
-                        >
-                          {friends.some(f => f.id === user.id) ? (
-                            <Check size={18} />
-                          ) : sentRequests.includes(user.id) ? (
-                            <Check size={18} />
-                          ) : (
-                            <UserPlus size={18} />
+                      </div>
+
+                      {/* Middle: Name & UID */}
+                      <div className="flex-1 flex flex-col justify-center px-4">
+                        <h3 className="text-base font-bold text-white truncate max-w-[150px]">{viewProfileUser.username || 'Guest Player'}</h3>
+
+                        {/* UID Display with Copy */}
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">UID:</span>
+                          <span className="text-[10px] text-yellow-500 font-mono font-bold">
+                            {viewProfileUser.displayId ? viewProfileUser.displayId : '---'}
+                          </span>
+                          {viewProfileUser.displayId && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(viewProfileUser.displayId?.toString() || '');
+                              }}
+                              className="ml-1 p-0.5 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
+                              title="Copy UID"
+                            >
+                              <Copy size={10} />
+                            </button>
                           )}
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-gray-500 text-xs">
-                      No users found matching "{searchQuery}"
-                    </div>
-                  )}
-                </>
-              ) : (
-                /* PENDING REQUESTS MODE */
-                <>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Pending Requests</p>
-                    <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-bold">{friendRequests.length}</span>
-                  </div>
+                        </div>
 
-                  {friendRequests.length > 0 ? (
-                    friendRequests.map(req => (
-                      <div key={req.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 animate-in slide-in-from-bottom duration-300">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gray-800 border border-white/10 overflow-hidden">
-                            <img
-                              src={req.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
-                              alt={req.username}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-bold text-white">{req.username}</span>
-                            <span className="text-[10px] text-gray-500">{req.time}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleRejectRequest(req.id)}
-                            className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
-                          >
-                            <X size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleAcceptRequest(req)}
-                            className="p-2 bg-green-500/10 hover:bg-green-500/20 text-green-400 rounded-lg transition-colors"
-                          >
-                            <Check size={16} />
-                          </button>
+                        {/* Level Progress Bar */}
+                        <div className="w-full mt-2">
+                          {(() => {
+                            const levelData = getLevelProgress(viewProfileUser.totalSpins || 0);
+                            return (
+                              <>
+                                <div className="flex justify-between text-[8px] text-gray-400 mb-0.5">
+                                  <span>Lvl {levelData.currentLevel}</span>
+                                  <span>{Math.floor(levelData.progress)}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden border border-white/5">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-yellow-400 to-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+                                    style={{ width: `${levelData.progress}%` }}
+                                  />
+                                </div>
+                                <p className="text-[8px] text-gray-500 mt-0.5 text-right">
+                                  {levelData.spinsInLevel} / {levelData.spinsNeededForLevel} to Lvl {levelData.nextLevel}
+                                </p>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-10 text-center opacity-50">
-                      <Bell size={32} className="text-gray-600 mb-3" />
-                      <p className="text-gray-400 text-xs font-bold">No pending requests</p>
                     </div>
-                  )}
+
+                    {/* Stats Row */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-gray-800/60 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Coins</span>
+                          <span className="text-yellow-400 font-bold text-lg drop-shadow-sm">{(viewProfileUser.coins || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/30">
+                          <span className="text-lg">💰</span>
+                        </div>
+                      </div>
+                      <div className="bg-gray-800/60 border border-red-500/20 rounded-xl p-3 flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Spins</span>
+                          <span className="text-red-400 font-bold text-lg drop-shadow-sm">{(viewProfileUser.totalSpins || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30">
+                          <span className="text-lg">🎯</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
                 </>
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* PROFILE MODAL */}
-      {(viewProfileUser || loadingProfile) && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => !loadingProfile && setViewProfileUser(null)}>
-          <div className="w-full max-w-sm bg-gray-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
-
-            {loadingProfile ? (
-              <div className="p-8 flex flex-col items-center justify-center gap-4">
-                <Loader2 className="w-8 h-8 text-yellow-500 animate-spin" />
-                <p className="text-gray-400 text-sm font-bold">Loading Profile...</p>
-              </div>
-            ) : viewProfileUser && (
-              <>
-                {/* Close Button */}
-                <button
-                  onClick={() => setViewProfileUser(null)}
-                  className="absolute top-3 right-3 p-1.5 bg-black/40 hover:bg-black/60 text-white rounded-full transition-colors z-20"
-                >
-                  <X size={18} />
-                </button>
-
-                {/* Profile Content */}
-                <div className="p-4 relative">
-                  {/* Background Glow */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-
-                  <div className="flex items-center justify-between relative z-10 mb-6">
-                    {/* Left: Photo & Level */}
-                    <div className="flex items-center gap-3 pr-4 border-r border-white/10">
-                      <div className="relative w-16 h-16">
-                        <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full animate-pulse-fast blur-sm opacity-50"></div>
-                        <div className="relative w-full h-full rounded-full border-2 border-yellow-400 overflow-hidden bg-gray-800">
-                          <img
-                            src={viewProfileUser.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
-                            alt="User"
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-black shadow-sm uppercase tracking-wider">
-                          LVL {getLevelProgress(viewProfileUser.totalSpins || 0).currentLevel}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Middle: Name & UID */}
-                    <div className="flex-1 flex flex-col justify-center px-4">
-                      <h3 className="text-base font-bold text-white truncate max-w-[150px]">{viewProfileUser.username || 'Guest Player'}</h3>
-
-                      {/* UID Display with Copy */}
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">UID:</span>
-                        <span className="text-[10px] text-yellow-500 font-mono font-bold">
-                          {viewProfileUser.displayId ? viewProfileUser.displayId : '---'}
-                        </span>
-                        {viewProfileUser.displayId && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(viewProfileUser.displayId?.toString() || '');
-                            }}
-                            className="ml-1 p-0.5 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
-                            title="Copy UID"
-                          >
-                            <Copy size={10} />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Level Progress Bar */}
-                      <div className="w-full mt-2">
-                        {(() => {
-                          const levelData = getLevelProgress(viewProfileUser.totalSpins || 0);
-                          return (
-                            <>
-                              <div className="flex justify-between text-[8px] text-gray-400 mb-0.5">
-                                <span>Lvl {levelData.currentLevel}</span>
-                                <span>{Math.floor(levelData.progress)}%</span>
-                              </div>
-                              <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden border border-white/5">
-                                <div
-                                  className="h-full bg-gradient-to-r from-yellow-400 to-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
-                                  style={{ width: `${levelData.progress}%` }}
-                                />
-                              </div>
-                              <p className="text-[8px] text-gray-500 mt-0.5 text-right">
-                                {levelData.spinsInLevel} / {levelData.spinsNeededForLevel} to Lvl {levelData.nextLevel}
-                              </p>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stats Row */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gray-800/60 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between">
-                      <div className="flex flex-col">
-                        <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Coins</span>
-                        <span className="text-yellow-400 font-bold text-lg drop-shadow-sm">{(viewProfileUser.coins || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/30">
-                        <span className="text-lg">💰</span>
-                      </div>
-                    </div>
-                    <div className="bg-gray-800/60 border border-red-500/20 rounded-xl p-3 flex items-center justify-between">
-                      <div className="flex flex-col">
-                        <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Spins</span>
-                        <span className="text-red-400 font-bold text-lg drop-shadow-sm">{(viewProfileUser.totalSpins || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center border border-red-500/30">
-                        <span className="text-lg">🎯</span>
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+        )
+      }
 
       {/* TOAST NOTIFICATION */}
       {toast && (
         <div className="fixed bottom-20 md:bottom-8 left-1/2 -translate-x-1/2 z-[150] animate-in slide-in-from-bottom duration-300 fade-in">
           <div className={`px-4 py-2 rounded-full shadow-2xl border backdrop-blur-md flex items-center gap-2 ${toast.type === 'success'
-              ? 'bg-green-500/10 border-green-500/50 text-green-400'
-              : 'bg-red-500/10 border-red-500/50 text-red-400'
+            ? 'bg-green-500/10 border-green-500/50 text-green-400'
+            : 'bg-red-500/10 border-red-500/50 text-red-400'
             }`}>
             {toast.type === 'success' ? <Check size={14} /> : <X size={14} />}
             <span className="text-xs font-bold">{toast.message}</span>
           </div>
         </div>
       )}
-
     </div>
   );
 };

@@ -11,7 +11,8 @@ import {
     where,
     Timestamp,
     updateDoc,
-    increment
+    increment,
+    getCountFromServer
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { LeaderboardEntry, WeeklyStats } from '../types';
@@ -87,29 +88,35 @@ export const subscribeToLeaderboard = (
     });
 };
 
-// Get user's rank in weekly leaderboard
+// Get user's rank in weekly leaderboard (Global Rank)
 export const getUserRank = async (userId: string): Promise<number> => {
     try {
         const weekId = getCurrentWeekId();
         const leaderboardRef = collection(db, 'weeklyLeaderboard');
+
+        // 1. Get current user's coins
+        const userDocRef = doc(db, 'weeklyLeaderboard', `${userId}_${weekId}`);
+        const userDoc = await getDoc(userDocRef);
+
+        if (!userDoc.exists()) {
+            return 0; // User hasn't played this week
+        }
+
+        const userCoins = userDoc.data().coins || 0;
+
+        // 2. Count users with MORE coins than current user
         const q = query(
             leaderboardRef,
             where('weekId', '==', weekId),
-            orderBy('coins', 'desc')
+            where('coins', '>', userCoins)
         );
 
-        const snapshot = await getDocs(q);
-        let rank = 0;
-        let index = 0;
+        const snapshot = await getCountFromServer(q);
+        const count = snapshot.data().count;
 
-        snapshot.forEach((doc) => {
-            if (doc.data().userId === userId) {
-                rank = index + 1;
-            }
-            index++;
-        });
+        // Rank is count + 1 (e.g. if 5 people have more coins, I am #6)
+        return count + 1;
 
-        return rank;
     } catch (error) {
         console.error('Error getting user rank:', error);
         return 0;

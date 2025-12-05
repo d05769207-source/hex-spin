@@ -11,11 +11,13 @@ export interface SpinWheelRef {
 interface SpinWheelProps {
     onSpinComplete: (winners: GameItem[]) => void;
     soundEnabled: boolean;
+    isSuperMode: boolean;
 }
 
 const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     onSpinComplete,
-    soundEnabled
+    soundEnabled,
+    isSuperMode
 }, ref) => {
     const [activeIndex, setActiveIndex] = useState<number>(-1);
     const [isSpinning, setIsSpinning] = useState<boolean>(false);
@@ -92,6 +94,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     };
 
     // Spin Segment Logic
+    // Spin Segment Logic
     const spinToTarget = async (targetItem: GameItem, isFirst: boolean, silent: boolean = false) => {
         return new Promise<void>((resolve) => {
             const targetIndex = ITEMS.findIndex(i => i.id === targetItem.id);
@@ -163,6 +166,134 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
         });
     };
 
+    // BOUNCE EFFECT: Forward 3, Backward 3
+    const performBounce = async (targetIndex: number) => {
+        return new Promise<void>(async (resolve) => {
+            // FORWARD - Move away
+            for (let i = 0; i < 3; i++) {
+                if (isInstantSkipRef.current) { resolve(); return; } // Skip check
+                toggleActiveHexagon(currentIndexRef.current, false);
+                currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
+                toggleActiveHexagon(currentIndexRef.current, true);
+                // No Sound for bounce
+                await wait(50);
+            }
+
+            // APEX PAUSE - Add momentary suspension
+            if (!isInstantSkipRef.current) await wait(200);
+
+            // BACKWARD - Return to Target
+            for (let i = 0; i < 3; i++) {
+                if (isInstantSkipRef.current) { resolve(); return; } // Skip check
+                toggleActiveHexagon(currentIndexRef.current, false);
+                currentIndexRef.current = (currentIndexRef.current - 1 + ITEMS.length) % ITEMS.length;
+                toggleActiveHexagon(currentIndexRef.current, true);
+                // No Sound for bounce
+
+                // If this is the LAST step (landing on target), DO NOT WAIT inside loop.
+                // But we wait slightly AFTER loop to ensure visual registration.
+                if (i < 2) {
+                    await wait(60);
+                }
+            }
+
+            // Wait a tiny bit to let "Active" state render before "Winner" state overrides it.
+            // This ensures the Glow animation triggers visibly.
+            await wait(50);
+
+            resolve();
+        });
+    };
+
+    // TEASE EFFECT: Go to near-miss target, pause, overshoot, then settle
+    const performTease = async (targetIndex: number, teaseTargetIndex: number) => {
+        return new Promise<void>(async (resolve) => {
+            let current = currentIndexRef.current;
+
+            // 1. FORWARD TO TEASE TARGET
+            while (current !== teaseTargetIndex) {
+                if (isInstantSkipRef.current) {
+                    toggleActiveHexagon(currentIndexRef.current, false);
+                    currentIndexRef.current = targetIndex;
+                    toggleActiveHexagon(currentIndexRef.current, true);
+                    resolve(); return;
+                }
+
+                toggleActiveHexagon(currentIndexRef.current, false);
+                currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
+                current = currentIndexRef.current;
+                toggleActiveHexagon(currentIndexRef.current, true);
+                await wait(50);
+            }
+
+            // 2. PAUSE (Suspense)
+            if (!isInstantSkipRef.current) await wait(400);
+
+            // 3. BACKWARD TO REAL TARGET + OVERSHOOT (Go past it by 2 steps)
+            // We want to land on (targetIndex - 2)
+            const overshootIndex = (targetIndex - 2 + ITEMS.length) % ITEMS.length;
+
+            while (current !== overshootIndex) {
+                if (isInstantSkipRef.current) {
+                    toggleActiveHexagon(currentIndexRef.current, false);
+                    currentIndexRef.current = targetIndex;
+                    toggleActiveHexagon(currentIndexRef.current, true);
+                    resolve(); return;
+                }
+
+                toggleActiveHexagon(currentIndexRef.current, false);
+                currentIndexRef.current = (currentIndexRef.current - 1 + ITEMS.length) % ITEMS.length;
+                current = currentIndexRef.current;
+                toggleActiveHexagon(currentIndexRef.current, true);
+
+                // Fast return
+                await wait(60);
+            }
+
+            // 4. SETTLE (Forward 2 steps back to Target) - "Idher udher ka rasta"
+            for (let i = 0; i < 2; i++) {
+                if (isInstantSkipRef.current) break;
+
+                await wait(100); // Slow settle
+                toggleActiveHexagon(currentIndexRef.current, false);
+                currentIndexRef.current = (currentIndexRef.current + 1) % ITEMS.length;
+                toggleActiveHexagon(currentIndexRef.current, true);
+            }
+
+            // Ensure we are exactly at target (in case of skip break or math logic)
+            if (currentIndexRef.current !== targetIndex) {
+                toggleActiveHexagon(currentIndexRef.current, false);
+                currentIndexRef.current = targetIndex;
+                toggleActiveHexagon(currentIndexRef.current, true);
+            }
+
+            // Wait a tiny bit to let "Active" state render before "Winner" state overrides it.
+            await wait(50);
+
+            resolve();
+        });
+    };
+
+    // SLIP EFFECT: Instant Jump from Fake to Real (Visual "Slip")
+    const performSlip = async (targetIndex: number) => {
+        return new Promise<void>(async (resolve) => {
+            // "Kuda de na jhar se" -> Instant Jump
+            // We pause before this called, so now we just SWITCH.
+
+            toggleActiveHexagon(currentIndexRef.current, false);
+            currentIndexRef.current = targetIndex;
+            toggleActiveHexagon(currentIndexRef.current, true);
+
+            // Sound (Click/Thud)
+            if (soundEnabled) playTickSound(false);
+
+            // Tiny delay to register the visual change before the "Winner" pulse kicks in
+            await wait(50);
+
+            resolve();
+        });
+    };
+
     useImperativeHandle(ref, () => ({
         spin: async (winners: GameItem[]) => {
             if (isSpinning) return;
@@ -180,9 +311,75 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
 
             // Execute Sequence
             for (let i = 0; i < winners.length; i++) {
-                // First spin: Normal animation (isFirst=true, silent=false)
-                // Subsequent spins: Short silent spin (isFirst=false, silent=true)
-                await spinToTarget(winners[i], i === 0, i > 0);
+                const targetItem = winners[i];
+                const targetIndex = ITEMS.findIndex(item => item.id === targetItem.id);
+                const isConsecutive = i > 0 && winners[i].id === winners[i - 1].id;
+
+                if (isConsecutive) {
+                    // CONSECUTIVE WIN LOGIC
+                    // Reduced Chance: 10% (User: "hlka kam kar de")
+                    const isTease = Math.random() < 0.10;
+
+                    if (isTease) {
+                        const teaseIndex = Math.random() > 0.5 ? 2 : 3;
+                        await performTease(targetIndex, teaseIndex);
+                    } else {
+                        await performBounce(targetIndex);
+                    }
+                } else {
+
+                    // NORMAL SPIN LOGIC (Includes Smart Super Tease)
+
+                    let isSuperTease = false;
+                    let fakeTargetIndex = -1;
+
+                    // Smart Tease / Slip Config:
+                    // 1. Works in BOTH Modes
+                    // 2. Only on FIRST SPIN (i === 0)
+                    // 3. Not consecutive
+                    // 4. Probability: Super Mode (2%), Normal Mode (1%) - (User Request: 1 in 50 / 1 in 100)
+                    if (!isConsecutive && i === 0) {
+
+                        // Visual Neighbors Map
+                        const KTM_NEIGHBORS = [13, 12, 11, 10, 0, 1, 4, 9];
+                        const IPHONE_NEIGHBORS = [5, 6, 7, 8, 0, 1, 4, 9];
+
+                        const isKtmNeighbor = KTM_NEIGHBORS.includes(targetIndex);
+                        const isIphoneNeighbor = IPHONE_NEIGHBORS.includes(targetIndex);
+
+                        // Probability Check
+                        const teaseChance = isSuperMode ? 0.02 : 0.01;
+
+                        if ((isKtmNeighbor || isIphoneNeighbor) && Math.random() < teaseChance) {
+                            if (isKtmNeighbor && isIphoneNeighbor) {
+                                fakeTargetIndex = Math.random() > 0.5 ? 2 : 3;
+                            } else if (isKtmNeighbor) {
+                                fakeTargetIndex = 2; // KTM
+                            } else {
+                                fakeTargetIndex = 3; // iPhone
+                            }
+                            isSuperTease = true;
+                        }
+                    }
+
+                    if (isSuperTease) {
+                        // SUPER TEASE SEQUENCE
+
+                        // 1. Spin to Fake Target (KTM or iPhone)
+                        const fakeItem = ITEMS[fakeTargetIndex];
+                        await spinToTarget(fakeItem, i === 0, i > 0);
+
+                        // 2. Shock Pause (OH MY GOD) - 600ms
+                        if (!isInstantSkipRef.current) await wait(600);
+
+                        // 3. The Slip (Instant Jump to real target)
+                        await performSlip(targetIndex);
+
+                    } else {
+                        // Standard Spin
+                        await spinToTarget(targetItem, i === 0, i > 0);
+                    }
+                }
 
                 if (soundEnabled) playWinSound();
 
@@ -287,6 +484,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                             item={item}
                             isActive={isActive}
                             isWon={isWon}
+                            isSuperMode={isSuperMode}
                         />
                     );
                 })}

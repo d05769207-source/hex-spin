@@ -18,6 +18,8 @@ export const ITEMS: GameItem[] = [
     isInner: true,
     position: { x: 0, y: -11 },
     desktopPosition: { x: 0, y: -13 },
+    probability: '0.5%',
+    superProbability: '2%',
   },
   // TIER 2: Medium Size (Bottom) -> User #2 -> 5K Coins
   {
@@ -29,6 +31,8 @@ export const ITEMS: GameItem[] = [
     isInner: true,
     position: { x: 0, y: 11 },
     desktopPosition: { x: 0, y: 13 },
+    probability: '1.0%',
+    superProbability: '3%',
   },
   // TIER 1: Large Size (Left) → User #3 → KTM
   {
@@ -39,6 +43,8 @@ export const ITEMS: GameItem[] = [
     isInner: true,
     position: { x: -16, y: 0 },
     desktopPosition: { x: -20, y: 0 },
+    probability: '0%',
+    superProbability: '0%',
   },
   // TIER 1: Large Size (Right) → User #4 → iPhone (Orange Theme)
   {
@@ -49,6 +55,8 @@ export const ITEMS: GameItem[] = [
     isInner: true,
     position: { x: 16, y: 0 },
     desktopPosition: { x: 20, y: 0 },
+    probability: '0%',
+    superProbability: '0%',
   },
 
   // --- OUTER RING (10 Items) ---
@@ -65,6 +73,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: 0, y: -28 },
     desktopPosition: { x: 0, y: -35 },
+    probability: '1.5%',
+    superProbability: '10%',
   },
   // 2. Top Right (User No. 6)
   {
@@ -76,6 +86,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: 16, y: -22 },
     desktopPosition: { x: 20, y: -26 },
+    probability: '10%',
+    superProbability: '15%',
   },
   // 3. Right Upper (User No. 7)
   {
@@ -87,6 +99,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: 31, y: -11 },
     desktopPosition: { x: 37, y: -13 },
+    probability: '14%',
+    superProbability: '10%',
   },
   // 4. Right Lower (User No. 8)
   {
@@ -98,6 +112,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: 31, y: 11 },
     desktopPosition: { x: 37, y: 13 },
+    probability: '10%',
+    superProbability: '1%',
   },
   // 5. Bottom Right (User No. 9)
   {
@@ -109,6 +125,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: 16, y: 22 },
     desktopPosition: { x: 20, y: 26 },
+    probability: '15%',
+    superProbability: '12%',
   },
   // 6. Bottom Center (User No. 10)
   {
@@ -120,6 +138,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: 0, y: 28 },
     desktopPosition: { x: 0, y: 35 },
+    probability: '3%',
+    superProbability: '12%',
   },
   // 7. Bottom Left (User No. 11)
   {
@@ -131,6 +151,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: -16, y: 22 },
     desktopPosition: { x: -20, y: 26 },
+    probability: '6%',
+    superProbability: '15%',
   },
   // 8. Left Lower (User No. 12)
   {
@@ -142,6 +164,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: -31, y: 11 },
     desktopPosition: { x: -37, y: 13 },
+    probability: '15%',
+    superProbability: '6%',
   },
   // 9. Left Upper (User No. 13)
   {
@@ -153,6 +177,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: -31, y: -11 },
     desktopPosition: { x: -37, y: -13 },
+    probability: '9%',
+    superProbability: '4%',
   },
   // 10. Top Left (User No. 14)
   {
@@ -164,6 +190,8 @@ export const ITEMS: GameItem[] = [
     isInner: false,
     position: { x: -16, y: -22 },
     desktopPosition: { x: -20, y: -26 },
+    probability: '15%',
+    superProbability: '10%',
   },
 ];
 

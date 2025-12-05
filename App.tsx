@@ -105,6 +105,8 @@ const App: React.FC = () => {
   const [iphoneTokens, setIphoneTokens] = useState<number>(0); // Placeholder for now
   const [spinsToday, setSpinsToday] = useState<number>(0);
   const [superModeEndTime, setSuperModeEndTime] = useState<Date | null>(null);
+  const [superModeSpinsLeft, setSuperModeSpinsLeft] = useState<number>(0);
+  const isSuperMode = superModeSpinsLeft > 0;
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
   const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
 
@@ -165,6 +167,7 @@ const App: React.FC = () => {
 
               setSpinsToday(isSameDay ? (userData.spinsToday || 0) : 0);
               setSuperModeEndTime(userData.superModeEndTime ? userData.superModeEndTime.toDate() : null);
+              setSuperModeSpinsLeft(userData.superModeSpinsLeft || 0);
 
               const loadedSpins = userData.totalSpins || 0;
               setTotalSpins(loadedSpins);
@@ -299,7 +302,8 @@ const App: React.FC = () => {
           level: currentLevel,
           spinsToday: spinsToday,
           lastSpinDate: Timestamp.now(),
-          superModeEndTime: superModeEndTime ? Timestamp.fromDate(superModeEndTime) : null
+          superModeEndTime: superModeEndTime ? Timestamp.fromDate(superModeEndTime) : null,
+          superModeSpinsLeft: superModeSpinsLeft
         };
 
         await updateDoc(userDocRef, updates);
@@ -378,6 +382,10 @@ const App: React.FC = () => {
             setSuperModeEndTime(newEndTime);
           }
         }
+        // Update Super Mode Spins Left if changed externally
+        if (data.superModeSpinsLeft !== undefined && data.superModeSpinsLeft !== superModeSpinsLeft) {
+          setSuperModeSpinsLeft(data.superModeSpinsLeft);
+        }
       }
     });
 
@@ -431,18 +439,24 @@ const App: React.FC = () => {
     totalSpinsRef.current = newTotalSpins;
     setTotalSpins(newTotalSpins);
 
-    // SUPER MODE TRACKING
     const today = new Date();
     setSpinsToday(prev => {
       const newVal = prev + count;
-      // Activate Super Mode if threshold reached
+      // Activate Super Mode if threshold reached (Daily 100 spins) - Optional: Update this to give spins? 
+      // User request implied changing "Super Mode" behavior.
+      // Assuming Daily 100 spins trigger gives 50 spins now? Or just Admin triggers it?
+      // Based on prompt "ab aisa nhi bas 50 spins milenge", likely replaces the 1 hour reward.
       if (prev < 100 && newVal >= 100) {
-        const endTime = new Date(today.getTime() + 60 * 60 * 1000); // 1 Hour
-        setSuperModeEndTime(endTime);
-        console.log('🔥 SUPER MODE ACTIVATED!');
+        setSuperModeSpinsLeft(50);
+        console.log('🔥 SUPER MODE ACTIVATED! (50 Spins)');
       }
       return newVal;
     });
+
+    // DECREMENT SUPER MODE SPINS
+    if (isSuperMode) {
+      setSuperModeSpinsLeft(prev => Math.max(0, prev - count));
+    }
 
     // DIRECT SYNC TO FIRESTORE (Bypass useEffect for critical update)
     if (user && !user.isGuest) {
@@ -467,17 +481,36 @@ const App: React.FC = () => {
 
     // 1. Decide Winners
     const winners: GameItem[] = [];
-    const isSuperMode = superModeEndTime && new Date() < superModeEndTime;
+    const isSuperModeActive = superModeSpinsLeft > 0;  // Use local variable for loop logic if needed, but state is fine
+
+
+    // Helper: Weighted Random Selection
+    const getWeightedRandomItem = () => {
+      const weights = ITEMS.map(item => {
+        const probStr = (isSuperMode ? item.superProbability : item.probability) || '0%';
+        return parseFloat(probStr.replace('%', ''));
+      });
+
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      let random = Math.random() * totalWeight;
+
+      for (let i = 0; i < ITEMS.length; i++) {
+        if (random < weights[i]) {
+          return ITEMS[i];
+        }
+        random -= weights[i];
+      }
+      return ITEMS[ITEMS.length - 1]; // Fallback
+    };
 
     for (let i = 0; i < count; i++) {
-      let randomIndex = Math.floor(Math.random() * ITEMS.length);
-      let item = ITEMS[randomIndex];
+      let item = getWeightedRandomItem();
 
       // SUPER MODE LUCK BOOST: Re-roll if Common (50% chance)
+      // This effectively gives a second chance to get a better item based on the same weights
       if (isSuperMode && item.rarity === 'COMMON' && Math.random() > 0.5) {
         console.log('🔥 Super Mode Luck Boost! Re-rolling...');
-        randomIndex = Math.floor(Math.random() * ITEMS.length);
-        item = ITEMS[randomIndex];
+        item = getWeightedRandomItem();
       }
       winners.push(item);
     }
@@ -493,7 +526,7 @@ const App: React.FC = () => {
     setWonItems(winners);
 
     // Calculate Reward
-    const isSuperMode = superModeEndTime && new Date() < superModeEndTime;
+    const isSuperMode = superModeSpinsLeft > 0;
 
     winners.forEach(item => {
       if (item.name.includes('Coins') && item.amount) {
@@ -697,41 +730,81 @@ const App: React.FC = () => {
     }
   };
 
-  // Long Press Detection
-  const handlePressStart = () => {
-    if (currentPage !== 'HOME') return;
+  // Gesture Recognition State
+  const [gesturePoints, setGesturePoints] = useState<{ x: number; y: number }[]>([]);
+  const isDrawing = useRef<boolean>(false);
 
-    pressStartTime.current = Date.now();
+  // 'P' Shape Detection Algorithm
+  const detectPShape = (points: { x: number; y: number }[]) => {
+    if (points.length < 20) return false; // Too short
 
-    const interval = setInterval(() => {
-      if (!pressStartTime.current) {
-        clearInterval(interval);
-        return;
-      }
+    // 1. Normalize points to 0-1 range
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
 
-      const elapsed = Date.now() - pressStartTime.current;
-      const progress = Math.min((elapsed / 10000) * 100, 100);
+    const width = maxX - minX;
+    const height = maxY - minY;
 
-      setLongPressProgress(progress);
+    if (width === 0 || height === 0) return false;
 
-      if (progress >= 100) {
-        clearInterval(interval);
-        setShowAdminLogin(true);
-        setLongPressProgress(0);
-        pressStartTime.current = null;
-      }
-    }, 50);
+    const normalized = points.map(p => ({
+      x: (p.x - minX) / width,
+      y: (p.y - minY) / height
+    }));
 
-    pressTimerRef.current = interval;
+    // 2. Check for Vertical Stem (Start -> Up)
+    // Points should start near bottom-left (0, 1) and go up to top-left (0, 0)
+    // Let's check the first 20% of points
+    const startSegment = normalized.slice(0, Math.floor(normalized.length * 0.25));
+    const isVerticalStart = startSegment.every(p => p.x < 0.4); // Stays on left side
+    const goesUp = startSegment[0].y > startSegment[startSegment.length - 1].y; // Moving Up
+
+    // 3. Check for Loop (Right -> Down -> Left)
+    // The rest of the points should curve right, then down, then left
+    // We can check if the max X is in the top half
+    const topHalf = normalized.filter(p => p.y < 0.5);
+    const hasRightBulge = topHalf.some(p => p.x > 0.6);
+
+    // 4. Check Loop Closure (Ends near middle-left)
+    const endPoint = normalized[normalized.length - 1];
+    const closesNearMiddle = endPoint.y > 0.3 && endPoint.y < 0.7 && endPoint.x < 0.5;
+
+    // Loose P detection: Starts low-left, goes high, bulges right-top, ends mid-left
+    return isVerticalStart && goesUp && hasRightBulge && closesNearMiddle;
   };
 
-  const handlePressEnd = () => {
-    if (pressTimerRef.current) {
-      clearInterval(pressTimerRef.current);
-      pressTimerRef.current = null;
+  const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
+    if (currentPage !== 'HOME') return;
+    isDrawing.current = true;
+    const { clientX, clientY } = 'touches' in e ? e.touches[0] : (e as React.MouseEvent);
+    setGesturePoints([{ x: clientX, y: clientY }]);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!isDrawing.current) return;
+    const { clientX, clientY } = 'touches' in e ? e.touches[0] : (e as React.MouseEvent);
+    setGesturePoints(prev => [...prev, { x: clientX, y: clientY }]);
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDrawing.current) return;
+    isDrawing.current = false;
+
+    // Analyze Gesture
+    const isPShape = detectPShape(gesturePoints);
+    if (isPShape) {
+      console.log("⚡ 'P' Gesture Detected! Opening Admin...");
+      setShowAdminLogin(true);
+      // Haptic feedback
+      if (navigator.vibrate) navigator.vibrate(200);
+    } else {
+      console.log("Gesture rejected (Not a 'P')");
     }
-    setLongPressProgress(0);
-    pressStartTime.current = null;
+    setGesturePoints([]);
   };
 
   const handleScreenTap = () => {
@@ -761,6 +834,7 @@ const App: React.FC = () => {
                 ref={wheelRef}
                 onSpinComplete={handleSpinComplete}
                 soundEnabled={soundEnabled}
+                isSuperMode={superModeSpinsLeft > 0}
               />
             </div>
 
@@ -773,6 +847,7 @@ const App: React.FC = () => {
                 isAdminMode={isAdminMode}
                 spinsToday={spinsToday}
                 superModeEndTime={superModeEndTime}
+                superModeSpinsLeft={superModeSpinsLeft}
               />
             </div>
           </>
@@ -835,11 +910,13 @@ const App: React.FC = () => {
   return (
     <div
       className="min-h-screen w-full bg-gray-900 text-white font-sans pb-20 md:pb-0 md:pl-20 relative overflow-x-hidden flex flex-col"
-      onMouseDown={handlePressStart}
-      onMouseUp={handlePressEnd}
-      onMouseLeave={handlePressEnd}
-      onTouchStart={handlePressStart}
-      onTouchEnd={handlePressEnd}
+      onMouseDown={handleTouchStart}
+      onMouseMove={handleTouchMove}
+      onMouseUp={handleTouchEnd}
+      onMouseLeave={handleTouchEnd}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       onClick={handleScreenTap}
     >
 

@@ -8,6 +8,7 @@ interface SpinControlsProps {
   isAdminMode?: boolean;
   spinsToday: number;
   superModeEndTime: Date | null;
+  superModeSpinsLeft?: number;
 }
 
 // Professional P-Token Icon (Futuristic Hexagon Chip)
@@ -35,29 +36,8 @@ const TokenIcon = () => (
   </div>
 );
 
-const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance, isAdminMode = false, spinsToday, superModeEndTime }) => {
-  const [timeLeft, setTimeLeft] = React.useState<string>('');
-  const isSuperMode = superModeEndTime && new Date() < superModeEndTime;
-
-  React.useEffect(() => {
-    if (!superModeEndTime) return;
-
-    const updateTimer = () => {
-      const now = new Date();
-      const diff = superModeEndTime.getTime() - now.getTime();
-      if (diff <= 0) {
-        setTimeLeft('00:00');
-        return;
-      }
-      const m = Math.floor(diff / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      setTimeLeft(`${m}:${s.toString().padStart(2, '0')}`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [superModeEndTime]);
+const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance, isAdminMode = false, spinsToday, superModeEndTime, superModeSpinsLeft = 0 }) => {
+  const isSuperMode = superModeSpinsLeft > 0;
 
   const progress = Math.min((spinsToday / 100) * 100, 100);
 
@@ -77,7 +57,7 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
                 </div>
               </div>
               <div className="bg-black/40 px-3 py-1 rounded-lg border border-purple-500/30">
-                <span className="font-mono font-bold text-yellow-400 text-sm">{timeLeft}</span>
+                <span className="font-mono font-bold text-yellow-400 text-sm">{superModeSpinsLeft} Spins</span>
               </div>
             </div>
           </div>
@@ -97,7 +77,7 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
               </div>
             </div>
             <div className="text-center">
-              <span className="text-[9px] text-gray-400">Reach 100 spins for <span className="text-yellow-400 font-bold">1 Hour Super Mode (2x Rewards)</span></span>
+              <span className="text-[9px] text-gray-400">Reach 100 spins for <span className="text-yellow-400 font-bold">50 Super Spins</span></span>
             </div>
           </div>
         )}

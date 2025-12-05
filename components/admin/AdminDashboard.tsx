@@ -77,17 +77,35 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
 
         try {
             const userRef = doc(db, 'users', auth.currentUser.uid);
-            const endTime = new Date(Date.now() + 60 * 60 * 1000); // 1 Hour from now
+            // 1 Hour fallback + 50 Spins logic
+            const endTime = new Date(Date.now() + 60 * 60 * 1000);
 
             await updateDoc(userRef, {
-                spinsToday: 100, // Force trigger threshold
+                spinsToday: 100,
+                superModeSpinsLeft: 50,
                 superModeEndTime: Timestamp.fromDate(endTime)
             });
 
-            alert("⚡ Super Mode Activated for 1 Hour!");
+            alert("⚡ Super Mode Activated: Given 50 Spins!");
         } catch (error) {
             console.error("Error activating Super Mode:", error);
             alert("Failed to activate Super Mode.");
+        }
+    };
+
+    const handleDeactivateSuperMode = async () => {
+        if (!auth.currentUser) return;
+
+        try {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            await updateDoc(userRef, {
+                superModeEndTime: null,
+                superModeSpinsLeft: 0
+            });
+            alert("⚡ Super Mode DEACTIVATED.");
+        } catch (error) {
+            console.error("Error deactivating Super Mode:", error);
+            alert("Failed to deactivate.");
         }
     };
 
@@ -106,7 +124,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
 
     return (
         <div className="min-h-screen bg-black text-white font-sans flex flex-col md:flex-row overflow-hidden">
-
+            {/* ... other parts of the component remain same ... */}
             {/* MOBILE HEADER */}
             <div className="md:hidden p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900/90 backdrop-blur-md sticky top-0 z-50">
                 <div className="flex items-center gap-2">
@@ -118,7 +136,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                 </button>
             </div>
 
-            {/* SIDEBAR (Desktop: Visible, Mobile: Toggleable Overlay) */}
+            {/* SIDEBAR */}
             <div className={`
                 fixed inset-0 z-40 bg-black/95 backdrop-blur-xl transition-transform duration-300 md:translate-x-0 md:relative md:w-64 md:bg-gray-900 md:border-r md:border-gray-800 flex flex-col
                 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -313,15 +331,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                             <p className="text-sm text-gray-400">Activate 1h Boost for Self</p>
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={handleForceSuperMode}
-                                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-purple-900/50 active:scale-95 transition-all"
-                                    >
-                                        ACTIVATE
-                                    </button>
+                                    <div className="flex flex-col gap-2">
+                                        <button
+                                            onClick={handleForceSuperMode}
+                                            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-purple-900/50 active:scale-95 transition-all w-full"
+                                        >
+                                            ACTIVATE
+                                        </button>
+                                        <button
+                                            onClick={handleDeactivateSuperMode}
+                                            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-900/50 active:scale-95 transition-all w-full"
+                                        >
+                                            DEACTIVATE
+                                        </button>
+                                    </div>
                                 </div>
                                 <p className="text-xs text-gray-500 mt-2">
-                                    Instantly sets your daily spins to 100 and enables Super Mode for 1 hour. Useful for testing.
+                                    Instantly sets 100 spins (Activate) or clears timer (Deactivate).
                                 </p>
                             </div>
 

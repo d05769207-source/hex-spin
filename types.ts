@@ -15,6 +15,8 @@ export interface GameItem {
   isInner: boolean; // True for the 4 central items
   position: { x: number; y: number }; // Mobile coordinates (Compact)
   desktopPosition?: { x: number; y: number }; // Desktop coordinates (Spacious)
+  probability?: string; // e.g. "0.5%"
+  superProbability?: string; // e.g. "5%" (For Super Mode)
 }
 
 export interface SpinCost {
@@ -52,6 +54,7 @@ export interface User {
   spinsToday?: number; // Spins performed today (resets daily)
   lastSpinDate?: Date; // Date of the last spin (for daily reset)
   superModeEndTime?: Date; // When the Super Mode expires
+  superModeSpinsLeft?: number; // New: 50 spin limit
 }
 
 export interface LeaderboardEntry {

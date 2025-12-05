@@ -6,9 +6,10 @@ interface HexagonProps {
   isActive: boolean; // Kept for initial render/static states
   isWon: boolean;    // Kept for static winner state
   debugIndex?: number;
+  isSuperMode?: boolean;
 }
 
-const Hexagon = memo(forwardRef<HTMLDivElement, HexagonProps>(({ item, isActive, isWon, debugIndex }, ref) => {
+const Hexagon = memo(forwardRef<HTMLDivElement, HexagonProps>(({ item, isActive, isWon, debugIndex, isSuperMode }, ref) => {
 
   let sizeClasses = '';
   let zIndex = 'z-10';
@@ -76,6 +77,9 @@ const Hexagon = memo(forwardRef<HTMLDivElement, HexagonProps>(({ item, isActive,
 
   const is10K = item.name === '10K Coins';
   const is5K = item.name === '5K Coins';
+
+  // Calculate Probability String
+  const probString = isSuperMode ? item.superProbability : item.probability;
 
   return (
     <div
@@ -166,6 +170,8 @@ const Hexagon = memo(forwardRef<HTMLDivElement, HexagonProps>(({ item, isActive,
 
         {/* CONTENT LAYER */}
         <div className="absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none">
+
+
 
           {debugIndex && (
             <div className="absolute z-50 text-white font-black text-3xl drop-shadow-md" style={{ textShadow: '0 0 4px black' }}>
