@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PrizeImage from '../PrizeImage';
 import { soundManager } from '../../utils/SoundManager';
 
@@ -6,6 +6,7 @@ type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 
 
 interface EventProps {
     isAdminMode?: boolean;
+    onTriggerAdmin?: () => void;
 }
 
 interface JoiningViewProps {
@@ -419,10 +420,30 @@ const EndedView: React.FC = () => {
     );
 };
 
-const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
+const Event: React.FC<EventProps> = ({ isAdminMode = false, onTriggerAdmin }) => {
     const [eventState, setEventState] = useState<EventState>('JOINING');
     const [ktmEntry, setKtmEntry] = useState<number | null>(null);
     const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
+
+    // Long Press Logic
+    const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+    const handlePressStart = () => {
+        timerRef.current = setTimeout(() => {
+            if (onTriggerAdmin) {
+                // Vibrate if possible to indicate success
+                if (navigator.vibrate) navigator.vibrate(200);
+                onTriggerAdmin();
+            }
+        }, 5000); // 5 seconds
+    };
+
+    const handlePressEnd = () => {
+        if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+        }
+    };
 
     useEffect(() => {
         // Preload sounds
@@ -510,7 +531,13 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false }) => {
     };
 
     return (
-        <div className="w-full max-w-sm mx-auto h-full flex flex-col p-2 animate-in fade-in duration-500">
+        <div
+            className="w-full max-w-sm mx-auto h-full flex flex-col p-2 animate-in fade-in duration-500"
+            onPointerDown={handlePressStart}
+            onPointerUp={handlePressEnd}
+            onPointerLeave={handlePressEnd}
+            onContextMenu={(e) => e.preventDefault()} // Prevent context menu on long press
+        >
             <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden min-h-[600px] flex flex-col">
                 {eventState === 'JOINING' && (
                     <JoiningView

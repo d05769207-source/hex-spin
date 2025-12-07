@@ -933,7 +933,10 @@ const App: React.FC = () => {
       case 'EVENT':
         return (
           <div className="flex-1 pt-24 md:pt-20 overflow-hidden md:pr-24">
-            <Event isAdminMode={isAdminMode} />
+            <Event
+              isAdminMode={isAdminMode}
+              onTriggerAdmin={() => setShowAdminLogin(true)}
+            />
           </div>
         );
       case 'SHOP':

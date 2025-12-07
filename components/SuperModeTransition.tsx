@@ -74,7 +74,7 @@ const SuperModeTransition: React.FC<Props> = ({ onComplete }) => {
     }, { scope: container });
 
     return (
-        <div ref={container} className="fixed inset-0 z-[100] flex items-center justify-center bg-black overflow-hidden perspective-1000">
+        <div ref={container} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-hidden perspective-1000">
             {/* The Sphere (Gola) */}
             <div
                 ref={sphere}
