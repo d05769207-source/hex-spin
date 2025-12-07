@@ -437,10 +437,11 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             className="relative w-[95vw] max-w-[380px] aspect-square md:w-[420px] md:max-w-none md:h-[420px] mx-auto mt-8 mb-12"
         >
             {/* CENTRAL GLOW (BACKLIGHT) */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-radial-gradient ${isSuperMode ? 'from-cyan-500/20' : 'from-orange-500/20'} via-transparent to-transparent z-0 pointer-events-none mix-blend-screen transition-all duration-1000`}></div>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-radial-gradient ${isSuperMode ? 'from-cyan-500/20' : 'from-orange-500/20'} via-transparent to-transparent z-0 pointer-events-none mix-blend-screen transition-colors duration-1000`}></div>
 
             {/* THE GOLDEN / SKY BLUE FIRE RING */}
-            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[105%] h-[105%] md:w-[125%] md:h-[125%] z-0 pointer-events-none select-none transition-all duration-1000`}>
+            {/* REMOVED transition-all from parent to prevent layout shift animation on load */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[105%] h-[105%] md:w-[125%] md:h-[125%] z-0 pointer-events-none select-none">
                 <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[85%] ${isSuperMode ? 'bg-cyan-500/20' : 'bg-orange-600/20'} blur-[100px] rounded-full mix-blend-screen transition-colors duration-1000`}></div>
                 <div className="absolute inset-0 animate-[spin_25s_linear_infinite]">
                     <svg viewBox="0 0 400 400" className="w-full h-full overflow-visible">
@@ -466,7 +467,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                         <circle cx="200" cy="200" r="185" fill="none" stroke={`url(#${isSuperMode ? "blueRingGradient" : "fireRingGradient"})`} strokeWidth="2" strokeDasharray="60 100" opacity="0.7" filter="url(#fireGlow)" />
                     </svg>
                 </div>
-                <div className={`absolute inset-[10%] rounded-full border-[1px] ${isSuperMode ? 'border-cyan-500/30' : 'border-orange-500/30'} shadow-[0_0_60px_${isSuperMode ? 'rgba(6,182,212,0.4)' : 'rgba(234,88,12,0.2)'}] opacity-50 transition-all duration-1000`}></div>
+                <div className={`absolute inset-[10%] rounded-full border-[1px] ${isSuperMode ? 'border-cyan-500/30' : 'border-orange-500/30'} shadow-[0_0_60px_${isSuperMode ? 'rgba(6,182,212,0.4)' : 'rgba(234,88,12,0.2)'}] opacity-50 transition-colors duration-1000`}></div>
             </div>
 
             {/* Hexagon Grid */}

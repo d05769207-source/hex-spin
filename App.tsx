@@ -25,7 +25,7 @@ import { Volume2, VolumeX, Info } from 'lucide-react';
 import './index.css';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
-import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot, increment } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
 import { calculateLevel } from './utils/levelUtils';
@@ -331,86 +331,59 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // COMBINED SYNC TO FIRESTORE (Logged-in users only)
-  // Syncs all user stats in one go to save writes/quota
-  useEffect(() => {
-    if (!user || user.isGuest || !isSyncEnabled) return;
+  // --- DIRECT SYNC HELPER (Replaces Debounced useEffect) ---
+  const saveUserProgress = async (updates: Partial<User> & { [key: string]: any }) => {
+    if (!user || user.isGuest) return;
 
-    const syncUserData = async () => {
-      try {
-        const userDocRef = doc(db, 'users', user.id);
+    try {
+      const userDocRef = doc(db, 'users', user.id);
 
-        // Calculate current level based on totalSpins
-        const currentLevel = calculateLevel(totalSpins);
+      // Merge with timestamp
+      const dataToSave = {
+        ...updates,
+        lastSpinDate: Timestamp.now()
+      };
 
-        // Prepare update object
-        const updates: any = {
-          tokens: balance,
-          coins: coins,
-          eTokens: eTokens,
-          ktmTokens: ktmTokens,
-          iphoneTokens: iphoneTokens,
-          inrBalance: inrBalance,
-          totalSpins: totalSpins,
-          level: currentLevel,
-          spinsToday: spinsToday,
-          lastSpinDate: Timestamp.now(),
-          superModeEndTime: superModeEndTime ? Timestamp.fromDate(superModeEndTime) : null,
-          superModeSpinsLeft: superModeSpinsLeft
-        };
+      await updateDoc(userDocRef, dataToSave);
+      console.log('✅ Data Synced to Firestore:', dataToSave);
 
-        await updateDoc(userDocRef, updates);
+      // --- LEADERBOARD SYNC (Throttled) ---
+      // We still check leaderboard update criteria here, but triggered by direct actions
 
-        console.log('✅ User Data Synced to Firestore:', updates);
+      // Calculate current coins effectively
+      const currentCoins = updates.coins !== undefined ? updates.coins : coins;
 
-        // --- LEADERBOARD SYNC (Throttled) ---
-        // Prevent excessive writes (20k+ issue) by syncing only when needed.
-        const now = Date.now();
-        const timeDiff = now - lastLeaderboardSync.current;
-        const coinDiff = Math.abs(coins - lastSyncedCoins.current);
+      const now = Date.now();
+      const timeDiff = now - lastLeaderboardSync.current;
+      const coinDiff = Math.abs(currentCoins - lastSyncedCoins.current);
 
-        // Sync if:
-        // 1. More than 1 minute has passed since last sync (timeDiff > 60000)
-        // 2. OR Coins changed by more than 5000 (coinDiff > 5000)
-        // 3. AND we have a valid user ID
-        if (user.id && (timeDiff > 60000 || coinDiff > 5000)) {
-          console.log(`🏆 Syncing to Leaderboard... (TimeDiff: ${timeDiff}ms, CoinDiff: ${coinDiff})`);
-
-          syncUserToLeaderboard(
-            user.id,
-            user.username || 'Player',
-            coins,
-            user.photoURL
-          ).then(() => {
-            lastLeaderboardSync.current = now;
-            lastSyncedCoins.current = coins;
-            console.log('✅ Leaderboard Synced Successfully');
-          }).catch(err => {
-            console.error('❌ Leaderboard Sync Failed:', err);
-          });
-        } else {
-          console.log(`Skipping Leaderboard Sync (TimeDiff: ${timeDiff}ms, CoinDiff: ${coinDiff})`);
-        }
-
-        // CHECK FOR REFERRAL REWARD (Level Up)
-        if (user.referredBy) {
-          processLevelUpReward(user.id, currentLevel);
-        }
-
-      } catch (error: any) {
-        console.error('❌ Error syncing user data:', error);
-        if (error.code === 'resource-exhausted') {
-          console.warn('⚠️ Quota exceeded! Disabling sync temporarily.');
-          setIsSyncEnabled(false); // Stop trying to sync if we hit the limit
-        }
+      if (user.id && (timeDiff > 60000 || coinDiff > 5000)) {
+        syncUserToLeaderboard(
+          user.id,
+          user.username || 'Player',
+          currentCoins,
+          user.photoURL
+        ).then(() => {
+          lastLeaderboardSync.current = now;
+          lastSyncedCoins.current = currentCoins;
+        });
       }
-    };
 
-    // Debounce: Wait 2 seconds after LAST change before writing
-    // This allows multiple rapid spins/changes to be batched into ONE write
-    const timeoutId = setTimeout(syncUserData, 2000);
-    return () => clearTimeout(timeoutId);
-  }, [balance, coins, eTokens, ktmTokens, iphoneTokens, inrBalance, totalSpins, user, isSyncEnabled, spinsToday, superModeEndTime]);
+    } catch (error: any) {
+      console.error('❌ Error saving user progress:', error);
+    }
+  };
+
+  // REFS FOR LISTENER (Prevent stale closures without re-subscribing)
+  const spinsTodayRef = useRef(spinsToday);
+  const superModeEndTimeRef = useRef(superModeEndTime);
+  const superModeSpinsLeftRef = useRef(superModeSpinsLeft);
+
+  useEffect(() => {
+    spinsTodayRef.current = spinsToday;
+    superModeEndTimeRef.current = superModeEndTime;
+    superModeSpinsLeftRef.current = superModeSpinsLeft;
+  }, [spinsToday, superModeEndTime, superModeSpinsLeft]);
 
   // REAL-TIME LISTENER FOR EXTERNAL UPDATES (e.g. Admin Actions)
   useEffect(() => {
@@ -422,28 +395,57 @@ const App: React.FC = () => {
         const data = docSnapshot.data();
 
         // Update Spins Today if changed externally
-        if (data.spinsToday !== undefined && data.spinsToday !== spinsToday) {
-          console.log('🔄 External update detected for spinsToday:', data.spinsToday);
-          setSpinsToday(data.spinsToday);
+        if (data.spinsToday !== undefined) {
+          const serverSpins = data.spinsToday;
+          const localSpins = spinsTodayRef.current;
+
+          // Only update if server is AHEAD (greater) or RESET (0)
+          // Ignore if server is BEHIND (less), which is likely a stale echo
+          if (serverSpins > localSpins || serverSpins === 0) {
+            console.log('🔄 External update accepted for spinsToday:', serverSpins);
+            setSpinsToday(serverSpins);
+          } else if (serverSpins < localSpins) {
+            console.log(`⚠️ Ignoring stale spinsToday update. Server: ${serverSpins}, Local: ${localSpins}`);
+          }
         }
 
         // Update Super Mode End Time if changed externally
         if (data.superModeEndTime) {
           const newEndTime = data.superModeEndTime.toDate();
-          if (!superModeEndTime || newEndTime.getTime() !== superModeEndTime.getTime()) {
+          const currentEndTime = superModeEndTimeRef.current;
+          if (!currentEndTime || newEndTime.getTime() !== currentEndTime.getTime()) {
             console.log('🔄 External update detected for superModeEndTime:', newEndTime);
             setSuperModeEndTime(newEndTime);
           }
         }
+
         // Update Super Mode Spins Left if changed externally
-        if (data.superModeSpinsLeft !== undefined && data.superModeSpinsLeft !== superModeSpinsLeft) {
-          setSuperModeSpinsLeft(data.superModeSpinsLeft);
+        if (data.superModeSpinsLeft !== undefined) {
+          const serverSuper = data.superModeSpinsLeft;
+          const localSuper = superModeSpinsLeftRef.current;
+
+          // Only update if server is AHEAD (lower, because it counts down) 
+          // OR if server is RESET/ACTIVATED (50 or 0)
+          if (serverSuper < localSuper || serverSuper === 50 || serverSuper === 0) {
+            // Edge case: If server says 0 but we are at 50 (just activated), we might ignore 0 if we assume it's stale.
+            // But usually 0 means "expired". 
+            // If local is 50 (just activated) and server says 0 (old state), we MUST ignore 0.
+            if (localSuper === 50 && serverSuper === 0) {
+              console.log(`⚠️ Ignoring stale superModeSpinsLeft (0) immediately after activation.`);
+            } else {
+              console.log('🔄 External update accepted for Super Mode:', serverSuper);
+              setSuperModeSpinsLeft(serverSuper);
+            }
+          } else if (serverSuper > localSuper && serverSuper !== 50) {
+            // Server says 45, Local says 40. Server is "behind" in consumption. Ignore.
+            console.log(`⚠️ Ignoring stale superModeSpinsLeft update. Server: ${serverSuper}, Local: ${localSuper}`);
+          }
         }
       }
     });
 
     return () => unsubscribe();
-  }, [user, spinsToday, superModeEndTime]);
+  }, [user]); // Removed other dependencies to prevent re-subscription loops
 
   // SYNC GUEST DATA TO LOCALSTORAGE (Guest users only)
   useEffect(() => {
@@ -481,27 +483,19 @@ const App: React.FC = () => {
 
     console.log('✅ Balance check passed, proceeding with spin');
 
-    // Deduct Balance (if not admin) - ALWAYS DEDUCT
+    // Deduct Balance (if not admin) - ALWAYS DEDUCT & SAVE IMMEDIATELY
     if (!isAdminMode) {
-      setBalance(prev => prev - cost);
+      const newBalance = balance - cost;
+      setBalance(newBalance);
+      // 🔥 IMMEDIATE SAVE: Deduct tokens before spin starts
+      saveUserProgress({ tokens: newBalance });
     }
 
     // Handle Super Mode Decrement
-    // NOTE: Usage is deducted immediately, but activation is now post-spin.
-    let newSuperModeSpinsLeft = superModeSpinsLeft;
-    if (superModeSpinsLeft > 0) {
-      newSuperModeSpinsLeft = Math.max(0, superModeSpinsLeft - count);
-      setSuperModeSpinsLeft(newSuperModeSpinsLeft); // Immediate decrement for usage
-      console.log('🔥 Decrementing Super Spins. New Count:', newSuperModeSpinsLeft);
-    }
+    // MOVED TO Post-Spin (handleSpinComplete) to fix sync issues
 
     // SYNC USAGE ONLY (Activation Logic moved to Complete)
-    if (user && !user.isGuest && newSuperModeSpinsLeft !== superModeSpinsLeft) {
-      const userDocRef = doc(db, 'users', user.id);
-      updateDoc(userDocRef, {
-        superModeSpinsLeft: newSuperModeSpinsLeft
-      }).catch(e => console.error("Error setting super mode:", e));
-    }
+    // REMOVED premature sync
 
     setShowWinnerModal(false);
     setWonItems([]);
@@ -575,54 +569,72 @@ const App: React.FC = () => {
       setShowSuperModeTransition(true);
     }
 
-    // 3. FIRESTORE SYNC (Consolidated)
-    if (user && !user.isGuest) {
-      const currentLevel = calculateLevel(newTotalSpins);
-      const userDocRef = doc(db, 'users', user.id);
-
-      const updates: any = {
-        totalSpins: newTotalSpins,
-        level: currentLevel,
-        spinsToday: newSpinsToday,
-        lastSpinDate: Timestamp.now()
-      };
-
-      if (activatedSuperMode) {
-        updates.superModeSpinsLeft = 50;
-      }
-
-      updateDoc(userDocRef, updates).then(() => {
-        console.log('✅ DIRECT SYNC SUCCESS (Complete):', updates);
-      }).catch(console.error);
-    }
-
-    // Calculate Reward
-    const isSuperMode = superModeSpinsLeft > 0;
+    const finalWinningsUpdates: any = {};
+    let earnedCoins = coins; // Start with current coins
+    let earnedKtm = ktmTokens;
+    let earnedIphone = iphoneTokens;
 
     winners.forEach(item => {
       if (item.name.includes('Coins') && item.amount) {
-        let coinsEarned = item.amount!;
+        let coinAmount = item.amount!;
         // User requested removal of 2x multiplier
         // if (isSuperMode) {
         //   coinsEarned *= 2;
         // }
-        setCoins(prev => prev + coinsEarned);
+        earnedCoins += coinAmount;
+        // setCoins(prev => prev + coinsEarned); <-- Calculated locally
       } else if (item.name.includes('KTM')) {
-        setKtmTokens(prev => prev + 1);
+        earnedKtm += 1;
+        // setKtmTokens(prev => prev + 1);
       } else if (item.name.includes('iPhone')) {
-        setIphoneTokens(prev => prev + 1);
+        earnedIphone += 1;
+        // setIphoneTokens(prev => prev + 1);
       }
     });
 
+    // Update Local State for UI
+    setCoins(earnedCoins);
+    setKtmTokens(earnedKtm);
+    setIphoneTokens(earnedIphone);
+
+    // Prepare Final Object for Firestore
+    finalWinningsUpdates.coins = earnedCoins;
+    finalWinningsUpdates.ktmTokens = earnedKtm;
+    finalWinningsUpdates.iphoneTokens = earnedIphone;
+    finalWinningsUpdates.totalSpins = newTotalSpins;
+    finalWinningsUpdates.level = calculateLevel(newTotalSpins);
+    finalWinningsUpdates.spinsToday = newSpinsToday;
+
+    // START Super Mode Handling
+    if (activatedSuperMode) {
+      finalWinningsUpdates.superModeSpinsLeft = 50;
+    } else if (superModeSpinsLeft > 0) {
+      const newLeft = Math.max(0, superModeSpinsLeft - count);
+      finalWinningsUpdates.superModeSpinsLeft = newLeft;
+      setSuperModeSpinsLeft(newLeft);
+    }
+    // END Super Mode Handling
+
+    // 🔥 IMMEDIATE SAVE: Save winnings and stats
+    saveUserProgress(finalWinningsUpdates);
+
     setShowWinnerModal(true);
-  }, [superModeEndTime, spinsToday, superModeSpinsLeft, user]);
+  }, [superModeEndTime, spinsToday, superModeSpinsLeft, user, coins, ktmTokens, iphoneTokens, totalSpins]);
 
   const handleExchange = (amount: number) => {
     // Exchange Rate: 1000 Coins = 1 E-Token
     const cost = amount * 1000;
     if (coins >= cost) {
-      setCoins(prev => prev - cost);
-      setETokens(prev => prev + amount);
+      const newCoins = coins - cost;
+      const newETokens = eTokens + amount;
+
+      setCoins(newCoins);
+      setETokens(newETokens);
+
+      saveUserProgress({
+        coins: newCoins,
+        eTokens: newETokens
+      });
       return true;
     }
     return false;
@@ -631,8 +643,16 @@ const App: React.FC = () => {
   const handleETokenToSpin = (amount: number) => {
     // Exchange Rate: 1 E-Token = 1 Spin Token
     if (eTokens >= amount) {
-      setETokens(prev => prev - amount);
-      setBalance(prev => prev + amount);
+      const newETokens = eTokens - amount;
+      const newBalance = balance + amount;
+
+      setETokens(newETokens);
+      setBalance(newBalance);
+
+      saveUserProgress({
+        eTokens: newETokens,
+        tokens: newBalance
+      });
       return true;
     }
     return false;
@@ -641,8 +661,16 @@ const App: React.FC = () => {
   const handleRedeemKTM = () => {
     // Redeem Rate: 1 KTM = ₹3,40,000
     if (ktmTokens >= 1) {
-      setKtmTokens(prev => prev - 1);
-      setInrBalance(prev => prev + 340000);
+      const newKtm = ktmTokens - 1;
+      const newInr = inrBalance + 340000;
+
+      setKtmTokens(newKtm);
+      setInrBalance(newInr);
+
+      saveUserProgress({
+        ktmTokens: newKtm,
+        inrBalance: newInr
+      });
       return true;
     }
     return false;
@@ -651,8 +679,16 @@ const App: React.FC = () => {
   const handleRedeemIPhone = () => {
     // Redeem Rate: 1 iPhone = ₹1,49,000
     if (iphoneTokens >= 1) {
-      setIphoneTokens(prev => prev - 1);
-      setInrBalance(prev => prev + 149000);
+      const newIphone = iphoneTokens - 1;
+      const newInr = inrBalance + 149000;
+
+      setIphoneTokens(newIphone);
+      setInrBalance(newInr);
+
+      saveUserProgress({
+        iphoneTokens: newIphone,
+        inrBalance: newInr
+      });
       return true;
     }
     return false;
@@ -662,8 +698,16 @@ const App: React.FC = () => {
     // Redeem Rate: 1 E-Token = ₹1 INR
     // This can be adjusted later
     if (eTokens >= tokenAmount) {
-      setETokens(prev => prev - tokenAmount);
-      setInrBalance(prev => prev + tokenAmount); // 1:1 conversion for now
+      const newETokens = eTokens - tokenAmount;
+      const newInr = inrBalance + tokenAmount;
+
+      setETokens(newETokens);
+      setInrBalance(newInr);
+
+      saveUserProgress({
+        eTokens: newETokens,
+        inrBalance: newInr
+      });
       return true;
     }
     return false;
@@ -680,7 +724,9 @@ const App: React.FC = () => {
     await wait(2000);
 
     // Reward User
-    setBalance(prev => prev + 5);
+    const newBalance = balance + 5;
+    setBalance(newBalance);
+    saveUserProgress({ tokens: newBalance });
 
     // Optional: Show success toast/alert
     alert('Ad Watched! You earned 5 Tokens.');
@@ -996,10 +1042,10 @@ const App: React.FC = () => {
     >
 
       {/* Intense Background Image */}
-      <div className={`absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center ${isSuperMode ? 'opacity-60 mix-blend-overlay hue-rotate-180 saturate-200' : 'opacity-40 mix-blend-hard-light'} pointer-events-none transition-all duration-1000`}></div>
+      <div className={`absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center ${isSuperMode ? 'opacity-60 mix-blend-overlay hue-rotate-180 saturate-200' : 'opacity-40 mix-blend-hard-light'} pointer-events-none transition duration-1000`}></div>
 
       {/* Streaks/Speed lines */}
-      <div className={`absolute inset-0 bg-gradient-to-b ${isSuperMode ? 'from-transparent via-sky-900/50 to-slate-900' : 'from-transparent via-[#2a0505]/50 to-[#1a0505]'} pointer-events-none transition-all duration-1000`}></div>
+      <div className={`absolute inset-0 bg-gradient-to-b ${isSuperMode ? 'from-transparent via-sky-900/50 to-slate-900' : 'from-transparent via-[#2a0505]/50 to-[#1a0505]'} pointer-events-none transition-colors duration-1000`}></div>
 
       {/* Header - Always Visible */}
       < div className="absolute top-0 left-0 w-full z-50 flex justify-between items-start p-4" >

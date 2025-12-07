@@ -47,18 +47,11 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
       {/* SUPER MODE UI */}
       <div className="w-full max-w-xs px-4">
         {isSuperMode ? (
-          <div className="relative w-full bg-gradient-to-r from-purple-900/80 to-pink-900/80 rounded-xl p-3 border border-purple-500/50 shadow-[0_0_20px_rgba(168,85,247,0.4)] animate-pulse">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🔥</span>
-                <div>
-                  <h3 className="text-white font-black text-sm italic uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-400">Super Mode Active</h3>
-                  <p className="text-[10px] text-purple-200 font-bold">Lucky Re-rolls</p>
-                </div>
-              </div>
-              <div className="bg-black/40 px-3 py-1 rounded-lg border border-purple-500/30">
-                <span className="font-mono font-bold text-yellow-400 text-sm">{superModeSpinsLeft} Spins</span>
-              </div>
+          <div className="w-full flex justify-center mb-2">
+            <div className="relative bg-gradient-to-r from-cyan-900/60 to-blue-900/60 backdrop-blur-md rounded-full px-6 py-1.5 border border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.3)] flex items-center gap-3 animate-pulse">
+              <span className="text-cyan-400 font-black italic tracking-widest text-xs md:text-sm drop-shadow-[0_0_5px_rgba(34,211,238,0.8)]">SUPER MODE</span>
+              <div className="h-4 w-px bg-cyan-500/50"></div>
+              <span className="font-mono font-bold text-white text-xs md:text-sm tracking-wider">{50 - superModeSpinsLeft}<span className="text-cyan-400/70">/50</span></span>
             </div>
           </div>
         ) : (
