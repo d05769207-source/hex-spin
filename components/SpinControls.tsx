@@ -53,7 +53,7 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
                 <span className="text-xl">🔥</span>
                 <div>
                   <h3 className="text-white font-black text-sm italic uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-400">Super Mode Active</h3>
-                  <p className="text-[10px] text-purple-200 font-bold">2x Coins • Lucky Re-rolls</p>
+                  <p className="text-[10px] text-purple-200 font-bold">Lucky Re-rolls</p>
                 </div>
               </div>
               <div className="bg-black/40 px-3 py-1 rounded-lg border border-purple-500/30">
@@ -62,24 +62,27 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
             </div>
           </div>
         ) : (
-          <div className="w-full flex flex-col gap-1">
-            <div className="flex justify-between items-end px-1">
-              <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-wider">Daily Goal</span>
-              <span className="text-[10px] font-bold text-cyan-100">{spinsToday}/100 Spins</span>
-            </div>
-            <div className="w-full h-3 bg-slate-900/80 rounded-full overflow-hidden border border-slate-700/50 relative">
-              {/* Progress Bar */}
-              <div
-                className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500 transition-all duration-500 ease-out relative"
-                style={{ width: `${progress}%` }}
-              >
-                <div className="absolute inset-0 bg-white/20 animate-[shimmer_2s_infinite]" />
+          /* Show Daily Goal ONLY if not completed (100 spins) */
+          spinsToday < 100 ? (
+            <div className="w-full flex flex-col gap-1">
+              <div className="flex justify-between items-end px-1">
+                <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-wider">Daily Goal</span>
+                <span className="text-[10px] font-bold text-cyan-100">{spinsToday}/100 Spins</span>
+              </div>
+              <div className="w-full h-3 bg-slate-900/80 rounded-full overflow-hidden border border-slate-700/50 relative">
+                {/* Progress Bar */}
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500 transition-all duration-500 ease-out relative"
+                  style={{ width: `${progress}%` }}
+                >
+                  <div className="absolute inset-0 bg-white/20 animate-[shimmer_2s_infinite]" />
+                </div>
+              </div>
+              <div className="text-center">
+                <span className="text-[9px] text-gray-400">Reach 100 spins for <span className="text-yellow-400 font-bold">50 Super Spins</span></span>
               </div>
             </div>
-            <div className="text-center">
-              <span className="text-[9px] text-gray-400">Reach 100 spins for <span className="text-yellow-400 font-bold">50 Super Spins</span></span>
-            </div>
-          </div>
+          ) : null // Hide everything if goal is met
         )}
       </div>
 

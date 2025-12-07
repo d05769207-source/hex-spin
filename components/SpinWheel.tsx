@@ -437,36 +437,36 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
             className="relative w-[95vw] max-w-[380px] aspect-square md:w-[420px] md:max-w-none md:h-[420px] mx-auto mt-8 mb-12"
         >
             {/* CENTRAL GLOW (BACKLIGHT) */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-radial-gradient from-orange-500/20 via-transparent to-transparent z-0 pointer-events-none mix-blend-screen"></div>
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-radial-gradient ${isSuperMode ? 'from-cyan-500/20' : 'from-orange-500/20'} via-transparent to-transparent z-0 pointer-events-none mix-blend-screen transition-all duration-1000`}></div>
 
-            {/* THE GOLDEN FIRE RING */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[105%] h-[105%] md:w-[125%] md:h-[125%] z-0 pointer-events-none select-none">
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[85%] bg-orange-600/20 blur-[100px] rounded-full mix-blend-screen"></div>
+            {/* THE GOLDEN / SKY BLUE FIRE RING */}
+            <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[105%] h-[105%] md:w-[125%] md:h-[125%] z-0 pointer-events-none select-none transition-all duration-1000`}>
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%] h-[85%] ${isSuperMode ? 'bg-cyan-500/20' : 'bg-orange-600/20'} blur-[100px] rounded-full mix-blend-screen transition-colors duration-1000`}></div>
                 <div className="absolute inset-0 animate-[spin_25s_linear_infinite]">
                     <svg viewBox="0 0 400 400" className="w-full h-full overflow-visible">
                         <defs>
-                            <linearGradient id="fireRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" stopColor="#fbbf24" stopOpacity="0" />
-                                <stop offset="25%" stopColor="#fbbf24" stopOpacity="1" />
-                                <stop offset="50%" stopColor="#ea580c" stopOpacity="0.8" />
-                                <stop offset="75%" stopColor="#fbbf24" stopOpacity="1" />
-                                <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
+                            <linearGradient id={isSuperMode ? "blueRingGradient" : "fireRingGradient"} x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stopColor={isSuperMode ? "#22d3ee" : "#fbbf24"} stopOpacity="0" />
+                                <stop offset="25%" stopColor={isSuperMode ? "#22d3ee" : "#fbbf24"} stopOpacity="1" />
+                                <stop offset="50%" stopColor={isSuperMode ? "#0ea5e9" : "#ea580c"} stopOpacity="0.8" />
+                                <stop offset="75%" stopColor={isSuperMode ? "#22d3ee" : "#fbbf24"} stopOpacity="1" />
+                                <stop offset="100%" stopColor={isSuperMode ? "#22d3ee" : "#fbbf24"} stopOpacity="0" />
                             </linearGradient>
                             <filter id="fireGlow" x="-20%" y="-20%" width="140%" height="140%">
                                 <feGaussianBlur stdDeviation="3" result="blur" />
                                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
                             </filter>
                         </defs>
-                        <circle cx="200" cy="200" r="190" fill="none" stroke="url(#fireRingGradient)" strokeWidth="3" strokeDasharray="150 80" strokeLinecap="round" filter="url(#fireGlow)" />
-                        <circle cx="200" cy="200" r="180" fill="none" stroke="#fcd34d" strokeWidth="1" strokeDasharray="4 30" opacity="0.6" />
+                        <circle cx="200" cy="200" r="190" fill="none" stroke={`url(#${isSuperMode ? "blueRingGradient" : "fireRingGradient"})`} strokeWidth="3" strokeDasharray="150 80" strokeLinecap="round" filter="url(#fireGlow)" />
+                        <circle cx="200" cy="200" r="180" fill="none" stroke={isSuperMode ? "#67e8f9" : "#fcd34d"} strokeWidth="1" strokeDasharray="4 30" opacity="0.6" />
                     </svg>
                 </div>
                 <div className="absolute inset-[5%] animate-[spin_18s_linear_infinite_reverse]">
                     <svg viewBox="0 0 400 400" className="w-full h-full overflow-visible">
-                        <circle cx="200" cy="200" r="185" fill="none" stroke="url(#fireRingGradient)" strokeWidth="2" strokeDasharray="60 100" opacity="0.7" filter="url(#fireGlow)" />
+                        <circle cx="200" cy="200" r="185" fill="none" stroke={`url(#${isSuperMode ? "blueRingGradient" : "fireRingGradient"})`} strokeWidth="2" strokeDasharray="60 100" opacity="0.7" filter="url(#fireGlow)" />
                     </svg>
                 </div>
-                <div className="absolute inset-[10%] rounded-full border-[1px] border-orange-500/30 shadow-[0_0_60px_rgba(234,88,12,0.2)] opacity-50"></div>
+                <div className={`absolute inset-[10%] rounded-full border-[1px] ${isSuperMode ? 'border-cyan-500/30' : 'border-orange-500/30'} shadow-[0_0_60px_${isSuperMode ? 'rgba(6,182,212,0.4)' : 'rgba(234,88,12,0.2)'}] opacity-50 transition-all duration-1000`}></div>
             </div>
 
             {/* Hexagon Grid */}

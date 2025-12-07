@@ -377,6 +377,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                 </p>
                             </div>
 
+                            {/* DAILY GOAL TEST TOOLS */}
+                            <div className="p-6 rounded-xl border-2 bg-blue-900/20 border-blue-500/50">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-3 rounded-lg bg-blue-600 text-white">
+                                            <Activity size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">Test Daily Goal</h3>
+                                            <p className="text-sm text-gray-400">Jump to 95 Spins</p>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <button
+                                            onClick={async () => {
+                                                if (!auth.currentUser) return;
+                                                const userRef = doc(db, 'users', auth.currentUser.uid);
+                                                await updateDoc(userRef, { spinsToday: 95 });
+                                                alert("⚡ Spins set to 95! Spin 5 more times to test Super Mode.");
+                                            }}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-900/50 active:scale-95 transition-all w-full"
+                                        >
+                                            SET 95 SPINS
+                                        </button>
+                                    </div>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    Sets 'spinsToday' to 95. Spin 5 times manually to verify the 100-spin trigger.
+                                </p>
+                            </div>
+
                             {/* Maintenance Mode */}
                             <div className={`p-6 rounded-xl border-2 transition-all ${isMaintenanceMode ? 'bg-red-900/20 border-red-500' : 'bg-gray-900/50 border-gray-800'}`}>
                                 <div className="flex justify-between items-start mb-4">

@@ -78,7 +78,6 @@ export const useWeeklyReset = (
                 }
             } else if (!user.lastWeekId) {
                 // Initialize for first time run on existing users
-                console.log("⚠️ First time tracking week for user. Setting WeekID to:", currentWeekId);
                 try {
                     const userRef = doc(db, 'users', user.id);
                     await updateDoc(userRef, {

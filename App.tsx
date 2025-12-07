@@ -20,6 +20,7 @@ import KTMToken from './components/KTMToken';
 import IPhoneToken from './components/iPhoneToken';
 import EToken from './components/EToken';
 import InfoModal from './components/InfoModal';
+import SuperModeTransition from './components/SuperModeTransition'; // NEW: Animation Component
 import { Volume2, VolumeX, Info } from 'lucide-react';
 import './index.css';
 import { auth, db } from './firebase';
@@ -115,6 +116,7 @@ const App: React.FC = () => {
   const isSuperMode = superModeSpinsLeft > 0;
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
   const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
+  const [showSuperModeTransition, setShowSuperModeTransition] = useState<boolean>(false); // NEW: Transition State
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true); // Sync State
   const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false);
@@ -129,6 +131,48 @@ const App: React.FC = () => {
 
   // NEW: Initialize Weekly Reset Hook with LIVE State (Coins, eTokens)
   useWeeklyReset(user, coins, setCoins, setETokens);
+
+  // --- DAILY RESET LOGIC (Midnight Check) ---
+  useEffect(() => {
+    const checkMidnightReset = () => {
+      // We only care if user is logged in for persistence, but state updates should happen anyway
+      const now = new Date();
+      const lastCheck = localStorage.getItem('last_midnight_check');
+      const lastCheckDate = lastCheck ? new Date(parseInt(lastCheck)) : now;
+
+      // Check if day has changed
+      if (now.getDate() !== lastCheckDate.getDate() || now.getMonth() !== lastCheckDate.getMonth()) {
+        console.log('🌑 Midnight Detected! Resetting Daily Stats...');
+
+        // 1. Reset State Locally
+        setSpinsToday(0);
+        setSuperModeSpinsLeft(0); // User requirement: Super Mode expires at midnight
+        setSuperModeEndTime(null);
+
+        // 2. Update Firestore if User is logged in
+        if (user && !user.isGuest) {
+          const userDocRef = doc(db, 'users', user.id);
+          updateDoc(userDocRef, {
+            spinsToday: 0,
+            superModeSpinsLeft: 0,
+            superModeEndTime: null,
+            lastSpinDate: Timestamp.now()
+          }).then(() => console.log('✅ Daily stats reset in Firestore'));
+        }
+
+        // Update last check time
+        localStorage.setItem('last_midnight_check', now.getTime().toString());
+      }
+    };
+
+    // Run check immediately on mount
+    checkMidnightReset();
+
+    // Set interval to check every minute
+    const intervalId = setInterval(checkMidnightReset, 60000);
+
+    return () => clearInterval(intervalId);
+  }, [user]);
 
   console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
 
@@ -422,9 +466,9 @@ const App: React.FC = () => {
 
     // TOKEN COST LOGIC: 1 Spin = 1 P-Token
     const cost = count;
-    console.log('💰 Cost:', cost, 'Balance:', balance, 'isAdminMode:', isAdminMode);
+    console.log('💰 Cost:', cost, 'Balance:', balance, 'SuperSpins:', superModeSpinsLeft);
 
-    // AUTH LOGIC: If balance is low (skip check if admin mode)
+    // AUTH LOGIC: If balance is low (Always check, Super Mode is NOT free)
     if (!isAdminMode && balance < cost) {
       console.log('❌ Insufficient balance, showing login/shop');
       if (!user) {
@@ -437,51 +481,26 @@ const App: React.FC = () => {
 
     console.log('✅ Balance check passed, proceeding with spin');
 
-    // Deduct balance only if not in admin mode
+    // Deduct Balance (if not admin) - ALWAYS DEDUCT
     if (!isAdminMode) {
       setBalance(prev => prev - cost);
     }
 
-    // Increment Total Spins
-    console.log('🎯 Calling setTotalSpins with count:', count, 'current totalSpinsRef:', totalSpinsRef.current);
-    const newTotalSpins = totalSpinsRef.current + count;
-    totalSpinsRef.current = newTotalSpins;
-    setTotalSpins(newTotalSpins);
-
-    const today = new Date();
-    setSpinsToday(prev => {
-      const newVal = prev + count;
-      // Activate Super Mode if threshold reached (Daily 100 spins) - Optional: Update this to give spins? 
-      // User request implied changing "Super Mode" behavior.
-      // Assuming Daily 100 spins trigger gives 50 spins now? Or just Admin triggers it?
-      // Based on prompt "ab aisa nhi bas 50 spins milenge", likely replaces the 1 hour reward.
-      if (prev < 100 && newVal >= 100) {
-        setSuperModeSpinsLeft(50);
-        console.log('🔥 SUPER MODE ACTIVATED! (50 Spins)');
-      }
-      return newVal;
-    });
-
-    // DECREMENT SUPER MODE SPINS
-    if (isSuperMode) {
-      setSuperModeSpinsLeft(prev => Math.max(0, prev - count));
+    // Handle Super Mode Decrement
+    // NOTE: Usage is deducted immediately, but activation is now post-spin.
+    let newSuperModeSpinsLeft = superModeSpinsLeft;
+    if (superModeSpinsLeft > 0) {
+      newSuperModeSpinsLeft = Math.max(0, superModeSpinsLeft - count);
+      setSuperModeSpinsLeft(newSuperModeSpinsLeft); // Immediate decrement for usage
+      console.log('🔥 Decrementing Super Spins. New Count:', newSuperModeSpinsLeft);
     }
 
-    // DIRECT SYNC TO FIRESTORE (Bypass useEffect for critical update)
-    if (user && !user.isGuest) {
-      console.log('🔄 Starting direct sync for user:', user.id);
-      const currentLevel = calculateLevel(newTotalSpins);
+    // SYNC USAGE ONLY (Activation Logic moved to Complete)
+    if (user && !user.isGuest && newSuperModeSpinsLeft !== superModeSpinsLeft) {
       const userDocRef = doc(db, 'users', user.id);
       updateDoc(userDocRef, {
-        totalSpins: newTotalSpins,
-        level: currentLevel,
-        spinsToday: spinsToday + count, // Optimistic update
-        lastSpinDate: Timestamp.now()
-      }).then(() => {
-        console.log('✅ DIRECT SYNC SUCCESS: Spins:', newTotalSpins, 'Level:', currentLevel);
-      }).catch(err => {
-        console.error('❌ DIRECT SYNC FAILED:', err);
-      });
+        superModeSpinsLeft: newSuperModeSpinsLeft
+      }).catch(e => console.error("Error setting super mode:", e));
     }
 
     setShowWinnerModal(false);
@@ -490,8 +509,7 @@ const App: React.FC = () => {
 
     // 1. Decide Winners
     const winners: GameItem[] = [];
-    const isSuperModeActive = superModeSpinsLeft > 0;  // Use local variable for loop logic if needed, but state is fine
-
+    const isSuperModeActive = superModeSpinsLeft > 0;
 
     // Helper: Weighted Random Selection
     const getWeightedRandomItem = () => {
@@ -528,11 +546,55 @@ const App: React.FC = () => {
     if (wheelRef.current) {
       await wheelRef.current.spin(winners);
     }
-  }, [balance, user, isAdminMode, spinsToday, superModeEndTime, isSpinning]);
+  }, [balance, user, isAdminMode, spinsToday, superModeEndTime, isSpinning, superModeSpinsLeft]);
 
   const handleSpinComplete = useCallback((winners: GameItem[]) => {
     setIsSpinning(false);
     setWonItems(winners);
+
+    // --- UPDATE STATS & CHECK GOALS (Post-Spin) ---
+    const count = winners.length;
+
+    // 1. Calculate New Stats
+    // NOTE: We use the REF for totalSpins to be safe, but state for display
+    const newTotalSpins = totalSpinsRef.current + count;
+    totalSpinsRef.current = newTotalSpins;
+    setTotalSpins(newTotalSpins);
+
+    const newSpinsToday = spinsToday + count;
+    setSpinsToday(newSpinsToday);
+
+    console.log(`🏁 Spin Complete. Count: ${count}, New Total: ${newTotalSpins}, New Today: ${newSpinsToday}`);
+
+    // 2. CHECK SUPER MODE ACTIVATION (Crossing 100)
+    let activatedSuperMode = false;
+    if (spinsToday < 100 && newSpinsToday >= 100) {
+      console.log('🔥 SUPER MODE ACTIVATED! (50 Spins)');
+      setSuperModeSpinsLeft(50);
+      activatedSuperMode = true;
+      setShowSuperModeTransition(true);
+    }
+
+    // 3. FIRESTORE SYNC (Consolidated)
+    if (user && !user.isGuest) {
+      const currentLevel = calculateLevel(newTotalSpins);
+      const userDocRef = doc(db, 'users', user.id);
+
+      const updates: any = {
+        totalSpins: newTotalSpins,
+        level: currentLevel,
+        spinsToday: newSpinsToday,
+        lastSpinDate: Timestamp.now()
+      };
+
+      if (activatedSuperMode) {
+        updates.superModeSpinsLeft = 50;
+      }
+
+      updateDoc(userDocRef, updates).then(() => {
+        console.log('✅ DIRECT SYNC SUCCESS (Complete):', updates);
+      }).catch(console.error);
+    }
 
     // Calculate Reward
     const isSuperMode = superModeSpinsLeft > 0;
@@ -540,9 +602,10 @@ const App: React.FC = () => {
     winners.forEach(item => {
       if (item.name.includes('Coins') && item.amount) {
         let coinsEarned = item.amount!;
-        if (isSuperMode) {
-          coinsEarned *= 2;
-        }
+        // User requested removal of 2x multiplier
+        // if (isSuperMode) {
+        //   coinsEarned *= 2;
+        // }
         setCoins(prev => prev + coinsEarned);
       } else if (item.name.includes('KTM')) {
         setKtmTokens(prev => prev + 1);
@@ -552,7 +615,7 @@ const App: React.FC = () => {
     });
 
     setShowWinnerModal(true);
-  }, [superModeEndTime]);
+  }, [superModeEndTime, spinsToday, superModeSpinsLeft, user]);
 
   const handleExchange = (amount: number) => {
     // Exchange Rate: 1000 Coins = 1 E-Token
@@ -930,10 +993,10 @@ const App: React.FC = () => {
     >
 
       {/* Intense Background Image */}
-      < div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center opacity-40 mix-blend-hard-light pointer-events-none" ></div >
+      <div className={`absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center ${isSuperMode ? 'opacity-60 mix-blend-overlay hue-rotate-180 saturate-200' : 'opacity-40 mix-blend-hard-light'} pointer-events-none transition-all duration-1000`}></div>
 
       {/* Streaks/Speed lines */}
-      < div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#2a0505]/50 to-[#1a0505] pointer-events-none" ></div >
+      <div className={`absolute inset-0 bg-gradient-to-b ${isSuperMode ? 'from-transparent via-sky-900/50 to-slate-900' : 'from-transparent via-[#2a0505]/50 to-[#1a0505]'} pointer-events-none transition-all duration-1000`}></div>
 
       {/* Header - Always Visible */}
       < div className="absolute top-0 left-0 w-full z-50 flex justify-between items-start p-4" >
@@ -1098,6 +1161,7 @@ const App: React.FC = () => {
         )
       }
 
+
       {/* Referral Modal */}
       {
         showReferralModal && user && (
@@ -1109,6 +1173,13 @@ const App: React.FC = () => {
               // Referrer gets 5 tokens.
             }}
           />
+        )
+      }
+
+      {/* SUPER MODE TRANSITION LAYER */}
+      {
+        showSuperModeTransition && (
+          <SuperModeTransition onComplete={() => setShowSuperModeTransition(false)} />
         )
       }
     </div >
