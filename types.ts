@@ -43,6 +43,7 @@ export interface User {
   createdAt?: Date;
   lastActive?: Date;
   weekStartDate?: Date;
+  lastWeekId?: string; // Tracks the last week the user was active/reset
   totalSpins?: number;
   level?: number;
   referralCode?: string;

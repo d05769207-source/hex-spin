@@ -30,6 +30,8 @@ import { ensureUserHasDisplayId, createUserProfile } from './services/userServic
 import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
 import { processLevelUpReward, validateReferralCode, applyReferral } from './services/referralService';
+// NEW: Import Weekly Reset Hook
+import { useWeeklyReset } from './hooks/useWeeklyReset';
 
 // --- AUDIO SYSTEM MOVED TO SpinWheel.tsx ---
 
@@ -77,6 +79,10 @@ const App: React.FC = () => {
 
   // User & Auth State
   const [user, setUser] = useState<User | null>(null);
+
+  // NEW: Initialize Weekly Reset Hook
+
+
   const [isLoading, setIsLoading] = useState<boolean>(true); // Add loading state
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [showUsernameModal, setShowUsernameModal] = useState<boolean>(false);
@@ -120,6 +126,9 @@ const App: React.FC = () => {
   const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Prevent sync until data is loaded
+
+  // NEW: Initialize Weekly Reset Hook with LIVE State (Coins, eTokens)
+  useWeeklyReset(user, coins, setCoins, setETokens);
 
   console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
 

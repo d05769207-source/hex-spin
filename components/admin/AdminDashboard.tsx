@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate } from '../../utils/weekUtils';
 
 interface AdminDashboardProps {
     onLogout: () => void;
@@ -107,6 +108,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
             console.error("Error deactivating Super Mode:", error);
             alert("Failed to deactivate.");
         }
+    };
+
+
+    const handleTestWeeklyReset = () => {
+        // Jump to 30 seconds before the next reset
+        const nextReset = getWeekEndDate(); // Returns Sunday 23:59:59 based on CURRENT time (if no offset)
+        // We know getWeekEndDate uses getNow(), so first clear any offset to get REAL next reset
+        clearSimulatedTime();
+
+        const realNextReset = getWeekEndDate();
+        const targetTime = realNextReset.getTime() - 15000; // 15 seconds before reset (safer than 30 for witnessing)
+        const now = Date.now();
+        const offset = targetTime - now;
+
+        setSimulatedTimeOffset(offset);
+        alert(`🕒 Validating Time Jump...\n\nSystem will now think it is: ${new Date(targetTime).toLocaleString()}\n\nWait 15 seconds for reset!`);
+
+        // Force reload to ensure Hooks pick up the new "Now"
+        window.location.reload();
+    };
+
+    const handleClearTimeSimulation = () => {
+        clearSimulatedTime();
+        alert("🕒 Time Simulation Cleared. Back to Real Time.");
+        window.location.reload();
     };
 
     const NavItem = ({ id, icon: Icon, label }: any) => (
@@ -410,6 +436,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     <button className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors">
                                         RESTART NOW
                                     </button>
+                                </div>
+
+                                {/* Time Simulation (Testing Tools) */}
+                                <div className="p-6 rounded-xl bg-blue-900/20 border border-blue-500/50 md:col-span-2">
+                                    <div className="flex flex-col md:flex-row justify-between items-start mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-3 rounded-lg bg-blue-600 text-white">
+                                                <RefreshCw size={24} />
+                                            </div>
+                                            <div>
+                                                <h3 className="text-lg font-bold text-white">Weekly Reset Test</h3>
+                                                <p className="text-sm text-gray-400">Jump to 15s before Reset</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col md:flex-row gap-2 mt-4 md:mt-0 w-full md:w-auto">
+                                            <button
+                                                onClick={handleTestWeeklyReset}
+                                                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-lg transition-colors w-full md:w-auto text-center"
+                                            >
+                                                JUMP TO SUNDAY 11:59:45 PM
+                                            </button>
+                                            <button
+                                                onClick={handleClearTimeSimulation}
+                                                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-bold rounded-lg transition-colors w-full md:w-auto text-center"
+                                            >
+                                                RESET TO REAL TIME
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-blue-300/70">
+                                        Use this to verify the automatic coin conversion and leaderboard reset logic. The app will reload and the Timer will show ~15 seconds left.
+                                    </p>
                                 </div>
                             </div>
                         </div>

@@ -1,5 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
+import { getWeekEndDate, getCurrentTime, getSimulatedTimeOffset } from '../utils/weekUtils';
 
 interface TimeLeft {
     days: number;
@@ -12,39 +12,17 @@ const WeeklyTimer: React.FC = () => {
     const [timeLeft, setTimeLeft] = useState<TimeLeft>({ days: 0, hours: 0, minutes: 0, seconds: 0 });
 
     useEffect(() => {
-        // Get or set weekly reset date
-        const getResetDate = (): Date => {
-            const stored = localStorage.getItem('weekly_reset_date');
-            if (stored) {
-                const resetDate = new Date(stored);
-                if (resetDate > new Date()) return resetDate;
-            }
-
-            // Create new reset date (7 days from now)
-            const newReset = new Date();
-            newReset.setDate(newReset.getDate() + 7);
-            newReset.setHours(0, 0, 0, 0); // Reset at midnight
-            localStorage.setItem('weekly_reset_date', newReset.toISOString());
-            return newReset;
-        };
-
         const updateTimer = () => {
-            const resetDate = getResetDate();
-            const now = new Date();
+            const now = getCurrentTime();
+            const resetDate = getWeekEndDate(now); // Pass 'now' to ensure we get the reset date relative to simulated time
+
+            // Calculate time difference
             const diff = resetDate.getTime() - now.getTime();
 
             if (diff <= 0) {
-                // Reset timer - create new 7-day period
-                localStorage.removeItem('weekly_reset_date');
-                const newReset = getResetDate();
-                const newDiff = newReset.getTime() - now.getTime();
-
-                setTimeLeft({
-                    days: Math.floor(newDiff / (1000 * 60 * 60 * 24)),
-                    hours: Math.floor((newDiff / (1000 * 60 * 60)) % 24),
-                    minutes: Math.floor((newDiff / (1000 * 60)) % 60),
-                    seconds: Math.floor((newDiff / 1000) % 60)
-                });
+                // If we passed the time, it means we are in the split second before the new week starts logic kicks in elsewhere
+                // or just at 0.
+                setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
                 return;
             }
 
@@ -62,7 +40,10 @@ const WeeklyTimer: React.FC = () => {
     }, []);
 
     return (
-        <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-lg border border-yellow-500/30 shadow-lg">
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border shadow-lg ${getSimulatedTimeOffset() !== 0 ? 'bg-red-900/80 border-red-500' : 'bg-black/50 border-yellow-500/30'}`}>
+            {getSimulatedTimeOffset() !== 0 && (
+                <span className="text-[9px] font-black bg-red-600 text-white px-1 rounded animate-pulse">TEST</span>
+            )}
             <div className="flex flex-col md:flex-row md:gap-1 text-[9px] md:text-[10px] text-gray-400 uppercase tracking-wider font-bold leading-none md:leading-normal mr-1">
                 <span>Weekly</span>
                 <span>Reset:</span>
@@ -87,7 +68,7 @@ interface TimeUnitProps {
 
 const TimeUnit: React.FC<TimeUnitProps> = ({ value, label }) => (
     <div className="flex flex-col items-center">
-        <span className="text-yellow-400 font-black text-xs md:text-sm leading-none">
+        <span className="text-yellow-400 font-black text-xs md:text-sm leading-none tabular-nums">
             {String(value).padStart(2, '0')}
         </span>
         <span className="text-[7px] md:text-[8px] text-gray-500 font-bold leading-none mt-0.5">
