@@ -420,7 +420,7 @@ const EndedView: React.FC = () => {
     );
 };
 
-const Event: React.FC<EventProps> = ({ isAdminMode = false, onTriggerAdmin }) => {
+const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAdminMode = false, onTriggerAdmin, onBack }) => {
     const [eventState, setEventState] = useState<EventState>('JOINING');
     const [ktmEntry, setKtmEntry] = useState<number | null>(null);
     const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
@@ -431,7 +431,6 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false, onTriggerAdmin }) =>
     const handlePressStart = () => {
         timerRef.current = setTimeout(() => {
             if (onTriggerAdmin) {
-                // Vibrate if possible to indicate success
                 if (navigator.vibrate) navigator.vibrate(200);
                 onTriggerAdmin();
             }
@@ -446,7 +445,6 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false, onTriggerAdmin }) =>
     };
 
     useEffect(() => {
-        // Preload sounds
         soundManager.load({
             spin_loop: '/sounds/spin_loop.mp3',
             reel_stop: '/sounds/reel_stop.mp3',
@@ -458,59 +456,6 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false, onTriggerAdmin }) =>
         if (savedKtm) setKtmEntry(parseInt(savedKtm));
         if (savedIphone) setIphoneEntry(parseInt(savedIphone));
     }, []);
-
-    // Time check disabled for manual testing
-    /*
-    useEffect(() => {
-        const checkEventState = () => {
-            const now = new Date();
-                            const day = now.getDay();
-                            const hours = now.getHours();
-                            const minutes = now.getMinutes();
-
-                            if (isAdminMode) {
-                                setEventState('JOINING');
-                            return;
-            }
-
-                            if (day !== 0 || hours < 19) {
-                                setEventState('JOINING');
-                            return;
-            }
-
-                            if (hours === 19 && minutes < 10) {
-                                setEventState('IPHONE_DRAW');
-                            return;
-            }
-
-            if (hours === 19 && minutes >= 10 && minutes < 30) {
-                                setEventState('IPHONE_WINNER');
-                            return;
-            }
-
-            if ((hours === 19 && minutes >= 30) || (hours === 20 && minutes === 0)) {
-                                setEventState('KTM_WAITING');
-                            return;
-            }
-
-                            if (hours === 20 && minutes < 10) {
-                                setEventState('KTM_DRAW');
-                            return;
-            }
-
-            if (hours === 20 && minutes >= 10 && minutes < 30) {
-                                setEventState('KTM_WINNER');
-                            return;
-            }
-
-                            setEventState('ENDED');
-        };
-
-                            checkEventState();
-                            const interval = setInterval(checkEventState, 30000);
-        return () => clearInterval(interval);
-    }, [isAdminMode]);
-                            */
 
     const handleJoinKTM = async () => {
         const luckyNumber = Math.floor(Math.random() * 100000) + 1;
@@ -525,20 +470,27 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false, onTriggerAdmin }) =>
     };
 
     const handleViewDraw = (selectedPrize: 'iPhone' | 'KTM') => {
-        // Resume context on user interaction
         soundManager.resumeContext();
         setEventState(selectedPrize === 'iPhone' ? 'IPHONE_DRAW' : 'KTM_DRAW');
     };
 
     return (
         <div
-            className="w-full max-w-sm mx-auto h-full flex flex-col p-2 animate-in fade-in duration-500"
+            className="w-full h-full flex flex-col animate-in fade-in duration-500 relative"
             onPointerDown={handlePressStart}
             onPointerUp={handlePressEnd}
             onPointerLeave={handlePressEnd}
-            onContextMenu={(e) => e.preventDefault()} // Prevent context menu on long press
+            onContextMenu={(e) => e.preventDefault()}
         >
-            <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden min-h-[600px] flex flex-col">
+            {/* Back Button for Lobby */}
+            <button
+                onClick={onBack}
+                className="absolute top-4 left-0 z-50 p-2 text-white/50 hover:text-white transition-colors"
+            >
+                ← Back to Events
+            </button>
+
+            <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden min-h-[600px] flex flex-col mt-8">
                 {eventState === 'JOINING' && (
                     <JoiningView
                         ktmEntry={ktmEntry}
@@ -555,6 +507,160 @@ const Event: React.FC<EventProps> = ({ isAdminMode = false, onTriggerAdmin }) =>
                 {eventState === 'KTM_WINNER' && <WinnerView prize="KTM" />}
                 {eventState === 'ENDED' && <EndedView />}
             </div>
+        </div>
+    );
+};
+
+const DiagonalEventCard: React.FC<{
+    title: string;
+    description: string;
+    image: string;
+    isActive?: boolean;
+    onClick: () => void;
+    clipPathClass: string;
+    marginClass?: string;
+    gradientFrom: string;
+    gradientTo: string;
+}> = ({ title, description, image, isActive, onClick, clipPathClass, marginClass, gradientFrom, gradientTo }) => {
+    return (
+        <div
+            className={`relative w-full flex-1 transition-all duration-300 group cursor-pointer ${marginClass} filter drop-shadow-[0_0_1px_rgba(255,255,255,0.5)] hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.6)]`}
+            onClick={isActive ? onClick : undefined}
+            style={{ clipPath: clipPathClass }}
+        >
+            {/* Background Image */}
+            <div className="absolute inset-0">
+                <img
+                    src={image}
+                    alt={title}
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 brightness-[0.6] group-hover:brightness-100"
+                />
+
+                {/* Gradient Overlay for Text Visibility */}
+                <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/40 to-transparent" />
+
+                {/* Active State Glow Overlay */}
+                {isActive && (
+                    <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-transparent mix-blend-overlay animate-pulse" />
+                )}
+            </div>
+
+            {/* Content Container */}
+            <div className="absolute inset-0 px-6 py-4 flex flex-col justify-center pl-8 md:pl-12">
+                <div className={`
+                    inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm text-[8px] md:text-[10px] font-black uppercase tracking-widest w-fit mb-2
+                    ${isActive ? 'bg-orange-500 text-black shadow-[0_0_10px_rgba(249,115,22,0.6)]' : 'bg-white/10 text-white/50 border border-white/10'}
+                `}>
+                    {isActive ? 'Live Event' : 'Coming Soon'}
+                </div>
+
+                <h2 className={`
+                    text-3xl md:text-6xl font-black italic uppercase tracking-tighter leading-[0.9] mb-2 
+                    ${isActive ? 'text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]' : 'text-gray-500'}
+                `}>
+                    {title}
+                </h2>
+
+                <p className={`
+                    text-[10px] md:text-sm font-medium tracking-wide max-w-[80%] uppercase
+                    ${isActive ? 'text-gray-300' : 'text-gray-600'}
+                `}>
+                    {description}
+                </p>
+
+                {isActive && (
+                    <div className="mt-4 flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-widest group-hover:translate-x-2 transition-transform">
+                        <span>Enter Arena</span>
+                        <span>→</span>
+                    </div>
+                )}
+            </div>
+
+            {/* Edge Highlight (Simulated Border Inner) */}
+            <div className={`absolute inset-0 border-[0.5px] border-white/20 pointer-events-none`} />
+        </div>
+    );
+};
+
+const EventLobby: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => {
+    return (
+        <div className="h-full flex flex-col relative overflow-hidden">
+            {/* Background Context - Subtle overlay to ensure text pops and blends with global theme */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/40 to-black/60 pointer-events-none z-0" />
+
+            {/* Header Title - Increased spacing for mobile */}
+            <div className="relative z-40 text-center pt-20 pb-8 md:pt-24 md:pb-12">
+                <h1 className="text-4xl md:text-6xl font-black text-white italic tracking-tighter drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] uppercase leading-none transform skew-x-[-5deg]">
+                    EVENT <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-orange-500 to-red-600 filter drop-shadow-[0_2px_4px_rgba(234,88,12,0.3)]">ARENA</span>
+                </h1>
+                <div className="flex items-center justify-center gap-2 mt-2 opacity-80">
+                    <div className="h-[2px] w-12 bg-gradient-to-r from-transparent to-orange-500" />
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-orange-200 font-bold">Live Competitions</span>
+                    <div className="h-[2px] w-12 bg-gradient-to-l from-transparent to-orange-500" />
+                </div>
+            </div>
+
+            {/* Event Cards Container */}
+            <div className="flex-1 flex flex-col relative z-10 -mt-4 pb-4 px-2 md:px-0">
+                {/* 1. Sunday Lottery (Top) */}
+                <DiagonalEventCard
+                    title="Sunday Lottery"
+                    description="Win iPhone 15 Pro & KTM RC"
+                    image="/images/poster_sunday_lottery.png"
+                    isActive={true}
+                    onClick={() => onSelect('sunday_lottery')}
+                    // Cut: Bottom Slant Down (\)
+                    clipPathClass="polygon(0 0, 100% 0, 100% 88%, 0 100%)"
+                    gradientFrom="from-amber-600"
+                    gradientTo="to-yellow-600"
+                    // Mobile: Reduced negative margin
+                    marginClass="z-30 flex-1 -mb-8 md:-mb-16 origin-top shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                />
+
+                {/* 2. Speed Rush (Middle) */}
+                <DiagonalEventCard
+                    title="Speed Rush"
+                    description="High stakes racing"
+                    image="/images/poster_ktm_rush.png"
+                    isActive={false}
+                    onClick={() => { }}
+                    // Cut: Top Slant (\), Bottom Slant (/)
+                    clipPathClass="polygon(0 12%, 100% 0, 100% 100%, 0 88%)"
+                    gradientFrom="from-blue-600"
+                    gradientTo="to-cyan-600"
+                    marginClass="z-20 flex-1 -mb-8 md:-mb-16 origin-center shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                />
+
+                {/* 3. Mega Loot (Bottom) */}
+                <DiagonalEventCard
+                    title="Mega Loot"
+                    description="Unlock mysterious chests"
+                    image="/images/poster_mega_loot.png"
+                    isActive={false}
+                    onClick={() => { }}
+                    // Cut: Top Slant (/)
+                    clipPathClass="polygon(0 0, 100% 12%, 100% 100%, 0 100%)"
+                    gradientFrom="from-purple-600"
+                    gradientTo="to-indigo-600"
+                    marginClass="z-10 flex-1 origin-bottom pb-4 shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                />
+            </div>
+        </div>
+    );
+};
+
+const Event: React.FC<EventProps> = (props) => {
+    const [view, setView] = useState<'LOBBY' | 'SUNDAY_LOTTERY'>('LOBBY');
+
+    return (
+        <div className="w-full max-w-sm mx-auto h-[85vh] flex flex-col">
+            {view === 'LOBBY' ? (
+                <EventLobby onSelect={(id) => {
+                    if (id === 'sunday_lottery') setView('SUNDAY_LOTTERY');
+                }} />
+            ) : (
+                <SundayLotteryView {...props} onBack={() => setView('LOBBY')} />
+            )}
         </div>
     );
 };

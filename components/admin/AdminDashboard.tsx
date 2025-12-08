@@ -16,11 +16,27 @@ import {
     Gift,
     Zap,
     Menu,
-    X
+    X,
+    Wrench,
+    Trophy,
+    Download,
+    Bot
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate } from '../../utils/weekUtils';
+import {
+    startMaintenanceMode,
+    endMaintenanceMode,
+    getTopWinners,
+    distributeRewards,
+    resetAllUsersData,
+    WinnerData,
+    subscribeToGameStatus,
+    GameStatus
+} from '../../services/maintenanceService';
+import { bulkResetAndPopulate, deleteAllTestData } from '../../services/bulkDataService';
+import { BotManagementPanel } from './BotManagementPanel';
 
 interface AdminDashboardProps {
     onLogout: () => void;
@@ -38,10 +54,23 @@ interface User {
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame }) => {
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings' | 'maintenance' | 'bots' | 'bulkdata'>('dashboard');
     const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
     const [isSundayBypass, setIsSundayBypass] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+    // Maintenance Control State
+    const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
+    const [winners, setWinners] = useState<WinnerData[]>([]);
+    const [isLoadingWinners, setIsLoadingWinners] = useState(false);
+    const [resetProgress, setResetProgress] = useState({ current: 0, total: 0 });
+    const [rewardProgress, setRewardProgress] = useState({ current: 0, total: 0 });
+    const [isResetting, setIsResetting] = useState(false);
+    const [isDistributing, setIsDistributing] = useState(false);
+
+    // Bulk Data State
+    const [bulkProgress, setBulkProgress] = useState({ step: '', current: 0, total: 100 });
+    const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
     // Mock Stats
     const stats = {
@@ -62,6 +91,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
 
     // Broadcast Message State
     const [broadcastMsg, setBroadcastMsg] = useState('');
+
+    // Subscribe to game status
+    useEffect(() => {
+        const unsubscribe = subscribeToGameStatus((status) => {
+            setGameStatus(status);
+        });
+        return () => unsubscribe();
+    }, []);
 
     const handleBroadcast = (e: React.FormEvent) => {
         e.preventDefault();
@@ -180,6 +217,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                 <nav className="flex-1 p-4 space-y-2 mt-16 md:mt-0">
                     <NavItem id="dashboard" icon={Activity} label="Live Overview" />
                     <NavItem id="users" icon={Users} label="User Monitor" />
+                    <NavItem id="bots" icon={Bot} label="Bot Management" />
+                    <NavItem id="bulkdata" icon={Settings} label="Bulk Data" />
+                    <NavItem id="maintenance" icon={Wrench} label="Maintenance Control" />
                     <NavItem id="settings" icon={Settings} label="Master Controls" />
                 </nav>
 
@@ -210,6 +250,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     <h2 className="text-2xl font-black text-white uppercase tracking-wide">
                         {activeTab === 'dashboard' && 'Mission Control'}
                         {activeTab === 'users' && 'User Database'}
+                        {activeTab === 'bots' && 'Bot Management System'}
+                        {activeTab === 'bulkdata' && 'Bulk Data Management'}
+                        {activeTab === 'maintenance' && 'Weekly Reset Control'}
                         {activeTab === 'settings' && 'System Config'}
                     </h2>
                     <div className="flex items-center gap-4">
@@ -337,6 +380,385 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MAINTENANCE TAB */}
+                    {activeTab === 'maintenance' && (
+                        <div className="space-y-6">
+                            {/* Current Status */}
+                            <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/50 rounded-xl p-6">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <Wrench className="text-purple-400" size={28} />
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white">Weekly Reset Maintenance Control</h3>
+                                        <p className="text-sm text-gray-400">Manual control of weekly data reset and rewards</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 mt-4">
+                                    <div className="bg-black/30 p-4 rounded-lg">
+                                        <p className="text-xs text-gray-400 mb-1">Current Status</p>
+                                        <p className={`text-lg font-bold ${gameStatus?.maintenanceMode ? 'text-red-400' :
+                                            gameStatus?.warningActive ? 'text-yellow-400' :
+                                                gameStatus?.readyCountdown > 0 ? 'text-green-400' :
+                                                    'text-green-500'
+                                            }`}>
+                                            {gameStatus?.maintenanceMode ? '🔴 MAINTENANCE' :
+                                                gameStatus?.warningActive ? '⚠️ WARNING' :
+                                                    gameStatus?.readyCountdown > 0 ? '🟢 READY COUNTDOWN' :
+                                                        '🟢 GAME ACTIVE'}
+                                        </p>
+                                    </div>
+                                    <div className="bg-black/30 p-4 rounded-lg">
+                                        <p className="text-xs text-gray-400 mb-1">Spin Status</p>
+                                        <p className={`text-lg font-bold ${gameStatus?.spinEnabled ? 'text-green-500' : 'text-red-400'
+                                            }`}>
+                                            {gameStatus?.spinEnabled ? '✅ ENABLED' : '❌ DISABLED'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Step 1: Start Maintenance */}
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center font-bold">1</div>
+                                    <h3 className="text-lg font-bold text-white">Enable Maintenance Mode</h3>
+                                </div>
+                                <p className="text-sm text-gray-400 mb-4">
+                                    Start 15s warning countdown, then disable spin globally
+                                </p>
+                                {gameStatus?.warningActive && (
+                                    <div className="bg-yellow-900/20 border border-yellow-500/50 rounded-lg p-4 mb-4">
+                                        <p className="text-yellow-400 font-bold text-center text-xl">
+                                            ⚠️ WARNING IN PROGRESS: {gameStatus.warningCountdown}s
+                                        </p>
+                                    </div>
+                                )}
+                                <button
+                                    onClick={async () => {
+                                        if (confirm('Start maintenance mode? Users will get 15s warning.')) {
+                                            await startMaintenanceMode();
+                                        }
+                                    }}
+                                    disabled={gameStatus?.maintenanceMode || gameStatus?.warningActive}
+                                    className="w-full px-6 py-3 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all"
+                                >
+                                    {gameStatus?.warningActive ? `WARNING (${gameStatus.warningCountdown}s)` :
+                                        gameStatus?.maintenanceMode ? 'MAINTENANCE ACTIVE' :
+                                            '🔴 START MAINTENANCE MODE'}
+                                </button>
+                            </div>
+
+                            {/* Step 2: Process Data */}
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="w-8 h-8 rounded-full bg-yellow-600 text-white flex items-center justify-center font-bold">2</div>
+                                    <h3 className="text-lg font-bold text-white">Process Weekly Data</h3>
+                                </div>
+
+                                {/* View Winners */}
+                                <div className="mb-6 space-y-4">
+                                    <button
+                                        onClick={async () => {
+                                            setIsLoadingWinners(true);
+                                            const topWinners = await getTopWinners(100);
+                                            setWinners(topWinners);
+                                            setIsLoadingWinners(false);
+                                        }}
+                                        disabled={!gameStatus?.maintenanceMode || isLoadingWinners}
+                                        className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Trophy size={20} />
+                                        {isLoadingWinners ? 'Loading...' : `📊 VIEW TOP 100 WINNERS`}
+                                    </button>
+
+                                    {winners.length > 0 && (
+                                        <div className="bg-black/50 rounded-lg p-4 max-h-96 overflow-y-auto">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h4 className="font-bold text-white">Top {winners.length} Winners</h4>
+                                                <button className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded flex items-center gap-1">
+                                                    <Download size={14} /> Export CSV
+                                                </button>
+                                            </div>
+                                            <table className="w-full text-sm">
+                                                <thead className="text-gray-400 text-xs uppercase">
+                                                    <tr className="border-b border-gray-800">
+                                                        <th className="text-left py-2">Rank</th>
+                                                        <th className="text-left py-2">Username</th>
+                                                        <th className="text-right py-2">Coins</th>
+                                                        <th className="text-right py-2">Reward (₹)</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="text-white">
+                                                    {winners.slice(0, 100).map((winner) => (
+                                                        <tr key={winner.userId} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                                                            <td className="py-2">
+                                                                <span className={`font-bold ${winner.rank === 1 ? 'text-yellow-400' :
+                                                                    winner.rank === 2 ? 'text-gray-400' :
+                                                                        winner.rank === 3 ? 'text-orange-400' :
+                                                                            'text-gray-500'
+                                                                    }`}>
+                                                                    #{winner.rank}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-2">{winner.username}</td>
+                                                            <td className="py-2 text-right font-mono text-yellow-400">{winner.coins}</td>
+                                                            <td className="py-2 text-right font-mono text-green-400">₹{winner.rewardAmount.toLocaleString()}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Distribute Rewards */}
+                                <div className="mb-6">
+                                    <button
+                                        onClick={async () => {
+                                            if (!winners.length) {
+                                                alert('Please load winners first!');
+                                                return;
+                                            }
+                                            if (confirm(`Distribute rewards to ${winners.length} winners?`)) {
+                                                setIsDistributing(true);
+                                                await distributeRewards(winners, (current, total) => {
+                                                    setRewardProgress({ current, total });
+                                                });
+                                                setIsDistributing(false);
+                                                alert('✅ All rewards distributed!');
+                                            }
+                                        }}
+                                        disabled={!gameStatus?.maintenanceMode || isDistributing || winners.length === 0}
+                                        className="w-full px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Gift size={20} />
+                                        {isDistributing ? `DISTRIBUTING... (${rewardProgress.current}/${rewardProgress.total})` : '💰 DISTRIBUTE REWARDS'}
+                                    </button>
+                                    {isDistributing && (
+                                        <div className="mt-2 bg-gray-800 rounded-full h-2 overflow-hidden">
+                                            <div
+                                                className="h-full bg-green-500 transition-all duration-300"
+                                                style={{ width: `${(rewardProgress.current / rewardProgress.total) * 100}%` }}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Reset All Data */}
+                                <div>
+                                    <button
+                                        onClick={async () => {
+                                            if (confirm('Reset ALL user data? This will:\n- Set coins to 0\n- Convert coins to E-tokens\n- Update leaderboard\n\nThis cannot be undone!')) {
+                                                setIsResetting(true);
+                                                await resetAllUsersData((current, total) => {
+                                                    setResetProgress({ current, total });
+                                                });
+                                                setIsResetting(false);
+                                                alert('✅ All data reset complete!');
+                                            }
+                                        }}
+                                        disabled={!gameStatus?.maintenanceMode || isResetting}
+                                        className="w-full px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <RefreshCw size={20} className={isResetting ? 'animate-spin' : ''} />
+                                        {isResetting ? `RESETTING... (${resetProgress.current}/${resetProgress.total})` : '🔄 RESET ALL USER DATA'}
+                                    </button>
+                                    {isResetting && (
+                                        <div className="mt-2 bg-gray-800 rounded-full h-2 overflow-hidden">
+                                            <div
+                                                className="h-full bg-purple-500 transition-all duration-300"
+                                                style={{ width: `${(resetProgress.current / resetProgress.total) * 100}%` }}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Step 3: End Maintenance */}
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <div className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center font-bold">3</div>
+                                    <h3 className="text-lg font-bold text-white">Resume Game</h3>
+                                </div>
+                                <p className="text-sm text-gray-400 mb-4">
+                                    Start 15s ready countdown, then enable spin globally
+                                </p>
+                                {gameStatus?.readyCountdown > 0 && (
+                                    <div className="bg-green-900/20 border border-green-500/50 rounded-lg p-4 mb-4">
+                                        <p className="text-green-400 font-bold text-center text-xl">
+                                            🎊 READY COUNTDOWN: {gameStatus.readyCountdown}s
+                                        </p>
+                                    </div>
+                                )}
+                                <button
+                                    onClick={async () => {
+                                        if (confirm('End maintenance mode? Users will get 15s ready countdown.')) {
+                                            await endMaintenanceMode();
+                                        }
+                                    }}
+                                    disabled={!gameStatus?.maintenanceMode || gameStatus?.readyCountdown > 0}
+                                    className="w-full px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all"
+                                >
+                                    {gameStatus?.readyCountdown > 0 ? `COUNTDOWN (${gameStatus.readyCountdown}s)` : '🟢 END MAINTENANCE MODE'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* BOTS TAB */}
+                    {activeTab === 'bots' && (
+                        <BotManagementPanel />
+                    )}
+
+                    {/* BULK DATA TAB */}
+                    {activeTab === 'bulkdata' && (
+                        <div className="space-y-6">
+                            <div className="bg-gradient-to-r from-orange-900/30 to-red-900/30 border border-orange-500/50 rounded-xl p-6">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <Settings className="text-orange-400" size={28} />
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white">Bulk Data Management</h3>
+                                        <p className="text-sm text-gray-400">Reset all users and populate test data</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Bulk Reset & Populate */}
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                                <h3 className="text-lg font-bold text-white mb-4">🎲 Quick Test Data Setup</h3>
+                                <p className="text-sm text-gray-400 mb-6">
+                                    This will: Reset ALL users to 0 → Add random coins (4k-5k) → Add tokens & spins → Sync to leaderboard
+                                </p>
+
+                                <button
+                                    onClick={async () => {
+                                        if (!confirm('This will RESET ALL USER DATA and populate test data!\n\nAre you sure?')) return;
+
+                                        setIsBulkProcessing(true);
+                                        try {
+                                            await bulkResetAndPopulate(
+                                                {
+                                                    minCoins: 4000,
+                                                    maxCoins: 5000,
+                                                    tokens: 10,
+                                                    spins: 50,
+                                                    level: 5
+                                                },
+                                                (step, current, total) => {
+                                                    setBulkProgress({ step, current, total });
+                                                }
+                                            );
+                                            alert('✅ Bulk operation complete!');
+                                        } catch (error) {
+                                            console.error(error);
+                                            alert('❌ Error: ' + error);
+                                        } finally {
+                                            setIsBulkProcessing(false);
+                                        }
+                                    }}
+                                    disabled={isBulkProcessing}
+                                    className="w-full px-6 py-4 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 disabled:from-gray-700 disabled:to-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all text-lg"
+                                >
+                                    {isBulkProcessing ? `⏳ ${bulkProgress.step} (${bulkProgress.current}%)` : '🚀 RESET & POPULATE ALL USERS'}
+                                </button>
+
+                                {isBulkProcessing && (
+                                    <div className="mt-4 bg-gray-800 rounded-full h-3 overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-orange-500 to-red-500 transition-all duration-300"
+                                            style={{ width: `${bulkProgress.current}%` }}
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="mt-6 bg-black/50 rounded-lg p-4">
+                                    <h4 className="text-sm font-bold text-white mb-2">Configuration:</h4>
+                                    <ul className="text-xs text-gray-400 space-y-1">
+                                        <li>• Coins: Random 4,000 - 5,000</li>
+                                        <li>• Tokens: 10</li>
+                                        <li>• Total Spins: 50</li>
+                                        <li>• Level: 5</li>
+                                        <li>• Syncs all users to current week leaderboard</li>
+                                    </ul>
+                                </div>
+
+                                {/* Clear Test Data Option */}
+                                <div className="mt-6 bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                                    <h3 className="text-lg font-bold text-white mb-4">🧹 Clear Test Data</h3>
+                                    <p className="text-sm text-gray-400 mb-6">
+                                        Reset all user values to 0 (coins, tokens, spins, level). Users won't be deleted, just their data will be cleared.
+                                    </p>
+
+                                    <button
+                                        onClick={async () => {
+                                            if (!confirm('This will set all users data to 0!\\n\\nAre you sure?')) return;
+
+                                            setIsBulkProcessing(true);
+                                            try {
+                                                const { resetAllUsersToZero } = await import('../../services/bulkDataService');
+                                                await resetAllUsersToZero((current, total) => {
+                                                    const percent = Math.floor((current / total) * 100);
+                                                    setBulkProgress({ step: 'Clearing test data...', current: percent, total: 100 });
+                                                });
+                                                alert('✅ All test data cleared!');
+                                            } catch (error) {
+                                                console.error(error);
+                                                alert('❌ Error: ' + error);
+                                            } finally {
+                                                setIsBulkProcessing(false);
+                                            }
+                                        }}
+                                        disabled={isBulkProcessing}
+                                        className="w-full px-6 py-4 bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-500 hover:to-gray-600 disabled:from-gray-800 disabled:to-gray-800 disabled:text-gray-600 text-white font-bold rounded-lg transition-all"
+                                    >
+                                        {isBulkProcessing ? `⏳ ${bulkProgress.step} (${bulkProgress.current}%)` : '🧹 CLEAR TEST DATA (Set to 0)'}
+                                    </button>
+
+                                    <div className="mt-4 bg-black/50 rounded-lg p-3">
+                                        <p className="text-xs text-gray-400">
+                                            Sets: Coins=0, Tokens=0, E-Tokens=0, Spins=0, Level=1
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* DANGER ZONE - Delete All */}
+                                <div className="mt-8 bg-red-950/30 border-2 border-red-600 rounded-xl p-6">
+                                    <h3 className="text-lg font-bold text-red-400 mb-2">⚠️ DANGER ZONE</h3>
+                                    <p className="text-sm text-gray-400 mb-6">
+                                        This will PERMANENTLY DELETE all users and leaderboard data from Firebase. This cannot be undone!
+                                    </p>
+
+                                    <button
+                                        onClick={async () => {
+                                            const confirm1 = confirm('⚠️ WARNING: This will DELETE ALL USERS from Firebase!\n\nAre you ABSOLUTELY sure?');
+                                            if (!confirm1) return;
+
+                                            const confirm2 = confirm('⚠️ FINAL WARNING: All user data and leaderboard will be PERMANENTLY DELETED!\n\nType YES in your mind and click OK to proceed.');
+                                            if (!confirm2) return;
+
+                                            setIsBulkProcessing(true);
+                                            try {
+                                                await deleteAllTestData((current, total) => {
+                                                    const percent = Math.floor((current / total) * 100);
+                                                    setBulkProgress({ step: 'Deleting all data...', current: percent, total: 100 });
+                                                });
+                                                alert('✅ All test data deleted from Firebase!');
+                                            } catch (error) {
+                                                console.error(error);
+                                                alert('❌ Error: ' + error);
+                                            } finally {
+                                                setIsBulkProcessing(false);
+                                            }
+                                        }}
+                                        disabled={isBulkProcessing}
+                                        className="w-full px-6 py-4 bg-gradient-to-r from-red-700 to-red-900 hover:from-red-600 hover:to-red-800 disabled:from-gray-700 disabled:to-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all text-lg border-2 border-red-500"
+                                    >
+                                        {isBulkProcessing ? `⏳ ${bulkProgress.step} (${bulkProgress.current}%)` : '🗑️ DELETE ALL TEST DATA'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}

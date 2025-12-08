@@ -19,7 +19,7 @@ import { LeaderboardEntry, WeeklyStats } from '../types';
 import { getCurrentWeekId, getWeekStartDate, getWeekEndDate } from '../utils/weekUtils';
 
 // Get weekly leaderboard data
-export const getWeeklyLeaderboard = async (limitCount: number = 100): Promise<LeaderboardEntry[]> => {
+export const getWeeklyLeaderboard = async (limitCount: number = 100, excludeBots: boolean = false): Promise<LeaderboardEntry[]> => {
     try {
         const weekId = getCurrentWeekId();
         const leaderboardRef = collection(db, 'weeklyLeaderboard');
@@ -36,6 +36,12 @@ export const getWeeklyLeaderboard = async (limitCount: number = 100): Promise<Le
         let index = 0;
         snapshot.forEach((doc) => {
             const data = doc.data();
+
+            // Skip bots if excludeBots is true
+            if (excludeBots && data.userId && data.userId.startsWith('bot_')) {
+                return;
+            }
+
             leaderboard.push({
                 userId: data.userId,
                 username: data.username,
@@ -56,7 +62,8 @@ export const getWeeklyLeaderboard = async (limitCount: number = 100): Promise<Le
 // Subscribe to real-time leaderboard updates
 export const subscribeToLeaderboard = (
     callback: (leaderboard: LeaderboardEntry[]) => void,
-    limitCount: number = 100
+    limitCount: number = 100,
+    excludeBots: boolean = false
 ) => {
     const weekId = getCurrentWeekId();
     const leaderboardRef = collection(db, 'weeklyLeaderboard');
@@ -72,6 +79,12 @@ export const subscribeToLeaderboard = (
         let index = 0;
         snapshot.forEach((doc) => {
             const data = doc.data();
+
+            // Skip bots if excludeBots is true
+            if (excludeBots && data.userId && data.userId.startsWith('bot_')) {
+                return;
+            }
+
             leaderboard.push({
                 userId: data.userId,
                 username: data.username,
@@ -199,6 +212,60 @@ export const getWeeklyStats = (): WeeklyStats => {
         endDate,
         totalPlayers: 0 // This will be updated when fetching leaderboard
     };
+};
+
+// Get leaderboard analytics (real users vs bots)
+export const getLeaderboardAnalytics = async () => {
+    try {
+        const weekId = getCurrentWeekId();
+        const leaderboardRef = collection(db, 'weeklyLeaderboard');
+        const q = query(
+            leaderboardRef,
+            where('weekId', '==', weekId),
+            orderBy('coins', 'desc'),
+            limit(300)
+        );
+
+        const snapshot = await getDocs(q);
+        let realUsersCount = 0;
+        let botsCount = 0;
+        let realUsersTop100 = 0;
+        let botsTop100 = 0;
+
+        let index = 0;
+        snapshot.forEach((doc) => {
+            const data = doc.data();
+            const isBot = data.userId && data.userId.startsWith('bot_');
+
+            if (isBot) {
+                botsCount++;
+                if (index < 100) botsTop100++;
+            } else {
+                realUsersCount++;
+                if (index < 100) realUsersTop100++;
+            }
+            index++;
+        });
+
+        return {
+            total: realUsersCount + botsCount,
+            realUsers: realUsersCount,
+            bots: botsCount,
+            realUsersTop100,
+            botsTop100,
+            realUserPercentageTop100: realUsersTop100 > 0 ? (realUsersTop100 / Math.min(100, index)) * 100 : 0
+        };
+    } catch (error) {
+        console.error('Error getting leaderboard analytics:', error);
+        return {
+            total: 0,
+            realUsers: 0,
+            bots: 0,
+            realUsersTop100: 0,
+            botsTop100: 0,
+            realUserPercentageTop100: 0
+        };
+    }
 };
 
 // Reset weekly leaderboard (admin function - can be called manually or via Cloud Function)

@@ -463,7 +463,7 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                 <div className="relative w-14 h-14">
                   <div className="absolute inset-0 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-full animate-pulse-fast blur-sm opacity-50"></div>
                   <div className="relative w-full h-full rounded-full border-2 border-yellow-400 overflow-hidden bg-gray-800">
-                    <img src={photoPreview} alt="User" className="w-full h-full object-cover" />
+                    <img src={photoPreview} alt="User" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                   </div>
                   <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full border border-black shadow-sm uppercase tracking-wider">
                     LVL {currentLevel}

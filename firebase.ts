@@ -1,11 +1,13 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getDatabase } from "firebase/database";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCqk2HKkodUeTtEh_xRxrcHljrpfxWcIt4",
   authDomain: "lucky-chakra.firebaseapp.com",
+  databaseURL: "https://lucky-chakra-default-rtdb.asia-southeast1.firebasedatabase.app", // Realtime Database URL
   projectId: "lucky-chakra",
   storageBucket: "lucky-chakra.firebasestorage.app",
   messagingSenderId: "168560073638",
@@ -17,3 +19,4 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const rtdb = getDatabase(app);

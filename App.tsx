@@ -28,9 +28,11 @@ import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot, increment } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
+import { attemptAutoBotUpdate } from './services/botService'; // NEW: Import Logic
 import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
 import { processLevelUpReward, validateReferralCode, applyReferral } from './services/referralService';
+import MaintenancePoster from './components/MaintenancePoster';
 // NEW: Import Weekly Reset Hook
 import { useWeeklyReset } from './hooks/useWeeklyReset';
 
@@ -173,6 +175,20 @@ const App: React.FC = () => {
 
     return () => clearInterval(intervalId);
   }, [user]);
+
+  // --- AUTO BOT SYSTEM TRIGGER ---
+  useEffect(() => {
+    // Check immediately on load
+    attemptAutoBotUpdate();
+
+    // Then check every 2 minutes
+    // (The function itself enforces the 10-minute cooldown, so checking often is cheap)
+    const botInterval = setInterval(() => {
+      attemptAutoBotUpdate();
+    }, 2 * 60 * 1000);
+
+    return () => clearInterval(botInterval);
+  }, []);
 
   console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
 
@@ -357,7 +373,10 @@ const App: React.FC = () => {
       const timeDiff = now - lastLeaderboardSync.current;
       const coinDiff = Math.abs(currentCoins - lastSyncedCoins.current);
 
-      if (user.id && (timeDiff > 60000 || coinDiff > 5000)) {
+      // PATCH: Sync more frequently for realtime feel. 
+      // Old: 60s or 5000 coins. New: 5s or > 100 coins change.
+      // Since spin takes ~4s, this effectively syncs every spin if they win > 100.
+      if (user.id && (timeDiff > 5000 || coinDiff > 100)) {
         syncUserToLeaderboard(
           user.id,
           user.username || 'Player',
@@ -1231,6 +1250,9 @@ const App: React.FC = () => {
           <SuperModeTransition onComplete={() => setShowSuperModeTransition(false)} />
         )
       }
+
+      {/* MAINTENANCE POSTER - Global Overlay */}
+      <MaintenancePoster />
     </div >
   );
 };

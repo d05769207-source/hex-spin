@@ -493,7 +493,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
 
             {/* TAP TO SKIP TEXT */}
             {showSkipText && (
-                <div className="absolute top-[110%] left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none animate-pulse w-full text-center">
+                <div className="absolute top-[110%] left-0 w-full z-50 pointer-events-none animate-pulse text-center">
                     <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-yellow-200 to-white text-sm md:text-base font-black tracking-[0.3em] uppercase drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" style={{ fontFamily: 'sans-serif', textShadow: '0 0 10px rgba(234, 179, 8, 0.5)' }}>
                         Tap to Skip
                     </span>

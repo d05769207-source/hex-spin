@@ -73,3 +73,52 @@ export interface WeeklyStats {
   endDate: Date;
   totalPlayers: number;
 }
+
+// Bot System Types
+export enum BotTier {
+  ELITE = 'ELITE',           // Top 5-15 range (2 bots)
+  COMPETITIVE = 'COMPETITIVE', // Top 20-50 range (20 bots)
+  ACTIVE = 'ACTIVE',         // Rank 50-100 (50 bots)
+  CASUAL = 'CASUAL'          // Rank 100-300 (128 bots)
+}
+
+export interface BotConfig {
+  tier: BotTier;
+  minCoins: number;
+  maxCoins: number;
+  activationHoursBeforeReset: number;
+  spinPatternType: 'fast' | 'steady' | 'slow';
+}
+
+export interface BotUser extends User {
+  isBot: true;
+  botTier: BotTier;
+  targetCoins: number;
+  spinPattern: 'fast' | 'steady' | 'slow';
+  activationTime?: Date;
+  lastBotUpdate?: Date;
+}
+
+export interface BotSystemConfig {
+  enabled: boolean;
+  totalBots: number;
+  eliteBots: number;
+  competitiveBots: number;
+  activeBots: number;
+  casualBots: number;
+  realUserPriorityThreshold: number; // e.g., 0.8 for 80%
+  tierConfigs: {
+    [BotTier.ELITE]: BotConfig;
+    [BotTier.COMPETITIVE]: BotConfig;
+    [BotTier.ACTIVE]: BotConfig;
+    [BotTier.CASUAL]: BotConfig;
+  };
+  lastGlobalUpdate?: any; // Firestore Timestamp
+}
+
+export interface RealUserStats {
+  count: number;
+  averageCoins: number;
+  maxCoins: number;
+  top10MaxCoins: number;
+}

@@ -1,5 +1,6 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { subscribeToGameStatus } from '../services/maintenanceService';
 
 interface SpinControlsProps {
   onSpin: (count: number) => void;
@@ -38,8 +39,20 @@ const TokenIcon = () => (
 
 const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance, isAdminMode = false, spinsToday, superModeEndTime, superModeSpinsLeft = 0 }) => {
   const isSuperMode = superModeSpinsLeft > 0;
+  const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
 
   const progress = Math.min((spinsToday / 100) * 100, 100);
+
+  // Subscribe to maintenance mode
+  useEffect(() => {
+    const unsubscribe = subscribeToGameStatus((status) => {
+      setIsMaintenanceMode(!status.spinEnabled || status.maintenanceMode);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Disable spin if in maintenance mode (unless admin)
+  const isDisabled = isSpinning || (isMaintenanceMode && !isAdminMode);
 
   return (
     <div className="w-full flex flex-col items-center gap-4 mb-4">
@@ -79,15 +92,24 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
         )}
       </div>
 
+      {/* Maintenance Message */}
+      {isMaintenanceMode && !isAdminMode && (
+        <div className="w-full max-w-xs px-4">
+          <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-3">
+            <p className="text-red-300 text-center text-xs md:text-sm font-bold">🛠️ Maintenance in progress. Spin disabled.</p>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-2xl mx-auto flex justify-center items-end gap-4 sm:gap-12 px-4">
 
         {/* 1 Spin Button - Blue Crystal Shape */}
         <button
           onClick={() => onSpin(1)}
-          disabled={isSpinning}
+          disabled={isDisabled}
           className={`
             relative group transition-all duration-200 active:scale-95
-            ${isSpinning ? 'opacity-60 grayscale' : 'hover:brightness-110'}
+            ${isDisabled ? 'opacity-60 grayscale cursor-not-allowed' : 'hover:brightness-110'}
           `}
         >
           {/* Button Shape */}
@@ -113,10 +135,10 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
         {/* 5 Spins Button - Yellow Crystal Shape */}
         <button
           onClick={() => onSpin(5)}
-          disabled={isSpinning}
+          disabled={isDisabled}
           className={`
             relative group transition-all duration-200 active:scale-95
-            ${isSpinning ? 'opacity-60 grayscale' : 'hover:brightness-110'}
+            ${isDisabled ? 'opacity-60 grayscale cursor-not-allowed' : 'hover:brightness-110'}
           `}
         >
           {/* Button Shape */}

@@ -596,6 +596,7 @@ const Leaderboard: React.FC = () => {
                             <img
                               src={player.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${player.username}`}
                               alt={player.username}
+                              referrerPolicy="no-referrer"
                               className="w-full h-full rounded-full object-cover bg-gray-900"
                             />
                           </div>
@@ -730,6 +731,7 @@ const Leaderboard: React.FC = () => {
                             <img
                               src={player.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${player.username}`}
                               alt={player.username}
+                              referrerPolicy="no-referrer"
                               className="w-full h-full rounded-full object-cover bg-gray-900"
                             />
                           </div>
@@ -802,6 +804,7 @@ const Leaderboard: React.FC = () => {
                         <img
                           src={footerUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${footerUser.username}`}
                           alt={footerUser.username}
+                          referrerPolicy="no-referrer"
                           className="w-full h-full rounded-full object-cover bg-gray-900"
                         />
                       </div>
@@ -961,6 +964,7 @@ const Leaderboard: React.FC = () => {
                               <img
                                 src={user.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
                                 alt={user.username}
+                                referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover"
                               />
                             </div>
@@ -1014,6 +1018,7 @@ const Leaderboard: React.FC = () => {
                               <img
                                 src={req.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
                                 alt={req.username}
+                                referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover"
                               />
                             </div>
@@ -1087,6 +1092,7 @@ const Leaderboard: React.FC = () => {
                             <img
                               src={viewProfileUser.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=1000&auto=format&fit=crop'}
                               alt="User"
+                              referrerPolicy="no-referrer"
                               className="w-full h-full object-cover"
                             />
                           </div>
