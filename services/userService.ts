@@ -1,4 +1,4 @@
-import { doc, setDoc, getDoc, updateDoc, Timestamp, increment, runTransaction } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, Timestamp, increment, runTransaction, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from '../types';
 
@@ -23,6 +23,34 @@ export const getNextUserId = async (): Promise<number> => {
     } catch (error) {
         console.error("Error generating User ID:", error);
         throw error;
+    }
+};
+
+// Check if username is already taken
+// Check if username is already taken (Checks both Exact and Case-Insensitive)
+export const checkUsernameAvailability = async (username: string): Promise<boolean> => {
+    try {
+        const usersRef = collection(db, 'users');
+        const usernameLower = username.toLowerCase();
+
+        // 1. Check Exact Match (For old users who might not have usernameLower)
+        const qExact = query(usersRef, where('username', '==', username));
+
+        // 2. Check Case Insensitive Match (For new/migrated users)
+        const qLower = query(usersRef, where('usernameLower', '==', usernameLower));
+
+        // Run both checks in parallel
+        const [exactSnapshot, lowerSnapshot] = await Promise.all([
+            getDocs(qExact),
+            getDocs(qLower)
+        ]);
+
+        // If EITHER query returns a document, the username is taken
+        // (i.e. if exact match found OR lower-case match found)
+        return exactSnapshot.empty && lowerSnapshot.empty;
+    } catch (error) {
+        console.error("Error checking username availability:", error);
+        return false; // Assume taken on error to be safe
     }
 };
 
@@ -52,6 +80,7 @@ export const createUserProfile = async (user: User): Promise<{ displayId: number
                 uid: user.uid,
                 email: user.email || '',
                 username: user.username || 'Player',
+                usernameLower: (user.username || 'Player').toLowerCase(), // Save lowercase for uniqueness checks
                 isGuest: user.isGuest,
                 eTokens: user.eTokens || 0,
                 weeklyCoins: 0,

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
+import { checkUsernameAvailability } from '../../services/userService';
 
 interface UsernameModalProps {
   onSubmit: (username: string, referralCode?: string) => Promise<void>;
@@ -10,6 +11,8 @@ const UsernameModal: React.FC<UsernameModalProps> = ({ onSubmit }) => {
   const [referralCode, setReferralCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,6 +29,14 @@ const UsernameModal: React.FC<UsernameModalProps> = ({ onSubmit }) => {
     setError('');
 
     try {
+      // Check availability
+      const isAvailable = await checkUsernameAvailability(username.trim());
+      if (!isAvailable) {
+        setError('Username is already taken. Please choose another one.');
+        setLoading(false);
+        return;
+      }
+
       await onSubmit(username, referralCode);
       // If successful, the modal will be closed by the parent, so we don't need to set loading false
       // But if it fails/throws, we catch it below.

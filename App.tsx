@@ -132,7 +132,8 @@ const App: React.FC = () => {
   // Prevent sync until data is loaded
 
   // NEW: Initialize Weekly Reset Hook with LIVE State (Coins, eTokens)
-  useWeeklyReset(user, coins, setCoins, setETokens);
+  // Prevent running hook with partial user data (missing lastWeekId) by waiting for isLoading
+  useWeeklyReset(isLoading ? null : user, coins, setCoins, setETokens);
 
   // --- DAILY RESET LOGIC (Midnight Check) ---
   useEffect(() => {
@@ -250,7 +251,8 @@ const App: React.FC = () => {
                 referralCode: userData.referralCode,
                 referralCount: userData.referralCount,
                 referredBy: userData.referredBy,
-                referralDismissed: userData.referralDismissed
+                referralDismissed: userData.referralDismissed,
+                lastWeekId: userData.lastWeekId // CRITICAL: Populate lastWeekId so useWeeklyReset knows the state
               } : null);
 
               console.log('✅ User data loaded successfully:', {
@@ -464,7 +466,7 @@ const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [user]); // Removed other dependencies to prevent re-subscription loops
+  }, [user?.id, user?.isGuest]); // Stabilize dependency to PREVENT rapid re-subscription loops
 
   // SYNC GUEST DATA TO LOCALSTORAGE (Guest users only)
   useEffect(() => {

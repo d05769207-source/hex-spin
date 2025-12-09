@@ -469,7 +469,7 @@ const Leaderboard: React.FC = () => {
         <button
           onClick={() => setActiveTab('FRIENDS')}
           className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'FRIENDS'
-            ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20'
+            ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
             : 'text-gray-300 hover:text-white'
             }`}
         >
@@ -663,17 +663,17 @@ const Leaderboard: React.FC = () => {
           <div className="flex-1 flex flex-col animate-in slide-in-from-right duration-300">
             <div className="text-xs text-white mb-3 uppercase tracking-wider font-bold flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Users size={14} className="text-yellow-400" />
+                <Users size={14} className="text-sky-400" />
                 Friends Rankings
               </div>
 
               {/* Friend Request Trigger */}
               <button
                 onClick={() => setShowFriendModal(true)}
-                className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 hover:bg-yellow-500/20 transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 hover:bg-sky-500/20 transition-colors"
               >
-                <Bell size={12} className="text-yellow-400" />
-                <span className="text-[10px] font-bold text-yellow-300">
+                <Bell size={12} className="text-sky-400" />
+                <span className="text-[10px] font-bold text-sky-300">
                   {friendRequests.length > 0 ? `${friendRequests.length} New` : 'Requests'}
                 </span>
               </button>
@@ -682,7 +682,7 @@ const Leaderboard: React.FC = () => {
             <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-hide">
               {loadingFriendsBoard ? (
                 <div className="flex flex-col items-center justify-center py-10">
-                  <Loader2 className="w-8 h-8 text-yellow-400 animate-spin" />
+                  <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
                   <p className="text-gray-400 text-xs mt-2">Updating ranks...</p>
                 </div>
               ) : friends.length > 0 ? (
@@ -704,8 +704,8 @@ const Leaderboard: React.FC = () => {
                     rankBg = 'bg-gradient-to-br from-orange-400 to-orange-600 text-black border-orange-200 shadow-orange-500/50';
                     rankColor = 'text-orange-400';
                   } else if (isCurrentUser) {
-                    rankBg = 'bg-yellow-500 text-black border-yellow-300 shadow-yellow-900/50';
-                    rankColor = 'text-yellow-400';
+                    rankBg = 'bg-sky-500 text-white border-sky-300 shadow-sky-900/50';
+                    rankColor = 'text-sky-400';
                   } else {
                     rankColor = 'text-gray-300'; // Standard non-top-3 friend
                   }
@@ -714,7 +714,7 @@ const Leaderboard: React.FC = () => {
                     <div
                       key={player.userId}
                       className={`flex items-center justify-between p-3 md:p-4 rounded-xl border transition-all duration-300 hover:scale-[1.02] animate-in slide-in-from-bottom ${isCurrentUser
-                        ? 'bg-gradient-to-r from-yellow-900/60 to-yellow-800/40 border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.2)]'
+                        ? 'bg-gradient-to-r from-sky-900/60 to-sky-800/40 border-sky-500/50 shadow-[0_0_20px_rgba(14,165,233,0.2)]'
                         : 'bg-gradient-to-r from-white/10 to-transparent border-white/10 hover:border-white/30 hover:bg-white/15 backdrop-blur-md'
                         }`}
                       style={{ animationDelay: `${index * 50}ms` }}
@@ -737,7 +737,7 @@ const Leaderboard: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex flex-col">
-                          <span className={`font-bold text-sm md:text-base tracking-wide ${isCurrentUser ? 'text-yellow-300' : 'text-gray-100'}`}>
+                          <span className={`font-bold text-sm md:text-base tracking-wide ${isCurrentUser ? 'text-sky-300' : 'text-gray-100'}`}>
                             {player.username}
                           </span>
                         </div>
@@ -750,14 +750,14 @@ const Leaderboard: React.FC = () => {
                             <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
                             <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
                           </svg>
-                          <span className={`font-black text-sm md:text-base tracking-wider ${isCurrentUser ? 'text-yellow-400 drop-shadow-[0_0_5px_rgba(234,179,8,0.5)]' : rankColor}`}>
+                          <span className={`font-black text-sm md:text-base tracking-wider ${isCurrentUser ? 'text-sky-400 drop-shadow-[0_0_5px_rgba(14,165,233,0.5)]' : rankColor}`}>
                             {player.coins.toLocaleString()}
                           </span>
                         </div>
 
                         {/* Friend Action / 'You' Badge */}
                         {isCurrentUser ? (
-                          <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded uppercase font-bold border border-yellow-500/30">You</span>
+                          <span className="text-[10px] bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded uppercase font-bold border border-sky-500/30">You</span>
                         ) : (
                           // No add friend button here since they are already friends
                           <div className="w-8"></div>
@@ -768,15 +768,15 @@ const Leaderboard: React.FC = () => {
                 })
               ) : (
                 <div className="text-center py-10 opacity-50">
-                  <Users size={32} className="mx-auto text-yellow-500 mb-2" />
-                  <p className="text-gray-400 text-xs text-yellow-200/70">No friends yet.</p>
+                  <Users size={32} className="mx-auto text-sky-500 mb-2" />
+                  <p className="text-gray-400 text-xs text-sky-200/70">No friends yet.</p>
                 </div>
               )}
             </div>
 
             {/* Add Friends Placeholder */}
-            <div className="mt-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-xl text-center">
-              <p className="text-yellow-400 text-xs font-bold mb-2">Add more friends to compete!</p>
+            <div className="mt-4 p-4 bg-sky-900/20 border border-sky-500/30 rounded-xl text-center">
+              <p className="text-sky-400 text-xs font-bold mb-2">Add more friends to compete!</p>
               <p className="text-gray-500 text-[10px]">Invite your friends to join the leaderboard</p>
             </div>
           </div>
@@ -791,16 +791,31 @@ const Leaderboard: React.FC = () => {
             const footerUser = activeTab === 'WEEKLY' ? currentUserData : friendsLeaderboard.find(p => p.isMe);
             if (!footerUser || !footerUser.rank) return null;
 
+            const isFriends = activeTab === 'FRIENDS';
+            const gradientClass = isFriends
+              ? 'bg-gradient-to-r from-sky-900/90 via-black/90 to-sky-900/90 border-sky-500/60 shadow-[0_0_25px_rgba(56,189,248,0.25)]'
+              : 'bg-gradient-to-r from-yellow-900/90 via-black/90 to-yellow-900/90 border-yellow-500/60 shadow-[0_0_25px_rgba(234,179,8,0.25)]';
+
+            const rankTextClass = isFriends ? 'text-sky-400' : 'text-yellow-400';
+
+            const photoBorderClass = isFriends
+              ? 'bg-gradient-to-br from-sky-400 to-sky-600 border-sky-200'
+              : 'bg-gradient-to-br from-yellow-400 to-yellow-600 border-yellow-200';
+
+            const nameGradientClass = isFriends
+              ? 'from-sky-200 to-sky-500'
+              : 'from-yellow-200 to-yellow-500';
+
             return (
               <div className="fixed bottom-16 md:bottom-4 left-0 right-0 mx-auto w-full max-w-md pl-4 pr-6 z-30">
-                <div className="bg-gradient-to-r from-yellow-900/90 via-black/90 to-yellow-900/90 backdrop-blur-xl border border-yellow-500/60 rounded-xl p-3 flex items-center justify-between shadow-[0_0_25px_rgba(234,179,8,0.25)]">
+                <div className={`${gradientClass} backdrop-blur-xl border rounded-xl p-3 flex items-center justify-between`}>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1.5 mr-2">
                       <div className="w-9 flex items-center justify-start gap-[1px]">
-                        <span className="text-base font-bold italic transform -rotate-2 tracking-normal text-yellow-400 drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" style={{ fontFamily: 'sans-serif' }}>#</span>
-                        <span className="text-base font-bold italic transform -rotate-2 tracking-normal text-yellow-400 drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]" style={{ fontFamily: 'sans-serif' }}>{footerUser.rank}</span>
+                        <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankTextClass} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>#</span>
+                        <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankTextClass} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{footerUser.rank}</span>
                       </div>
-                      <div className="w-10 h-10 rounded-full p-[1px] bg-gradient-to-br from-yellow-400 to-yellow-600 overflow-hidden shadow-lg border border-yellow-200">
+                      <div className={`w-10 h-10 rounded-full p-[1px] ${photoBorderClass} overflow-hidden shadow-lg border`}>
                         <img
                           src={footerUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${footerUser.username}`}
                           alt={footerUser.username}
@@ -809,7 +824,7 @@ const Leaderboard: React.FC = () => {
                         />
                       </div>
                     </div>
-                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 to-yellow-500 font-bold text-base">
+                    <span className={`text-transparent bg-clip-text bg-gradient-to-r ${nameGradientClass} font-bold text-base`}>
                       {footerUser.username}
                     </span>
                   </div>
@@ -819,7 +834,7 @@ const Leaderboard: React.FC = () => {
                       <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
                       <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
                     </svg>
-                    <span className="text-yellow-400 font-black text-base drop-shadow-sm">{footerUser.coins.toLocaleString()}</span>
+                    <span className={`${rankTextClass} font-black text-base drop-shadow-sm`}>{footerUser.coins.toLocaleString()}</span>
                   </div>
                 </div>
               </div>

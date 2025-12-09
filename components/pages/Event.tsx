@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PrizeImage from '../PrizeImage';
 import { soundManager } from '../../utils/SoundManager';
+import EToken from '../EToken';
+import KTMToken from '../KTMToken';
+import IPhoneToken from '../iPhoneToken';
+import SpinToken from '../SpinToken';
 
 type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 'KTM_DRAW' | 'KTM_WINNER' | 'ENDED';
 
@@ -511,139 +515,168 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
     );
 };
 
-const DiagonalEventCard: React.FC<{
+const GlassEventCard: React.FC<{
     title: string;
     description: string;
     image: string;
-    isActive?: boolean;
+    active: boolean;
     onClick: () => void;
-    clipPathClass: string;
-    marginClass?: string;
-    gradientFrom: string;
-    gradientTo: string;
-}> = ({ title, description, image, isActive, onClick, clipPathClass, marginClass, gradientFrom, gradientTo }) => {
+    entryFee?: string;
+    prizes: React.ReactNode[];
+}> = ({ title, description, image, active, onClick, entryFee, prizes }) => {
     return (
         <div
-            className={`relative w-full flex-1 transition-all duration-300 group cursor-pointer ${marginClass} filter drop-shadow-[0_0_1px_rgba(255,255,255,0.5)] hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.6)]`}
-            onClick={isActive ? onClick : undefined}
-            style={{ clipPath: clipPathClass }}
+            onClick={active ? onClick : undefined}
+            className={`
+                relative w-full h-[240px] rounded-[32px] overflow-hidden 
+                transition-all duration-500 ease-out transform
+                ${active
+                    ? 'scale-100 opacity-100 shadow-[0_20px_40px_rgba(0,0,0,0.4)] hover:scale-[1.02] cursor-pointer'
+                    : 'scale-95 opacity-60 grayscale-[0.5] pointer-events-none'
+                }
+            `}
         >
             {/* Background Image */}
             <div className="absolute inset-0">
-                <img
-                    src={image}
-                    alt={title}
-                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 brightness-[0.6] group-hover:brightness-100"
-                />
-
-                {/* Gradient Overlay for Text Visibility */}
-                <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/40 to-transparent" />
-
-                {/* Active State Glow Overlay */}
-                {isActive && (
-                    <div className="absolute inset-0 bg-gradient-to-r from-orange-500/10 to-transparent mix-blend-overlay animate-pulse" />
-                )}
+                <img src={image} alt={title} className="w-full h-full object-cover" />
+                {/* Gradient Overlay for Readability */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
             </div>
 
-            {/* Content Container */}
-            <div className="absolute inset-0 px-6 py-4 flex flex-col justify-center pl-8 md:pl-12">
-                <div className={`
-                    inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm text-[8px] md:text-[10px] font-black uppercase tracking-widest w-fit mb-2
-                    ${isActive ? 'bg-orange-500 text-black shadow-[0_0_10px_rgba(249,115,22,0.6)]' : 'bg-white/10 text-white/50 border border-white/10'}
-                `}>
-                    {isActive ? 'Live Event' : 'Coming Soon'}
+            {/* Glass Content Area */}
+            <div className="absolute bottom-0 left-0 right-0 p-5 bg-white/5 backdrop-blur-lg border-t border-white/10 flex flex-col gap-3">
+                <div className="flex justify-between items-start">
+                    <div>
+                        <div className={`
+                            inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-widest mb-1
+                            ${active ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-gray-500/20 text-gray-400'}
+                        `}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
+                            {active ? 'Live Now' : 'Coming Soon'}
+                        </div>
+                        <h3 className="text-2xl font-black text-white leading-none">{title}</h3>
+                        <p className="text-[10px] text-gray-400 font-medium mt-0.5">{description}</p>
+                    </div>
+
+                    {/* Entry Badge */}
+                    {entryFee && (
+                        <div className="flex flex-col items-end">
+                            <span className="text-[8px] text-gray-500 uppercase font-BOLD tracking-wider">Entry</span>
+                            <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-lg border border-white/10">
+                                {entryFee === 'Free' ? (
+                                    <span className="text-xs font-black text-green-400">FREE</span>
+                                ) : (
+                                    <>
+                                        <div className="w-4 h-4 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/50 text-[10px]">💰</div>
+                                        <span className="text-xs font-bold text-yellow-400">{entryFee}</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                <h2 className={`
-                    text-3xl md:text-6xl font-black italic uppercase tracking-tighter leading-[0.9] mb-2 
-                    ${isActive ? 'text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]' : 'text-gray-500'}
-                `}>
-                    {title}
-                </h2>
+                {/* Divider */}
+                <div className="h-px w-full bg-white/10" />
 
-                <p className={`
-                    text-[10px] md:text-sm font-medium tracking-wide max-w-[80%] uppercase
-                    ${isActive ? 'text-gray-300' : 'text-gray-600'}
-                `}>
-                    {description}
-                </p>
-
-                {isActive && (
-                    <div className="mt-4 flex items-center gap-2 text-orange-400 font-bold text-xs uppercase tracking-widest group-hover:translate-x-2 transition-transform">
-                        <span>Enter Arena</span>
-                        <span>→</span>
+                {/* Footer: Prizes and Action */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[8px] text-gray-500 uppercase font-bold tracking-wider">Prizes:</span>
+                        <div className="flex -space-x-2">
+                            {prizes}
+                        </div>
                     </div>
-                )}
-            </div>
 
-            {/* Edge Highlight (Simulated Border Inner) */}
-            <div className={`absolute inset-0 border-[0.5px] border-white/20 pointer-events-none`} />
+                    {active && (
+                        <button className="bg-white text-black text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full hover:bg-gray-200 transition-colors shadow-lg shadow-white/10">
+                            Enter Arena
+                        </button>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
 
 const EventLobby: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => {
     return (
-        <div className="h-full flex flex-col relative overflow-hidden">
-            {/* Background Context - Subtle overlay to ensure text pops and blends with global theme */}
-            <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/40 to-black/60 pointer-events-none z-0" />
-
-            {/* Header Title - Increased spacing for mobile */}
-            <div className="relative z-40 text-center pt-20 pb-8 md:pt-24 md:pb-12">
-                <h1 className="text-4xl md:text-6xl font-black text-white italic tracking-tighter drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] uppercase leading-none transform skew-x-[-5deg]">
-                    EVENT <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 via-orange-500 to-red-600 filter drop-shadow-[0_2px_4px_rgba(234,88,12,0.3)]">ARENA</span>
-                </h1>
-                <div className="flex items-center justify-center gap-2 mt-2 opacity-80">
-                    <div className="h-[2px] w-12 bg-gradient-to-r from-transparent to-orange-500" />
-                    <span className="text-[10px] uppercase tracking-[0.2em] text-orange-200 font-bold">Live Competitions</span>
-                    <div className="h-[2px] w-12 bg-gradient-to-l from-transparent to-orange-500" />
-                </div>
+        <div className="h-full flex flex-col relative overflow-hidden bg-black pb-4">
+            {/* Background Blobs (Animated) */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div className="absolute top-[-10%] left-[-20%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-slow" />
+                <div className="absolute bottom-[-10%] right-[-20%] w-[400px] h-[400px] bg-blue-600/20 rounded-full blur-[100px] animate-pulse-slow delay-1000" />
             </div>
 
-            {/* Event Cards Container */}
-            <div className="flex-1 flex flex-col relative z-10 -mt-4 pb-4 px-2 md:px-0">
-                {/* 1. Sunday Lottery (Top) */}
-                <DiagonalEventCard
+            {/* Header */}
+            <div className="relative z-10 pt-16 pb-6 px-6">
+                <h1 className="text-4xl font-black text-white tracking-tighter mb-1">
+                    EVENT <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">ARENA</span>
+                </h1>
+                <p className="text-xs text-gray-500 font-medium max-w-[200px]">
+                    Compete in live events to win exclusive prizes and tokens.
+                </p>
+            </div>
+
+            {/* Scrollable List */}
+            <div className="flex-1 overflow-y-auto px-4 pb-20 space-y-6 relative z-10 no-scrollbar">
+
+                {/* 1. Sunday Lottery */}
+                <GlassEventCard
                     title="Sunday Lottery"
-                    description="Win iPhone 15 Pro & KTM RC"
+                    description="Win iPhone 15 & KTM RC"
                     image="/images/poster_sunday_lottery.png"
-                    isActive={true}
+                    active={true}
                     onClick={() => onSelect('sunday_lottery')}
-                    // Cut: Bottom Slant Down (\)
-                    clipPathClass="polygon(0 0, 100% 0, 100% 88%, 0 100%)"
-                    gradientFrom="from-amber-600"
-                    gradientTo="to-yellow-600"
-                    // Mobile: Reduced negative margin
-                    marginClass="z-30 flex-1 -mb-8 md:-mb-16 origin-top shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                    entryFee="Free"
+                    prizes={[
+                        <div key="iphone" className="relative z-20 transform hover:scale-110 transition-transform">
+                            <IPhoneToken size={24} showLabel={false} />
+                        </div>,
+                        <div key="ktm" className="relative z-10 transform hover:scale-110 transition-transform">
+                            <KTMToken size={24} showLabel={false} />
+                        </div>
+                    ]}
                 />
 
-                {/* 2. Speed Rush (Middle) */}
-                <DiagonalEventCard
+                {/* 2. Speed Rush */}
+                <GlassEventCard
                     title="Speed Rush"
-                    description="High stakes racing"
+                    description="High Stakes Racing"
                     image="/images/poster_ktm_rush.png"
-                    isActive={false}
+                    active={false} // Upcoming
                     onClick={() => { }}
-                    // Cut: Top Slant (\), Bottom Slant (/)
-                    clipPathClass="polygon(0 12%, 100% 0, 100% 100%, 0 88%)"
-                    gradientFrom="from-blue-600"
-                    gradientTo="to-cyan-600"
-                    marginClass="z-20 flex-1 -mb-8 md:-mb-16 origin-center shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                    entryFee="500"
+                    prizes={[
+                        <div key="ktm" className="relative z-10">
+                            <KTMToken size={24} />
+                        </div>,
+                        <div key="etoken" className="relative z-0">
+                            <EToken size={20} />
+                        </div>
+                    ]}
                 />
 
-                {/* 3. Mega Loot (Bottom) */}
-                <DiagonalEventCard
+                {/* 3. Mega Loot */}
+                <GlassEventCard
                     title="Mega Loot"
-                    description="Unlock mysterious chests"
+                    description="Unlock Mystery Chests"
                     image="/images/poster_mega_loot.png"
-                    isActive={false}
+                    active={false} // Upcoming
                     onClick={() => { }}
-                    // Cut: Top Slant (/)
-                    clipPathClass="polygon(0 0, 100% 12%, 100% 100%, 0 100%)"
-                    gradientFrom="from-purple-600"
-                    gradientTo="to-indigo-600"
-                    marginClass="z-10 flex-1 origin-bottom pb-4 shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+                    entryFee="1000"
+                    prizes={[
+                        <div key="spin" className="relative z-10">
+                            <SpinToken size={22} />
+                        </div>,
+                        <div key="etoken" className="relative z-0">
+                            <EToken size={20} />
+                        </div>
+                    ]}
                 />
+
+                {/* Spacer (To ensure scrolling past bottom menu if any) */}
+                <div className="h-10" />
             </div>
         </div>
     );
@@ -653,7 +686,7 @@ const Event: React.FC<EventProps> = (props) => {
     const [view, setView] = useState<'LOBBY' | 'SUNDAY_LOTTERY'>('LOBBY');
 
     return (
-        <div className="w-full max-w-sm mx-auto h-[85vh] flex flex-col">
+        <div className="w-full max-w-md mx-auto h-[85vh] flex flex-col bg-black">
             {view === 'LOBBY' ? (
                 <EventLobby onSelect={(id) => {
                     if (id === 'sunday_lottery') setView('SUNDAY_LOTTERY');

@@ -22,13 +22,11 @@ export const useWeeklyReset = (
             console.log(`🔍 [WeeklyReset] Checking... Current: ${currentWeekId}, Last: ${user.lastWeekId}, Processed: ${processedWeekId.current}`);
 
             // Prevent double processing in same session if week hasn't changed
+            // TRUST LOCAL STATE: If we already processed this weekId in this session, DO NOT proceed.
+            // Relying on user.lastWeekId (prop) is dangerous because it might be stale (App.tsx doesn't update it in real-time listeners).
             if (processedWeekId.current === currentWeekId) {
-                // If the user's DB says they are already in this week, we are good.
-                if (user.lastWeekId === currentWeekId) {
-                    return;
-                }
-                // If DB is stale but we processed locally, we might skip, 
-                // BUT we loop to ensure DB is consistent.
+                console.log("Skipping reset check - already processed this week locally.");
+                return;
             }
 
             let shouldReset = false;

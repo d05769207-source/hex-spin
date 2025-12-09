@@ -27,6 +27,8 @@ export const getWeeklyLeaderboard = async (limitCount: number = 100, excludeBots
             leaderboardRef,
             where('weekId', '==', weekId),
             orderBy('coins', 'desc'),
+            orderBy('lastUpdated', 'asc'), // Tie-breaker: Earlier timestamp wins
+            orderBy('username', 'asc'), // Final Tie-breaker: Alphabetical
             limit(limitCount)
         );
 
@@ -71,6 +73,8 @@ export const subscribeToLeaderboard = (
         leaderboardRef,
         where('weekId', '==', weekId),
         orderBy('coins', 'desc'),
+        orderBy('lastUpdated', 'asc'), // Tie-breaker: Earlier timestamp wins
+        orderBy('username', 'asc'), // Final Tie-breaker: Alphabetical
         limit(limitCount)
     );
 

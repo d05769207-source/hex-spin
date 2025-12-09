@@ -21,6 +21,7 @@ export interface WinnerData {
     photoURL?: string;
     rank: number;
     rewardAmount: number;
+    lastUpdated?: any; // Firestore Timestamp
 }
 
 // Game status reference
@@ -173,19 +174,46 @@ export const getTopWinners = async (limit: number = 100): Promise<WinnerData[]> 
                 coins: data.coins || 0,
                 photoURL: data.photoURL,
                 rank: 0, // Will be set after sorting
-                rewardAmount: 0 // Will be calculated
+                rewardAmount: 0, // Will be calculated
+                lastUpdated: data.lastUpdated // Needed for tie-breaker sort
             });
         });
 
-        // Sort by coins (descending)
-        winners.sort((a, b) => b.coins - a.coins);
+        // Sort by coins (descending), then lastUpdated (ascending)
+        winners.sort((a, b) => {
+            if (b.coins !== a.coins) {
+                return b.coins - a.coins; // Higher coins first
+            }
+            // Tie-breaker: Earlier time first
+            const getTime = (date: any) => {
+                if (!date) return 0;
+                if (typeof date.toMillis === 'function') return date.toMillis(); // Firestore Timestamp
+                if (date instanceof Date) return date.getTime(); // JS Date
+                if (date.seconds) return date.seconds * 1000; // Raw Timestamp object
+                return 0;
+            };
+
+            const timeA = getTime((a as any).lastUpdated);
+            const timeB = getTime((b as any).lastUpdated);
+
+            const effectiveTimeA = timeA === 0 ? Number.MAX_SAFE_INTEGER : timeA;
+            const effectiveTimeB = timeB === 0 ? Number.MAX_SAFE_INTEGER : timeB;
+
+            // DEBUG: Append time to username for visual inspection
+            if (a.username.includes("User A") && !a.username.includes("T:")) a.username = `${a.username} (T:${effectiveTimeA})`;
+            if (a.username.includes("User B") && !a.username.includes("T:")) a.username = `${a.username} (T:${effectiveTimeB})`;
+            if (b.username.includes("User A") && !b.username.includes("T:")) b.username = `${b.username} (T:${effectiveTimeA})`;
+            if (b.username.includes("User B") && !b.username.includes("T:")) b.username = `${b.username} (T:${effectiveTimeB})`;
+
+            return effectiveTimeA - effectiveTimeB;
+        });
 
         // Assign ranks and calculate rewards
         winners.forEach((winner, index) => {
             winner.rank = index + 1;
 
-            // Reward calculation logic (example: top 10 get different rewards)
-            if (winner.rank === 1) winner.rewardAmount = 10000; // ₹10,000
+            // Reward calculation logic
+            if (winner.rank === 1) winner.rewardAmount = 10000;
             else if (winner.rank === 2) winner.rewardAmount = 5000;
             else if (winner.rank === 3) winner.rewardAmount = 3000;
             else if (winner.rank <= 10) winner.rewardAmount = 1000;

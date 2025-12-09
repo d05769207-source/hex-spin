@@ -724,6 +724,52 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     </div>
                                 </div>
 
+                                {/* Tie-Breaker Verification (Temporary) */}
+                                <div className="mt-8 bg-blue-900/20 border border-blue-500/50 rounded-xl p-6">
+                                    <h3 className="text-lg font-bold text-blue-400 mb-2">🧪 Verify Tie-Breaker Logic</h3>
+                                    <p className="text-sm text-gray-400 mb-6">
+                                        Creates User A (Early) and User B (Late) with same score, then checks who is ranked higher.
+                                    </p>
+                                    <div className="flex gap-4">
+                                        <button
+                                            onClick={async () => {
+                                                setIsBulkProcessing(true);
+                                                try {
+                                                    const { verifyTieBreaker } = await import('../../services/bulkDataService');
+                                                    const result = await verifyTieBreaker();
+                                                    alert(result);
+                                                } catch (error) {
+                                                    alert('Error: ' + error);
+                                                } finally {
+                                                    setIsBulkProcessing(false);
+                                                }
+                                            }}
+                                            disabled={isBulkProcessing}
+                                            className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-all"
+                                        >
+                                            RUN TEST
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                setIsBulkProcessing(true);
+                                                try {
+                                                    const { clearTestUsers } = await import('../../services/bulkDataService');
+                                                    const result = await clearTestUsers();
+                                                    alert(result);
+                                                } catch (error) {
+                                                    alert('Error: ' + error);
+                                                } finally {
+                                                    setIsBulkProcessing(false);
+                                                }
+                                            }}
+                                            disabled={isBulkProcessing}
+                                            className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-all"
+                                        >
+                                            🧹 CLEAR TEST DATA
+                                        </button>
+                                    </div>
+                                </div>
+
                                 {/* DANGER ZONE - Delete All */}
                                 <div className="mt-8 bg-red-950/30 border-2 border-red-600 rounded-xl p-6">
                                     <h3 className="text-lg font-bold text-red-400 mb-2">⚠️ DANGER ZONE</h3>
