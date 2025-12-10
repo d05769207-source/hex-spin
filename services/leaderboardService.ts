@@ -12,7 +12,8 @@ import {
     Timestamp,
     updateDoc,
     increment,
-    getCountFromServer
+    getCountFromServer,
+    writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { LeaderboardEntry, WeeklyStats } from '../types';
@@ -27,8 +28,10 @@ export const getWeeklyLeaderboard = async (limitCount: number = 100, excludeBots
             leaderboardRef,
             where('weekId', '==', weekId),
             orderBy('coins', 'desc'),
-            orderBy('lastUpdated', 'asc'), // Tie-breaker: Earlier timestamp wins
-            orderBy('username', 'asc'), // Final Tie-breaker: Alphabetical
+            orderBy('lastUpdated', 'asc'), // Tie-breaker 1: Earlier timestamp wins (First come, first served)
+            orderBy('totalSpins', 'desc'), // Tie-breaker 2: More activity
+            orderBy('level', 'desc'),      // Tie-breaker 3: Higher level
+            orderBy('username', 'asc'),    // Final Tie-breaker: Alphabetical
             limit(limitCount)
         );
 
@@ -73,8 +76,10 @@ export const subscribeToLeaderboard = (
         leaderboardRef,
         where('weekId', '==', weekId),
         orderBy('coins', 'desc'),
-        orderBy('lastUpdated', 'asc'), // Tie-breaker: Earlier timestamp wins
-        orderBy('username', 'asc'), // Final Tie-breaker: Alphabetical
+        orderBy('lastUpdated', 'asc'), // Tie-breaker 1: Earlier timestamp wins
+        orderBy('totalSpins', 'desc'), // Tie-breaker 2: More activity
+        orderBy('level', 'desc'),      // Tie-breaker 3: Higher level
+        orderBy('username', 'asc'),    // Final Tie-breaker: Alphabetical
         limit(limitCount)
     );
 
@@ -94,6 +99,8 @@ export const subscribeToLeaderboard = (
                 username: data.username,
                 coins: data.coins || 0,
                 photoURL: data.photoURL,
+                totalSpins: data.totalSpins || 0,
+                level: data.level || 0,
                 rank: index + 1
             });
             index++;
@@ -156,10 +163,16 @@ export const updateUserWeeklyCoins = async (
 
         if (docSnap.exists()) {
             // Update existing entry
-            await updateDoc(leaderboardDocRef, {
+            const updateData: any = {
                 coins: increment(coinsToAdd),
                 lastUpdated: Timestamp.now()
-            });
+            };
+
+            if (photoURL) {
+                updateData.photoURL = photoURL;
+            }
+
+            await updateDoc(leaderboardDocRef, updateData);
         } else {
             // Create new entry
             await setDoc(leaderboardDocRef, {
@@ -182,7 +195,9 @@ export const syncUserToLeaderboard = async (
     userId: string,
     username: string,
     totalCoins: number,
-    photoURL?: string
+    photoURL?: string,
+    totalSpins: number = 0,
+    level: number = 0
 ): Promise<void> => {
     try {
         const weekId = getCurrentWeekId();
@@ -194,6 +209,8 @@ export const syncUserToLeaderboard = async (
             username,
             coins: totalCoins, // Absolute value
             photoURL: photoURL || null,
+            totalSpins: totalSpins,
+            level: level,
             weekId,
             lastUpdated: Timestamp.now()
         }, { merge: true });
@@ -280,5 +297,62 @@ export const resetWeeklyLeaderboard = async (): Promise<void> => {
         console.log('Weekly reset - new week started');
     } catch (error) {
         console.error('Error resetting weekly leaderboard:', error);
+    }
+};
+
+// ONE-TIME REPAIR FUNCTION: Backfill missing fields
+export const repairLeaderboardData = async () => {
+    try {
+        console.log('🔧 Starting Leaderboard Repair...');
+        const weekId = getCurrentWeekId();
+        const leaderboardRef = collection(db, 'weeklyLeaderboard');
+        // Get ALL docs for this week (without ordering, so we see the broken ones)
+        const q = query(leaderboardRef, where('weekId', '==', weekId));
+        const snapshot = await getDocs(q);
+
+        console.log(`Found ${snapshot.size} entries to check.`);
+        const batch = writeBatch(db);
+        let updateCount = 0;
+
+        for (const docSnap of snapshot.docs) {
+            const data = docSnap.data();
+
+            // Check if repair is needed (fields missing)
+            if (data.totalSpins === undefined || data.level === undefined) {
+                let actualSpins = 0;
+                let actualLevel = 0;
+
+                // If it's a real user, try to fetch from their profile
+                if (data.userId && !data.userId.startsWith('bot_')) {
+                    try {
+                        const userProfileSnap = await getDoc(doc(db, 'users', data.userId));
+                        if (userProfileSnap.exists()) {
+                            const userData = userProfileSnap.data();
+                            actualSpins = userData.totalSpins || 0;
+                            actualLevel = userData.level || 0;
+                            console.log(`Recovered data for ${data.username}: Spins=${actualSpins}, Level=${actualLevel}`);
+                        }
+                    } catch (e) {
+                        console.warn(`Could not fetch profile for ${data.username}, defaulting to 0`);
+                    }
+                }
+
+                batch.update(docSnap.ref, {
+                    totalSpins: actualSpins,
+                    level: actualLevel
+                });
+                updateCount++;
+            }
+        }
+
+        if (updateCount > 0) {
+            await batch.commit();
+            console.log(`✅ Repair Complete! Updated ${updateCount} documents.`);
+        } else {
+            console.log('✨ No repairs needed. All data is good.');
+        }
+
+    } catch (error) {
+        console.error('❌ Repair Failed:', error);
     }
 };

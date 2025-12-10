@@ -544,7 +544,7 @@ const GlassEventCard: React.FC<{
             </div>
 
             {/* Glass Content Area */}
-            <div className="absolute bottom-0 left-0 right-0 p-5 bg-white/5 backdrop-blur-lg border-t border-white/10 flex flex-col gap-3">
+            <div className="absolute bottom-0 left-0 right-0 p-5 bg-gradient-to-b from-white/5 to-black/60 backdrop-blur-xl border-t border-white/10 flex flex-col gap-3">
                 <div className="flex justify-between items-start">
                     <div>
                         <div className={`
@@ -602,20 +602,27 @@ const GlassEventCard: React.FC<{
 const EventLobby: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => {
     return (
         <div className="h-full flex flex-col relative overflow-hidden bg-black pb-4">
-            {/* Background Blobs (Animated) */}
+            {/* Background Effects */}
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-[-10%] left-[-20%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-slow" />
+                <div className="absolute top-[-20%] left-[-20%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-slow" />
                 <div className="absolute bottom-[-10%] right-[-20%] w-[400px] h-[400px] bg-blue-600/20 rounded-full blur-[100px] animate-pulse-slow delay-1000" />
             </div>
 
             {/* Header */}
-            <div className="relative z-10 pt-16 pb-6 px-6">
-                <h1 className="text-4xl font-black text-white tracking-tighter mb-1">
-                    EVENT <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">ARENA</span>
-                </h1>
-                <p className="text-xs text-gray-500 font-medium max-w-[200px]">
-                    Compete in live events to win exclusive prizes and tokens.
-                </p>
+            <div className="relative z-10 pt-10 pb-8 px-6 flex flex-col items-center text-center">
+                <div className="inline-block relative mb-2">
+                    <div className="absolute -inset-2 bg-gradient-to-r from-blue-500/20 to-purple-500/20 blur-xl rounded-full" />
+                    <h1 className="relative text-5xl font-black text-white tracking-tighter drop-shadow-xl italic">
+                        EVENT <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">ARENA</span>
+                    </h1>
+                </div>
+
+                <div className="px-5 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md shadow-lg shadow-black/20">
+                    <p className="text-[10px] font-bold text-blue-200 uppercase tracking-widest flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                        Live Tournaments
+                    </p>
+                </div>
             </div>
 
             {/* Scrollable List */}

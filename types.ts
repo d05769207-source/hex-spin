@@ -64,6 +64,8 @@ export interface LeaderboardEntry {
   coins: number;
   photoURL?: string;
   rank?: number;
+  totalSpins?: number;
+  level?: number;
   isMe?: boolean;
 }
 

@@ -375,6 +375,9 @@ const App: React.FC = () => {
       const timeDiff = now - lastLeaderboardSync.current;
       const coinDiff = Math.abs(currentCoins - lastSyncedCoins.current);
 
+      const currentTotalSpins = updates.totalSpins !== undefined ? updates.totalSpins : totalSpins;
+      const currentLevel = updates.level !== undefined ? updates.level : calculateLevel(currentTotalSpins);
+
       // PATCH: Sync more frequently for realtime feel. 
       // Old: 60s or 5000 coins. New: 5s or > 100 coins change.
       // Since spin takes ~4s, this effectively syncs every spin if they win > 100.
@@ -383,7 +386,9 @@ const App: React.FC = () => {
           user.id,
           user.username || 'Player',
           currentCoins,
-          user.photoURL
+          user.photoURL,
+          currentTotalSpins,
+          currentLevel
         ).then(() => {
           lastLeaderboardSync.current = now;
           lastSyncedCoins.current = currentCoins;
@@ -461,6 +466,17 @@ const App: React.FC = () => {
             // Server says 45, Local says 40. Server is "behind" in consumption. Ignore.
             console.log(`⚠️ Ignoring stale superModeSpinsLeft update. Server: ${serverSuper}, Local: ${localSuper}`);
           }
+        }
+
+        // Update Photo URL if changed externally (e.g. from Profile page)
+        if (data.photoURL) {
+          setUser(prev => {
+            if (prev && prev.photoURL !== data.photoURL) {
+              console.log('🔄 Photo URL updated from Firestore:', data.photoURL);
+              return { ...prev, photoURL: data.photoURL };
+            }
+            return prev;
+          });
         }
       }
     });

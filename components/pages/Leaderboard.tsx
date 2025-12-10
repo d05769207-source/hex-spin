@@ -796,6 +796,20 @@ const Leaderboard: React.FC = () => {
               ? 'bg-gradient-to-r from-sky-900/90 via-black/90 to-sky-900/90 border-sky-500/60 shadow-[0_0_25px_rgba(56,189,248,0.25)]'
               : 'bg-gradient-to-r from-yellow-900/90 via-black/90 to-yellow-900/90 border-yellow-500/60 shadow-[0_0_25px_rgba(234,179,8,0.25)]';
 
+            const rankDisplay = (() => {
+              const r = footerUser.rank;
+              if (r <= 100) return `#${r}`;
+
+              let gap = 50;
+              if (r > 2000) gap = 400;
+              else if (r > 1000) gap = 200;
+              else if (r > 500) gap = 100;
+
+              const lower = Math.floor((r - 1) / gap) * gap + 1;
+              const upper = lower + gap - 1;
+              return `Top ${lower}-${upper}`;
+            })();
+
             const rankTextClass = isFriends ? 'text-sky-400' : 'text-yellow-400';
 
             const photoBorderClass = isFriends
@@ -811,9 +825,8 @@ const Leaderboard: React.FC = () => {
                 <div className={`${gradientClass} backdrop-blur-xl border rounded-xl p-3 flex items-center justify-between`}>
                   <div className="flex items-center gap-2">
                     <div className="flex items-center gap-1.5 mr-2">
-                      <div className="w-9 flex items-center justify-start gap-[1px]">
-                        <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankTextClass} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>#</span>
-                        <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankTextClass} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{footerUser.rank}</span>
+                      <div className="w-auto min-w-[36px] flex items-center justify-start gap-[1px]">
+                        <span className={`text-sm md:text-base font-bold italic transform -rotate-2 tracking-normal ${rankTextClass} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)] whitespace-nowrap`} style={{ fontFamily: 'sans-serif' }}>{rankDisplay}</span>
                       </div>
                       <div className={`w-10 h-10 rounded-full p-[1px] ${photoBorderClass} overflow-hidden shadow-lg border`}>
                         <img

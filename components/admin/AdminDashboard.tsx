@@ -23,7 +23,7 @@ import {
     Bot
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
-import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { doc, updateDoc, Timestamp, collection, getDocs, orderBy, query, limit } from 'firebase/firestore';
 import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate } from '../../utils/weekUtils';
 import {
     startMaintenanceMode,
@@ -36,21 +36,21 @@ import {
     GameStatus
 } from '../../services/maintenanceService';
 import { bulkResetAndPopulate, deleteAllTestData } from '../../services/bulkDataService';
+import { getDashboardStats, getUsersList, AdminStats } from '../../services/adminService';
 import { BotManagementPanel } from './BotManagementPanel';
+import { User } from '../../types'; // Import real User type
 
 interface AdminDashboardProps {
     onLogout: () => void;
     onBackToGame: () => void;
 }
 
-// Mock Data Types
-interface User {
-    id: string;
-    username: string;
-    balance: number;
+// Extend User for UI display if needed (e.g. status)
+interface UIUser extends User {
     status: 'online' | 'offline';
-    lastLogin: string;
+    lastLogin: string; // Formatted string
     ip: string;
+    balance: number; // For display compatibility
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame }) => {
@@ -58,6 +58,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
     const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
     const [isSundayBypass, setIsSundayBypass] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+    // Real Data States
+    const [stats, setStats] = useState<AdminStats>({
+        onlineUsers: 0,
+        totalRegistrations: 0,
+        spinsToday: 0,
+        rewardsDistributed: 0
+    });
+    const [users, setUsers] = useState<UIUser[]>([]);
+    const [lastUserDoc, setLastUserDoc] = useState<any>(null);
+    const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+    const [userSearch, setUserSearch] = useState('');
 
     // Maintenance Control State
     const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
@@ -72,27 +84,56 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
     const [bulkProgress, setBulkProgress] = useState({ step: '', current: 0, total: 100 });
     const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
-    // Mock Stats
-    const stats = {
-        onlineUsers: 128,
-        totalRegistrations: 1450,
-        spinsToday: 3420,
-        rewardsDistributed: 8500
-    };
-
-    // Mock Users Data
-    const [users] = useState<User[]>([
-        { id: '1', username: 'CoolGamer99', balance: 500, status: 'online', lastLogin: 'Just now', ip: '192.168.1.45' },
-        { id: '2', username: 'LuckyWinner', balance: 1200, status: 'online', lastLogin: '2 mins ago', ip: '10.0.0.12' },
-        { id: '3', username: 'SniperKing', balance: 50, status: 'offline', lastLogin: '1 hour ago', ip: '172.16.0.5' },
-        { id: '4', username: 'HexMaster', balance: 3000, status: 'online', lastLogin: '5 mins ago', ip: '192.168.1.88' },
-        { id: '5', username: 'NoobPlayer', balance: 0, status: 'offline', lastLogin: '1 day ago', ip: '10.0.0.99' },
-    ]);
-
     // Broadcast Message State
     const [broadcastMsg, setBroadcastMsg] = useState('');
 
-    // Subscribe to game status
+    // Fetch Stats on Mount
+    useEffect(() => {
+        const fetchStats = async () => {
+            const data = await getDashboardStats();
+            setStats(data);
+        };
+        fetchStats();
+
+        // Refresh stats every minute
+        const interval = setInterval(fetchStats, 60000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // Fetch Users when tab changes
+    useEffect(() => {
+        if (activeTab === 'users' && users.length === 0) {
+            fetchUsers();
+        }
+    }, [activeTab]);
+
+    const fetchUsers = async (reset = false) => {
+        setIsLoadingUsers(true);
+        try {
+            const result = await getUsersList(20, reset ? null : lastUserDoc, userSearch);
+
+            const mappedUsers: UIUser[] = result.users.map((u: any) => ({
+                ...u,
+                status: u.status || 'offline',
+                lastLogin: u.lastActive ? u.lastActive.toLocaleString() : 'Never',
+                ip: u.ip || 'N/A',
+                balance: u.coins || 0
+            }));
+
+            if (reset) {
+                setUsers(mappedUsers);
+            } else {
+                setUsers(prev => [...prev, ...mappedUsers]);
+            }
+            setLastUserDoc(result.lastDoc);
+        } catch (error) {
+            console.error("Failed to fetch users", error);
+        } finally {
+            setIsLoadingUsers(false);
+        }
+    };
+
+    // Subscriptions
     useEffect(() => {
         const unsubscribe = subscribeToGameStatus((status) => {
             setGameStatus(status);
@@ -337,7 +378,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" size={18} />
                                     <input
                                         type="text"
-                                        placeholder="Search users..."
+                                        value={userSearch}
+                                        onChange={(e) => {
+                                            setUserSearch(e.target.value);
+                                            // You might want to debounce this in a real app
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                fetchUsers(true);
+                                            }
+                                        }}
+                                        placeholder="Search username (Enter to search)..."
                                         className="bg-black border border-gray-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:border-blue-500 focus:outline-none w-full md:w-64"
                                     />
                                 </div>
@@ -381,6 +432,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     </tbody>
                                 </table>
                             </div>
+                            {lastUserDoc && (
+                                <div className="p-4 border-t border-gray-800 flex justify-center">
+                                    <button
+                                        onClick={() => fetchUsers(false)}
+                                        disabled={isLoadingUsers}
+                                        className="px-6 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-bold text-gray-300 disabled:opacity-50"
+                                    >
+                                        {isLoadingUsers ? 'Loading...' : 'Load More Users'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -973,8 +1035,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     )}
 
                 </main>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 };
 

@@ -10,6 +10,7 @@ import IPhoneToken from '../iPhoneToken';
 import SpinToken from '../SpinToken';
 import { getLevelProgress } from '../../utils/levelUtils';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
+import { syncUserToLeaderboard } from '../../services/leaderboardService';
 
 // Define Area type for crop
 type Area = {
@@ -324,6 +325,17 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
               photoURL: photoURL
             });
             console.log('Photo URL saved to Firestore for user:', userId);
+
+            // SYNC TO LEADERBOARD IMMEDIATELY
+            await syncUserToLeaderboard(
+              userId,
+              user.username || 'Player',
+              user.coins || 0,
+              photoURL, // New Photo
+              user.totalSpins || 0,
+              getLevelProgress(user.totalSpins || 0).currentLevel
+            );
+            console.log('Photo URL synced to Leaderboard');
           }
         } catch (firestoreError) {
           console.error('Firestore save error:', firestoreError);

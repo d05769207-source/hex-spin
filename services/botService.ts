@@ -372,6 +372,8 @@ export const activateBotsForWeek = async (): Promise<void> => {
                     username: bot.username,
                     coins: bot.coins || 0,
                     photoURL: bot.photoURL || null,
+                    totalSpins: bot.totalSpins || 0,
+                    level: bot.level || 1,
                     weekId,
                     lastUpdated: Timestamp.now()
                 }, { merge: true });
@@ -431,6 +433,8 @@ export const simulateBotActivity = async (): Promise<void> => {
                 username: bot.username,
                 coins: newCoins,
                 photoURL: bot.photoURL || null,
+                totalSpins: bot.totalSpins || 0,
+                level: bot.level || 1,
                 weekId,
                 lastUpdated: Timestamp.now()
             }, { merge: true });
