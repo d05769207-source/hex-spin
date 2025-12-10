@@ -5,8 +5,20 @@ import EToken from '../EToken';
 import KTMToken from '../KTMToken';
 import IPhoneToken from '../iPhoneToken';
 import SpinToken from '../SpinToken';
+import { db } from '../../firebase';
+import { doc, onSnapshot, Timestamp, updateDoc, runTransaction } from 'firebase/firestore';
 
 type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 'KTM_DRAW' | 'KTM_WINNER' | 'ENDED';
+
+interface LotteryEventData {
+    iphone_start: Timestamp;
+    iphone_end: Timestamp;
+    ktm_start: Timestamp;
+    ktm_end: Timestamp;
+    iphone_winner: { number: number; name: string } | null;
+    ktm_winner: { number: number; name: string } | null;
+    status: 'WAITING' | 'LIVE_IPHONE' | 'LIVE_KTM' | 'ENDED';
+}
 
 interface EventProps {
     isAdminMode?: boolean;
@@ -19,37 +31,57 @@ interface JoiningViewProps {
     onJoinKTM: () => void;
     onJoinIPhone: () => void;
     onViewDraw: (prize: 'iPhone' | 'KTM') => void;
+    eventData: LotteryEventData | null;
 }
 
-const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoinKTM, onJoinIPhone, onViewDraw }) => {
+const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoinKTM, onJoinIPhone, onViewDraw, eventData }) => {
     const [timeUntilDraw, setTimeUntilDraw] = useState('');
 
     useEffect(() => {
         const updateCountdown = () => {
-            const now = new Date();
-            const nextSunday = new Date();
+            if (!eventData) return;
 
-            if (now.getDay() === 0 && now.getHours() < 19) {
-                const drawTime = new Date(now);
-                drawTime.setHours(19, 0, 0, 0);
-                const diff = drawTime.getTime() - now.getTime();
-                const hours = Math.floor(diff / (1000 * 60 * 60));
-                const minutes = Math.floor((diff / (1000 * 60)) % 60);
+            const now = new Date();
+
+            // Determine which draw is next
+            const iphoneStart = eventData.iphone_start.toDate();
+            const ktmStart = eventData.ktm_start.toDate();
+
+            let targetDate = iphoneStart;
+            let label = "iPhone Draw";
+
+            if (now > iphoneStart && now < ktmStart) {
+                targetDate = ktmStart;
+                label = "KTM Draw";
+            } else if (now > ktmStart) {
+                // Next week
+                targetDate = new Date(iphoneStart);
+                targetDate.setDate(targetDate.getDate() + 7);
+            }
+
+            const diff = targetDate.getTime() - now.getTime();
+            if (diff <= 0) {
+                setTimeUntilDraw('Draw Starting...');
+                return;
+            }
+
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+            const minutes = Math.floor((diff / (1000 * 60)) % 60);
+
+            if (days > 0) {
+                setTimeUntilDraw(`${days}d ${hours}h`);
+            } else if (hours > 0) {
                 setTimeUntilDraw(`${hours}h ${minutes}m`);
             } else {
-                nextSunday.setDate(now.getDate() + ((7 - now.getDay()) % 7 || 7));
-                nextSunday.setHours(19, 0, 0, 0);
-                const diff = nextSunday.getTime() - now.getTime();
-                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-                const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-                setTimeUntilDraw(`${days}d ${hours}h`);
+                setTimeUntilDraw(`${minutes}m ${Math.floor((diff / 1000) % 60)}s`);
             }
         };
 
         updateCountdown();
-        const interval = setInterval(updateCountdown, 60000);
+        const interval = setInterval(updateCountdown, 1000);
         return () => clearInterval(interval);
-    }, []);
+    }, [eventData]);
 
     return (
         <div className="p-4 space-y-4">
@@ -161,77 +193,107 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
 
 interface DrawViewProps {
     prize: 'iPhone' | 'KTM';
-    onBack: () => void;
+    onBack?: () => void;
+    winnerData?: { number: number; name: string } | null;
+    startTime?: Timestamp;
 }
 
-const DrawView: React.FC<DrawViewProps> = ({ prize, onBack }) => {
-    // 6 reels for 6 digits (000000 - 999999)
+const DrawView: React.FC<DrawViewProps> = ({ prize, onBack, winnerData, startTime }) => {
+
+    // Interval calculation: 10 minutes = 600 seconds. 6 Reels.
+    // 100 seconds (1m 40s) per reel.
+    const REEL_INTERVAL_MS = 100 * 1000;
+
+    // Initialize state
     const [reels, setReels] = useState<number[]>([0, 0, 0, 0, 0, 0]);
     const [isSpinning, setIsSpinning] = useState<boolean[]>([true, true, true, true, true, true]);
     const [muted, setMuted] = useState(false);
-    const [finalNumber] = useState<number[]>(() => {
-        // Generate a random 6-digit number, split into array
-        const num = Math.floor(Math.random() * 1000000);
-        return num.toString().padStart(6, '0').split('').map(Number);
-    });
 
     // Audio Initialization
     useEffect(() => {
         return () => {
             soundManager.stop('spin_loop');
             soundManager.stop('win_fanfare');
-            soundManager.stop('reel_stop'); // Ensure no stray stops play
+            soundManager.stop('reel_stop');
         };
     }, []);
 
     useEffect(() => {
         soundManager.mute(muted);
-    }, [muted]);
+        if (!muted && isSpinning.some(s => s)) {
+            soundManager.play('spin_loop', { loop: true, volume: 0.5 });
+        } else {
+            soundManager.stop('spin_loop');
+        }
+    }, [muted, isSpinning]);
 
     useEffect(() => {
-        // Start spinning sound
-        if (!muted) {
-            soundManager.play('spin_loop', { loop: true, volume: 0.5 });
+        if (!winnerData || !startTime) {
+            return;
         }
 
-        // Start stopping reels sequentially after a delay
-        const stopDelays = [2000, 3000, 4000, 5000, 6000, 7000]; // Delays for each reel to stop
-        const timeoutIds: NodeJS.Timeout[] = [];
+        const now = new Date().getTime();
+        const start = startTime.toDate().getTime();
+        const elapsed = now - start;
 
-        stopDelays.forEach((delay, index) => {
-            const id = setTimeout(() => {
-                setIsSpinning(prev => {
-                    const newState = [...prev];
-                    newState[index] = false;
-                    return newState;
-                });
+        const winnerStr = winnerData.number.toString().padStart(6, '0');
+        const digits = winnerStr.split('').map(Number);
 
-                // Set the final number for this reel
-                setReels(prev => {
-                    const newReels = [...prev];
-                    newReels[index] = finalNumber[index];
-                    return newReels;
-                });
+        const newIsSpinning = [...isSpinning];
+        const newReels = [...reels];
+        const timeouts: NodeJS.Timeout[] = [];
 
-                // Play stop sound
-                soundManager.play('reel_stop', { volume: 0.8 });
+        // Determine state for each reel
+        digits.forEach((digit, index) => {
+            const stopTime = (index + 1) * REEL_INTERVAL_MS;
+            const timeUntilStop = stopTime - elapsed;
 
-                // If it's the last reel, stop spin sound and play win sound
-                if (index === 5) {
-                    soundManager.stop('spin_loop');
-                    const winId = setTimeout(() => soundManager.play('win_fanfare', { volume: 1.0 }), 500);
-                    timeoutIds.push(winId);
-                }
-            }, delay);
-            timeoutIds.push(id);
+            if (timeUntilStop <= 0) {
+                // Already passed
+                newIsSpinning[index] = false;
+                newReels[index] = digit;
+            } else {
+                // Future stop
+                newIsSpinning[index] = true;
+
+                const id = setTimeout(() => {
+                    setIsSpinning(prev => {
+                        const next = [...prev];
+                        next[index] = false;
+                        return next;
+                    });
+                    setReels(prev => {
+                        const next = [...prev];
+                        next[index] = digit;
+                        return next;
+                    });
+
+                    // Play stop sound
+                    if (!muted) soundManager.play('reel_stop', { volume: 0.8 });
+
+                    // Win Fanfare if last reel
+                    if (index === 5 && !muted) {
+                        setTimeout(() => soundManager.play('win_fanfare', { volume: 1.0 }), 500);
+                    }
+
+                }, timeUntilStop);
+                timeouts.push(id);
+            }
         });
 
-        return () => {
-            timeoutIds.forEach(clearTimeout);
-        };
-    }, []);
+        setIsSpinning(newIsSpinning);
+        setReels(prev => {
+            const next = [...prev];
+            newIsSpinning.forEach((spinning, i) => {
+                if (!spinning) next[i] = digits[i];
+            });
+            return next;
+        });
 
-    // Animation effect for spinning reels
+        return () => timeouts.forEach(clearTimeout);
+    }, [winnerData, startTime]);
+
+    // Animation effect for spinning reels (Visual only)
     useEffect(() => {
         const intervals: NodeJS.Timeout[] = [];
 
@@ -240,10 +302,13 @@ const DrawView: React.FC<DrawViewProps> = ({ prize, onBack }) => {
                 const interval = setInterval(() => {
                     setReels(prev => {
                         const newReels = [...prev];
-                        newReels[index] = Math.floor(Math.random() * 10);
+                        // Only randomize if still spinning
+                        if (isSpinning[index]) {
+                            newReels[index] = Math.floor(Math.random() * 10);
+                        }
                         return newReels;
                     });
-                }, 50 + (index * 10)); // Slightly different speeds for effect
+                }, 50 + (index * 10));
                 intervals.push(interval);
             }
         });
@@ -339,8 +404,9 @@ const DrawView: React.FC<DrawViewProps> = ({ prize, onBack }) => {
     );
 };
 
-const WinnerView: React.FC<DrawViewProps> = ({ prize }) => {
-    const [winner] = useState({ number: 45821, name: 'RajKumar' });
+const WinnerView: React.FC<DrawViewProps> = ({ prize, winnerData }) => {
+    const defaultWinner = { number: 0, name: 'Finding Winner...' };
+    const displayWinner = winnerData || defaultWinner;
     const isIphone = prize === 'iPhone';
 
     return (
@@ -357,11 +423,11 @@ const WinnerView: React.FC<DrawViewProps> = ({ prize }) => {
                         <PrizeImage prize={prize} size="sm" />
                     </div>
                     <p className="text-4xl font-mono font-black text-white mb-2 tracking-wider">
-                        {winner.number.toString().padStart(6, '0')}
+                        {displayWinner.number.toString().padStart(6, '0')}
                     </p>
                     <div className="h-px w-16 bg-green-500/30 mx-auto mb-3" />
                     <p className="text-lg font-bold text-green-400">
-                        {winner.name}
+                        {displayWinner.name}
                     </p>
                     <p className="text-[10px] text-green-500/60 mt-1 uppercase tracking-widest">Congratulations</p>
                 </div>
@@ -428,6 +494,147 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
     const [eventState, setEventState] = useState<EventState>('JOINING');
     const [ktmEntry, setKtmEntry] = useState<number | null>(null);
     const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
+    const [eventData, setEventData] = useState<LotteryEventData | null>(null);
+
+    // Fetch Event Data Realtime
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'events', 'sunday_lottery'), (doc) => {
+            if (doc.exists()) {
+                const data = doc.data() as LotteryEventData;
+                setEventData(data);
+
+                // State Machine Logic based on DB status
+                switch (data.status) {
+                    case 'LIVE_IPHONE':
+                        setEventState('IPHONE_DRAW');
+                        break;
+                    case 'LIVE_KTM':
+                        setEventState('KTM_DRAW');
+                        break;
+                    case 'ENDED':
+                        setEventState('ENDED');
+                        break;
+                    default:
+                        // If we were in a draw state but status is now WAITING/something else, check if we need to show winner
+                        if (data.iphone_winner && !data.ktm_winner && data.status === 'WAITING') {
+                            // Assuming if we have iphone winner but no ktm winner yet, we are in between
+                            // However, usually we might want to stay on winner screen until user dismisses or next draw
+                            // For now, let's keep it simple. If status is WAITING, go to JOINING/LOBBY view logic
+                            // But we might want to show "IPHONE_WINNER" state if we just finished
+                            setEventState('JOINING');
+                        } else {
+                            setEventState('JOINING');
+                        }
+                        break;
+                }
+
+                // Override specific view states if we have winners to show immediately? 
+                // Better approach: Let the views handle data.
+                if (data.iphone_winner && eventState === 'IPHONE_DRAW') {
+                    // Transition to winner? Or does DrawView handle revealing the winner?
+                    // DrawView handles the reveal animation. 
+                    // If we want to show the static winner card:
+                    // setEventState('IPHONE_WINNER');
+                }
+            }
+        });
+        return () => unsub();
+    }, []);
+
+    // Automation Logic (Crowd Trigger for Offline Support)
+    useEffect(() => {
+        if (!eventData) return;
+
+        const checkAutomation = async () => {
+            const now = new Date();
+            const { iphone_start, iphone_end, ktm_start, ktm_end, status, iphone_winner, ktm_winner } = eventData;
+
+            const tIphoneStart = iphone_start.toDate();
+            const tIphoneEnd = iphone_end.toDate();
+            const tKtmStart = ktm_start.toDate();
+            const tKtmEnd = ktm_end.toDate();
+
+            try {
+                // 1. Trigger iPhone LIVE (7:00 PM)
+                if (status === 'WAITING' && now >= tIphoneStart && now < tIphoneEnd && !iphone_winner) {
+                    await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'LIVE_IPHONE' });
+                    console.log('🤖 Auto-Trigger: iPhone Draw LIVE');
+                }
+
+                // 2. Trigger iPhone Winner (7:10 PM) - PICK WINNER FIRST
+                else if (status === 'LIVE_IPHONE' && now >= tIphoneEnd && !iphone_winner) {
+                    await runTransaction(db, async (transaction) => {
+                        const sfDocRef = doc(db, "events", "sunday_lottery");
+                        const sfDoc = await transaction.get(sfDocRef);
+                        if (!sfDoc.exists()) return;
+
+                        if (!sfDoc.data().iphone_winner) {
+                            const randomNum = Math.floor(Math.random() * 900000) + 100000;
+                            transaction.update(sfDocRef, {
+                                iphone_winner: { number: randomNum, name: 'Lucky Winner' },
+                                last_updated: Timestamp.now()
+                                // Note: Status remains LIVE_IPHONE so users see the animation
+                            });
+                            console.log('🤖 Auto-Trigger: iPhone Winner Picked', randomNum);
+                        }
+                    });
+                }
+                // 2.1 Transition iPhone to WAITING (After 60s of Winner Reveal)
+                else if (status === 'LIVE_IPHONE' && iphone_winner) {
+                    // Check if 60 seconds have passed since winner was picked (using last_updated)
+                    const lastUpdated = eventData.last_updated?.toDate() || new Date(0);
+                    const diff = now.getTime() - lastUpdated.getTime();
+
+                    if (diff > 60000) { // 60 seconds delay
+                        await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'WAITING' });
+                        console.log('🤖 Auto-Trigger: iPhone Event Ended (Transition to WAITING)');
+                    }
+                }
+
+                // 3. Trigger KTM LIVE (8:00 PM)
+                else if (status === 'WAITING' && now >= tKtmStart && now < tKtmEnd && !ktm_winner) {
+                    await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'LIVE_KTM' });
+                    console.log('🤖 Auto-Trigger: KTM Draw LIVE');
+                }
+
+                // 4. Trigger KTM Winner (8:10 PM) - PICK WINNER FIRST
+                else if (status === 'LIVE_KTM' && now >= tKtmEnd && !ktm_winner) {
+                    await runTransaction(db, async (transaction) => {
+                        const sfDocRef = doc(db, "events", "sunday_lottery");
+                        const sfDoc = await transaction.get(sfDocRef);
+                        if (!sfDoc.exists()) return;
+
+                        if (!sfDoc.data().ktm_winner) {
+                            const randomNum = Math.floor(Math.random() * 900000) + 100000;
+                            transaction.update(sfDocRef, {
+                                ktm_winner: { number: randomNum, name: 'Lucky Winner' },
+                                last_updated: Timestamp.now()
+                                // Status remains LIVE_KTM
+                            });
+                            console.log('🤖 Auto-Trigger: KTM Winner Picked', randomNum);
+                        }
+                    });
+                }
+                // 4.1 Transition KTM to ENDED (After 60s)
+                else if (status === 'LIVE_KTM' && ktm_winner) {
+                    const lastUpdated = eventData.last_updated?.toDate() || new Date(0);
+                    const diff = now.getTime() - lastUpdated.getTime();
+
+                    if (diff > 60000) {
+                        await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'ENDED' });
+                        console.log('🤖 Auto-Trigger: KTM Event Ended');
+                    }
+                }
+
+            } catch (err) {
+                console.error("Auto-Trigger Error:", err);
+            }
+        };
+
+        const interval = setInterval(checkAutomation, 30000); // Check every 30s (Quota Optimization)
+        checkAutomation(); // Run immediately
+        return () => clearInterval(interval);
+    }, [eventData]);
 
     // Long Press Logic
     const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -502,13 +709,14 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
                         onJoinKTM={handleJoinKTM}
                         onJoinIPhone={handleJoinIPhone}
                         onViewDraw={handleViewDraw}
+                        eventData={eventData}
                     />
                 )}
-                {eventState === 'IPHONE_DRAW' && <DrawView prize="iPhone" onBack={() => setEventState('JOINING')} />}
-                {eventState === 'IPHONE_WINNER' && <WinnerView prize="iPhone" />}
+                {eventState === 'IPHONE_DRAW' && <DrawView prize="iPhone" winnerData={eventData?.iphone_winner} startTime={eventData?.iphone_start} onBack={() => setEventState('JOINING')} />}
+                {eventState === 'IPHONE_WINNER' && <WinnerView prize="iPhone" winnerData={eventData?.iphone_winner} />}
                 {eventState === 'KTM_WAITING' && <WaitingView />}
-                {eventState === 'KTM_DRAW' && <DrawView prize="KTM" onBack={() => setEventState('JOINING')} />}
-                {eventState === 'KTM_WINNER' && <WinnerView prize="KTM" />}
+                {eventState === 'KTM_DRAW' && <DrawView prize="KTM" winnerData={eventData?.ktm_winner} startTime={eventData?.ktm_start} onBack={() => setEventState('JOINING')} />}
+                {eventState === 'KTM_WINNER' && <WinnerView prize="KTM" winnerData={eventData?.ktm_winner} />}
                 {eventState === 'ENDED' && <EndedView />}
             </div>
         </div>

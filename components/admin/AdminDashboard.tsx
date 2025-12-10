@@ -23,7 +23,7 @@ import {
     Bot
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
-import { doc, updateDoc, Timestamp, collection, getDocs, orderBy, query, limit } from 'firebase/firestore';
+import { doc, updateDoc, Timestamp, collection, getDocs, orderBy, query, limit, onSnapshot } from 'firebase/firestore';
 import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate } from '../../utils/weekUtils';
 import {
     startMaintenanceMode,
@@ -54,7 +54,7 @@ interface UIUser extends User {
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame }) => {
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings' | 'maintenance' | 'bots' | 'bulkdata'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings' | 'maintenance' | 'bots' | 'bulkdata' | 'events'>('dashboard');
     const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
     const [isSundayBypass, setIsSundayBypass] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -86,6 +86,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
 
     // Broadcast Message State
     const [broadcastMsg, setBroadcastMsg] = useState('');
+
+    // Sunday Lottery Real-time Data
+    const [eventData, setEventData] = useState<any>(null);
+
+    // Fetch Event Data for Admin Controls
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'events', 'sunday_lottery'), (doc: any) => {
+            if (doc.exists()) {
+                setEventData(doc.data());
+            }
+        });
+        return () => unsub();
+    }, []);
 
     // Fetch Stats on Mount
     useEffect(() => {
@@ -259,6 +272,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     <NavItem id="dashboard" icon={Activity} label="Live Overview" />
                     <NavItem id="users" icon={Users} label="User Monitor" />
                     <NavItem id="bots" icon={Bot} label="Bot Management" />
+                    <NavItem id="events" icon={Trophy} label="Event Control" />
                     <NavItem id="bulkdata" icon={Settings} label="Bulk Data" />
                     <NavItem id="maintenance" icon={Wrench} label="Maintenance Control" />
                     <NavItem id="settings" icon={Settings} label="Master Controls" />
@@ -292,6 +306,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                         {activeTab === 'dashboard' && 'Mission Control'}
                         {activeTab === 'users' && 'User Database'}
                         {activeTab === 'bots' && 'Bot Management System'}
+                        {activeTab === 'events' && 'Event Management'}
                         {activeTab === 'bulkdata' && 'Bulk Data Management'}
                         {activeTab === 'maintenance' && 'Weekly Reset Control'}
                         {activeTab === 'settings' && 'System Config'}
@@ -673,6 +688,225 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     {/* BOTS TAB */}
                     {activeTab === 'bots' && (
                         <BotManagementPanel />
+                    )}
+
+                    {/* EVENTS TAB */}
+                    {activeTab === 'events' && (
+                        <div className="space-y-6">
+                            <div className="bg-gradient-to-r from-pink-900/30 to-purple-900/30 border border-pink-500/50 rounded-xl p-6">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <Trophy className="text-pink-400" size={28} />
+                                    <div>
+                                        <h3 className="text-xl font-bold text-white">Event Management</h3>
+                                        <p className="text-sm text-gray-400">Control Lottery and Special Events</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                                <h3 className="text-lg font-bold text-white mb-4">Live Event Master Control</h3>
+                                <p className="text-sm text-gray-400 mb-6">
+                                    Single button control for the entire Sunday Lottery flow. Use this if automation fails.
+                                </p>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                                    {/* Status Display */}
+                                    <div className="bg-black/40 p-4 rounded-xl border border-white/10">
+                                        <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Current Status</p>
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <div className={`w-3 h-3 rounded-full ${eventData?.status?.includes('LIVE') ? 'bg-green-500 animate-pulse' :
+                                                eventData?.status === 'ENDED' ? 'bg-red-500' : 'bg-yellow-500'
+                                                }`} />
+                                            <span className="text-xl font-black text-white">{eventData?.status || 'UNKNOWN'}</span>
+                                        </div>
+
+                                        <div className="space-y-2 text-xs font-mono text-gray-400">
+                                            <div className="flex justify-between">
+                                                <span>iPhone Start:</span>
+                                                <span className="text-white">{eventData?.iphone_start?.toDate().toLocaleString() || '-'}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>KTM Start:</span>
+                                                <span className="text-white">{eventData?.ktm_start?.toDate().toLocaleString() || '-'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Smart Action Button */}
+                                    <div className="flex flex-col gap-3">
+                                        <button
+                                            onClick={async () => {
+                                                const currentStatus = eventData?.status || 'WAITING';
+                                                const now = new Date();
+                                                const tenMinsLater = new Date(now.getTime() + 10 * 60 * 1000);
+
+                                                let nextUpdate = {};
+                                                let actionName = '';
+
+                                                switch (currentStatus) {
+                                                    case 'WAITING':
+                                                        // Logic: If iPhone winner exists, we might be waiting for KTM. 
+                                                        // But usually WAITING is start state. 
+                                                        // Let's check dates or just assume Start iPhone first?
+                                                        // Or check if iPhone ended?
+                                                        if (eventData?.iphone_winner) {
+                                                            // iPhone done, Start KTM
+                                                            nextUpdate = {
+                                                                status: 'LIVE_KTM',
+                                                                ktm_start: Timestamp.fromDate(now),
+                                                                ktm_end: Timestamp.fromDate(tenMinsLater),
+                                                                last_updated: Timestamp.now()
+                                                            };
+                                                            actionName = 'START KTM DRAW';
+                                                        } else {
+                                                            // Start iPhone
+                                                            nextUpdate = {
+                                                                status: 'LIVE_IPHONE',
+                                                                iphone_start: Timestamp.fromDate(now),
+                                                                iphone_end: Timestamp.fromDate(tenMinsLater),
+                                                                last_updated: Timestamp.now()
+                                                            };
+                                                            actionName = 'START iPHONE DRAW';
+                                                        }
+                                                        break;
+
+                                                    case 'LIVE_IPHONE':
+                                                        const iphoneNum = Math.floor(Math.random() * 900000) + 100000;
+                                                        nextUpdate = {
+                                                            iphone_winner: { number: iphoneNum, name: 'Lucky Winner' },
+                                                            status: 'WAITING',
+                                                            last_updated: Timestamp.now()
+                                                        };
+                                                        actionName = `PICK iPHONE WINNER (${iphoneNum})`;
+                                                        break;
+
+                                                    case 'LIVE_KTM':
+                                                        const ktmNum = Math.floor(Math.random() * 900000) + 100000;
+                                                        nextUpdate = {
+                                                            ktm_winner: { number: ktmNum, name: 'Lucky Winner' },
+                                                            status: 'ENDED',
+                                                            last_updated: Timestamp.now()
+                                                        };
+                                                        actionName = `PICK KTM WINNER (${ktmNum})`;
+                                                        break;
+
+                                                    case 'ENDED':
+                                                        if (confirm("Event Ended. Reset for Next Sunday?")) {
+                                                            // Trigger Init Logic manually or just allow reset here
+                                                            // For simplified button, maybe just Reset Status to WAITING for testing?
+                                                            // Better to ask user to use the specific Init button below for full reset.
+                                                            alert("Use 'Initialize Database' below to reset for next week.");
+                                                            return;
+                                                        }
+                                                        return;
+                                                }
+
+                                                if (actionName && confirm(`CONFIRM ACTION: ${actionName}?`)) {
+                                                    await updateDoc(doc(db, 'events', 'sunday_lottery'), nextUpdate);
+                                                }
+                                            }}
+                                            className="w-full py-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl shadow-lg shadow-blue-900/20 transition-all transform hover:scale-[1.02] active:scale-95 flex flex-col items-center justify-center gap-2 border border-blue-400/30"
+                                        >
+                                            <span className="text-xs font-bold uppercase tracking-widest opacity-80">Next Action</span>
+                                            <span className="text-xl font-black flex items-center gap-2">
+                                                <PlayCircle size={24} />
+                                                {(() => {
+                                                    if (!eventData) return 'LOADING...';
+                                                    if (eventData.status === 'LIVE_IPHONE') return 'PICK iPHONE WINNER';
+                                                    if (eventData.status === 'LIVE_KTM') return 'PICK KTM WINNER';
+                                                    if (eventData.status === 'ENDED') return 'EVENT ENDED';
+                                                    if (eventData.iphone_winner) return 'START KTM DRAW';
+                                                    return 'START iPHONE DRAW';
+                                                })()}
+                                            </span>
+                                        </button>
+
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={async () => {
+                                                    if (confirm("Force Stop & Reset to WAITING?")) {
+                                                        await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'WAITING' });
+                                                    }
+                                                }}
+                                                className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs font-bold rounded-lg border border-gray-700"
+                                            >
+                                                ⚠ FORCE STOP
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
+                                <h3 className="text-lg font-bold text-white mb-4">Sunday Lottery Setup</h3>
+                                <p className="text-sm text-gray-400 mb-6">
+                                    Initialize the database for Sunday Lottery. This sets the schedule for next Sunday.
+                                </p>
+
+                                <button
+                                    onClick={async () => {
+                                        if (!confirm('Initialize Sunday Lottery Database?')) return;
+                                        try {
+                                            const { setDoc, doc, Timestamp } = await import('firebase/firestore');
+
+                                            // Get next Sunday's date for reference
+                                            const now = new Date();
+                                            let targetDate = new Date();
+
+                                            // Check if today is Sunday
+                                            if (now.getDay() === 0) {
+                                                // If it's Sunday, check if we are past the event start time (e.g., 7 PM)
+                                                // If it's before 7 PM (19:00), we can still schedule for today!
+                                                if (now.getHours() < 19) {
+                                                    targetDate = now; // Schedule for TODAY
+                                                } else {
+                                                    // Already started/past, schedule for NEXT Sunday
+                                                    targetDate.setDate(now.getDate() + 7);
+                                                }
+                                            } else {
+                                                // Not Sunday, calculate days until next Sunday
+                                                const daysUntilSunday = (7 - now.getDay()) % 7;
+                                                targetDate.setDate(now.getDate() + daysUntilSunday);
+                                            }
+
+                                            // Set basic time (just for initialization, real updates will happen via Admin panel or scheduled jobs)
+                                            const iphoneStart = new Date(targetDate);
+                                            iphoneStart.setHours(19, 0, 0, 0); // 7:00 PM
+
+                                            const iphoneEnd = new Date(targetDate);
+                                            iphoneEnd.setHours(19, 10, 0, 0); // 7:10 PM
+
+                                            const ktmStart = new Date(targetDate);
+                                            ktmStart.setHours(20, 0, 0, 0); // 8:00 PM
+
+                                            const ktmEnd = new Date(targetDate);
+                                            ktmEnd.setHours(20, 10, 0, 0); // 8:10 PM
+
+                                            const eventData = {
+                                                iphone_start: Timestamp.fromDate(iphoneStart),
+                                                iphone_end: Timestamp.fromDate(iphoneEnd),
+                                                ktm_start: Timestamp.fromDate(ktmStart),
+                                                ktm_end: Timestamp.fromDate(ktmEnd),
+                                                iphone_winner: null,
+                                                ktm_winner: null,
+                                                status: 'WAITING', // WAITING, LIVE_IPHONE, LIVE_KTM, ENDED
+                                                last_updated: Timestamp.now()
+                                            };
+
+                                            await setDoc(doc(db, 'events', 'sunday_lottery'), eventData, { merge: true });
+                                            alert('✅ Sunday Lottery Initialized Successfully!');
+                                        } catch (error) {
+                                            console.error(error);
+                                            alert('❌ Error: ' + error);
+                                        }
+                                    }}
+                                    className="px-6 py-3 bg-pink-600 hover:bg-pink-500 text-white font-bold rounded-lg transition-all flex items-center gap-2"
+                                >
+                                    <Zap size={20} />
+                                    INITIALIZE DATABASE
+                                </button>
+                            </div>
+                        </div>
                     )}
 
                     {/* BULK DATA TAB */}
