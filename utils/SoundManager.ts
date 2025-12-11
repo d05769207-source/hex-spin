@@ -115,6 +115,21 @@ class SoundManager {
             await this.context.resume();
         }
     }
+
+    public stopAll() {
+        this.sources.forEach((source, name) => {
+            try {
+                source.stop();
+            } catch (e) { }
+        });
+        this.sources.clear();
+        this.gains.clear();
+
+        // Also suspend context to be safe?
+        // if (this.context && this.context.state === 'running') {
+        //     this.context.suspend();
+        // }
+    }
 }
 
 export const soundManager = new SoundManager();

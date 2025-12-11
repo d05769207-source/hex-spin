@@ -121,9 +121,25 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                                     </div>
                                     <button
                                         onClick={() => onViewDraw('iPhone')}
-                                        className="w-full bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-[10px] font-bold py-1.5 rounded border border-indigo-500/30 transition-all"
+                                        disabled={eventData?.status !== 'LIVE_IPHONE' && eventData?.status !== 'LIVE_KTM' && eventData?.status !== 'ENDED'}
+                                        // Allow view if LIVE or ENDED (to see results), but specifically user asked for 'LIVE' to view draw. 
+                                        // Actually, if it's ENDED, we might want to allow viewing results too.
+                                        // User logic: "jab live ho tab hi view drow ka option aaye"
+                                        // Let's stick strictly to what user asked: Only if LIVE.
+                                        // But wait, if iphone draw is over (LIVE_KTM), they might still want to see iphone winner?
+                                        // Let's enable it if status is LIVE_IPHONE for now.
+                                        // If status is LIVE_KTM, iPhone is arguably 'done', but maybe we still allow viewing?
+                                        // The user's complaint is about "draw starts". 
+                                        // Let's simply change the text and action:
+                                        // If LIVE_IPHONE -> Active "VIEW LIVE DRAW"
+                                        // If ENDED or Past -> "VIEW WINNER" (maybe)
+                                        // If WAITING -> "COMING SOON"
+                                        className={`w-full text-[10px] font-bold py-1.5 rounded border transition-all ${eventData?.status === 'LIVE_IPHONE'
+                                                ? 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30 cursor-pointer animate-pulse'
+                                                : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
+                                            }`}
                                     >
-                                        View Draw
+                                        {eventData?.status === 'LIVE_IPHONE' ? '● VIEW LIVE DRAW' : 'COMING SOON'}
                                     </button>
                                 </div>
                             ) : (
@@ -162,9 +178,13 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                                     </div>
                                     <button
                                         onClick={() => onViewDraw('KTM')}
-                                        className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 text-[10px] font-bold py-1.5 rounded border border-orange-500/30 transition-all"
+                                        disabled={eventData?.status !== 'LIVE_KTM'}
+                                        className={`w-full text-[10px] font-bold py-1.5 rounded border transition-all ${eventData?.status === 'LIVE_KTM'
+                                                ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/30 cursor-pointer animate-pulse'
+                                                : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
+                                            }`}
                                     >
-                                        View Draw
+                                        {eventData?.status === 'LIVE_KTM' ? '● VIEW LIVE DRAW' : 'COMING SOON'}
                                     </button>
                                 </div>
                             ) : (
@@ -212,9 +232,7 @@ const DrawView: React.FC<DrawViewProps> = ({ prize, onBack, winnerData, startTim
     // Audio Initialization
     useEffect(() => {
         return () => {
-            soundManager.stop('spin_loop');
-            soundManager.stop('win_fanfare');
-            soundManager.stop('reel_stop');
+            soundManager.stopAll();
         };
     }, []);
 
@@ -496,6 +514,13 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
     const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
     const [eventData, setEventData] = useState<LotteryEventData | null>(null);
 
+    // Global Cleanup for Event Page
+    useEffect(() => {
+        return () => {
+            soundManager.stopAll();
+        };
+    }, []);
+
     // Fetch Event Data Realtime
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'events', 'sunday_lottery'), (doc) => {
@@ -506,23 +531,18 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
                 // State Machine Logic based on DB status
                 switch (data.status) {
                     case 'LIVE_IPHONE':
-                        setEventState('IPHONE_DRAW');
+                        // Do NOT force user into draw. Let them join manually via button.
                         break;
                     case 'LIVE_KTM':
-                        setEventState('KTM_DRAW');
+                        // Do NOT force user into draw.
                         break;
                     case 'ENDED':
                         setEventState('ENDED');
                         break;
                     default:
-                        // If we were in a draw state but status is now WAITING/something else, check if we need to show winner
-                        if (data.iphone_winner && !data.ktm_winner && data.status === 'WAITING') {
-                            // Assuming if we have iphone winner but no ktm winner yet, we are in between
-                            // However, usually we might want to stay on winner screen until user dismisses or next draw
-                            // For now, let's keep it simple. If status is WAITING, go to JOINING/LOBBY view logic
-                            // But we might want to show "IPHONE_WINNER" state if we just finished
-                            setEventState('JOINING');
-                        } else {
+                        // Only force back to lobby if we are NOT in a valid draw state
+                        // If status becomes WAITING, we should go back to JOINING
+                        if (data.status === 'WAITING') {
                             setEventState('JOINING');
                         }
                         break;
@@ -562,6 +582,7 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
                 }
 
                 // 2. Trigger iPhone Winner (7:10 PM) - PICK WINNER FIRST
+                // Only if winner not already picked (Fallback for pure auto mode)
                 else if (status === 'LIVE_IPHONE' && now >= tIphoneEnd && !iphone_winner) {
                     await runTransaction(db, async (transaction) => {
                         const sfDocRef = doc(db, "events", "sunday_lottery");
@@ -579,13 +600,18 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
                         }
                     });
                 }
-                // 2.1 Transition iPhone to WAITING (After 60s of Winner Reveal)
+                // 2.1 Transition iPhone to WAITING (After Winner Reveal AND Time Ended)
                 else if (status === 'LIVE_IPHONE' && iphone_winner) {
-                    // Check if 60 seconds have passed since winner was picked (using last_updated)
-                    const lastUpdated = eventData.last_updated?.toDate() || new Date(0);
-                    const diff = now.getTime() - lastUpdated.getTime();
+                    // Check if we are past the end time AND some buffer (e.g. 60s)
+                    // If winner was picked early (for progressive reveal), we rely on tIphoneEnd
+                    // If winner was picked late (at tIphoneEnd), we rely on the buffer
 
-                    if (diff > 60000) { // 60 seconds delay
+                    const timeSinceEnd = now.getTime() - tIphoneEnd.getTime();
+
+                    // Allow at least 60 seconds of "Winner View" regardless of when it ended
+                    // But strictly, we shouldn't end before tIphoneEnd
+
+                    if (now > tIphoneEnd && timeSinceEnd > 60000) {
                         await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'WAITING' });
                         console.log('🤖 Auto-Trigger: iPhone Event Ended (Transition to WAITING)');
                     }
@@ -615,12 +641,11 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
                         }
                     });
                 }
-                // 4.1 Transition KTM to ENDED (After 60s)
+                // 4.1 Transition KTM to ENDED (After Winner Reveal AND Time Ended)
                 else if (status === 'LIVE_KTM' && ktm_winner) {
-                    const lastUpdated = eventData.last_updated?.toDate() || new Date(0);
-                    const diff = now.getTime() - lastUpdated.getTime();
+                    const timeSinceEnd = now.getTime() - tKtmEnd.getTime();
 
-                    if (diff > 60000) {
+                    if (now > tKtmEnd && timeSinceEnd > 60000) {
                         await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'ENDED' });
                         console.log('🤖 Auto-Trigger: KTM Event Ended');
                     }

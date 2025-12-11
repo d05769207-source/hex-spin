@@ -35,6 +35,7 @@ import { processLevelUpReward, validateReferralCode, applyReferral } from './ser
 import MaintenancePoster from './components/MaintenancePoster';
 // NEW: Import Weekly Reset Hook
 import { useWeeklyReset } from './hooks/useWeeklyReset';
+import { soundManager } from './utils/SoundManager';
 
 // --- AUDIO SYSTEM MOVED TO SpinWheel.tsx ---
 
@@ -79,6 +80,14 @@ const clearGuestData = () => {
 const App: React.FC = () => {
   // Navigation State
   const [currentPage, setCurrentPage] = useState<Page>('HOME');
+
+  // GLOBAL SOUND CLEANUP
+  // Ensure we stop all event sounds when leaving the Event page or Admin page
+  useEffect(() => {
+    if (currentPage !== 'EVENT') {
+      soundManager.stopAll();
+    }
+  }, [currentPage]);
 
   // User & Auth State
   const [user, setUser] = useState<User | null>(null);

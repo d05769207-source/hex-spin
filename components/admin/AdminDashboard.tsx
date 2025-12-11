@@ -732,93 +732,87 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                         </div>
                                     </div>
 
-                                    {/* Smart Action Button */}
                                     <div className="flex flex-col gap-3">
                                         <button
                                             onClick={async () => {
                                                 const currentStatus = eventData?.status || 'WAITING';
+
+                                                // Prevent action if already live
+                                                if (currentStatus.includes('LIVE')) {
+                                                    alert("Event is currently LIVE. Please wait for it to finish.");
+                                                    return;
+                                                }
+
                                                 const now = new Date();
                                                 const tenMinsLater = new Date(now.getTime() + 10 * 60 * 1000);
 
                                                 let nextUpdate = {};
                                                 let actionName = '';
 
-                                                switch (currentStatus) {
-                                                    case 'WAITING':
-                                                        // Logic: If iPhone winner exists, we might be waiting for KTM. 
-                                                        // But usually WAITING is start state. 
-                                                        // Let's check dates or just assume Start iPhone first?
-                                                        // Or check if iPhone ended?
-                                                        if (eventData?.iphone_winner) {
-                                                            // iPhone done, Start KTM
-                                                            nextUpdate = {
-                                                                status: 'LIVE_KTM',
-                                                                ktm_start: Timestamp.fromDate(now),
-                                                                ktm_end: Timestamp.fromDate(tenMinsLater),
-                                                                last_updated: Timestamp.now()
-                                                            };
-                                                            actionName = 'START KTM DRAW';
-                                                        } else {
-                                                            // Start iPhone
-                                                            nextUpdate = {
-                                                                status: 'LIVE_IPHONE',
-                                                                iphone_start: Timestamp.fromDate(now),
-                                                                iphone_end: Timestamp.fromDate(tenMinsLater),
-                                                                last_updated: Timestamp.now()
-                                                            };
-                                                            actionName = 'START iPHONE DRAW';
-                                                        }
-                                                        break;
-
-                                                    case 'LIVE_IPHONE':
-                                                        const iphoneNum = Math.floor(Math.random() * 900000) + 100000;
-                                                        nextUpdate = {
-                                                            iphone_winner: { number: iphoneNum, name: 'Lucky Winner' },
-                                                            status: 'WAITING',
-                                                            last_updated: Timestamp.now()
-                                                        };
-                                                        actionName = `PICK iPHONE WINNER (${iphoneNum})`;
-                                                        break;
-
-                                                    case 'LIVE_KTM':
-                                                        const ktmNum = Math.floor(Math.random() * 900000) + 100000;
-                                                        nextUpdate = {
-                                                            ktm_winner: { number: ktmNum, name: 'Lucky Winner' },
-                                                            status: 'ENDED',
-                                                            last_updated: Timestamp.now()
-                                                        };
-                                                        actionName = `PICK KTM WINNER (${ktmNum})`;
-                                                        break;
-
-                                                    case 'ENDED':
-                                                        if (confirm("Event Ended. Reset for Next Sunday?")) {
-                                                            // Trigger Init Logic manually or just allow reset here
-                                                            // For simplified button, maybe just Reset Status to WAITING for testing?
-                                                            // Better to ask user to use the specific Init button below for full reset.
-                                                            alert("Use 'Initialize Database' below to reset for next week.");
-                                                            return;
-                                                        }
+                                                // LOGIC: Check which draw to start based on existing winners
+                                                if (!eventData?.iphone_winner) {
+                                                    // 1. Start iPhone Draw (Full 10 Min Auto)
+                                                    const iphoneNum = Math.floor(Math.random() * 900000) + 100000;
+                                                    nextUpdate = {
+                                                        status: 'LIVE_IPHONE',
+                                                        iphone_start: Timestamp.fromDate(now),
+                                                        iphone_end: Timestamp.fromDate(tenMinsLater),
+                                                        iphone_winner: { number: iphoneNum, name: 'Lucky Winner' }, // Set winner IMMEDIATELY for progressive reveal
+                                                        last_updated: Timestamp.now()
+                                                    };
+                                                    actionName = `START iPHONE DRAW (Winner: ${iphoneNum})`;
+                                                }
+                                                else if (!eventData?.ktm_winner) {
+                                                    // 2. Start KTM Draw (Full 10 Min Auto)
+                                                    const ktmNum = Math.floor(Math.random() * 900000) + 100000;
+                                                    nextUpdate = {
+                                                        status: 'LIVE_KTM',
+                                                        ktm_start: Timestamp.fromDate(now),
+                                                        ktm_end: Timestamp.fromDate(tenMinsLater),
+                                                        ktm_winner: { number: ktmNum, name: 'Lucky Winner' }, // Set winner IMMEDIATELY for progressive reveal
+                                                        last_updated: Timestamp.now()
+                                                    };
+                                                    actionName = `START KTM DRAW (Winner: ${ktmNum})`;
+                                                }
+                                                else {
+                                                    if (confirm("Event Ended. Reset for Next Sunday?")) {
+                                                        alert("Use 'Initialize Database' below to reset for next week.");
                                                         return;
+                                                    }
+                                                    return;
                                                 }
 
-                                                if (actionName && confirm(`CONFIRM ACTION: ${actionName}?`)) {
+                                                if (confirm(`Action: ${actionName}\n\nThis will start the 10-minute progressive reveal animation. The winner is pre-selected but revealed slowly to users.\n\nProceed?`)) {
                                                     await updateDoc(doc(db, 'events', 'sunday_lottery'), nextUpdate);
                                                 }
                                             }}
-                                            className="w-full py-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl shadow-lg shadow-blue-900/20 transition-all transform hover:scale-[1.02] active:scale-95 flex flex-col items-center justify-center gap-2 border border-blue-400/30"
+                                            disabled={eventData?.status?.includes('LIVE')}
+                                            className={`
+                                                w-full px-6 py-4 font-black text-xl rounded-xl transition-all shadow-lg flex flex-col items-center justify-center gap-1
+                                                ${eventData?.status?.includes('LIVE')
+                                                    ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700'
+                                                    : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white border border-green-400/50 shadow-green-900/40 hover:scale-[1.02] active:scale-[0.98]'
+                                                }
+                                            `}
                                         >
-                                            <span className="text-xs font-bold uppercase tracking-widest opacity-80">Next Action</span>
-                                            <span className="text-xl font-black flex items-center gap-2">
-                                                <PlayCircle size={24} />
-                                                {(() => {
-                                                    if (!eventData) return 'LOADING...';
-                                                    if (eventData.status === 'LIVE_IPHONE') return 'PICK iPHONE WINNER';
-                                                    if (eventData.status === 'LIVE_KTM') return 'PICK KTM WINNER';
-                                                    if (eventData.status === 'ENDED') return 'EVENT ENDED';
-                                                    if (eventData.iphone_winner) return 'START KTM DRAW';
-                                                    return 'START iPHONE DRAW';
-                                                })()}
-                                            </span>
+                                            {eventData?.status?.includes('LIVE') ? (
+                                                <>
+                                                    <span className="flex items-center gap-2"><div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" /> EVENT IN PROGRESS</span>
+                                                    <span className="text-[10px] uppercase tracking-wider font-normal opacity-60">System is running automated show</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {/* Dynamic Label based on state */}
+                                                    <span>
+                                                        {!eventData?.iphone_winner ? '▶ START iPHONE EVENT' :
+                                                            !eventData?.ktm_winner ? '▶ START KTM EVENT' :
+                                                                'EVENT COMPLETED'}
+                                                    </span>
+                                                    <span className="text-[10px] uppercase tracking-wider font-normal opacity-80">
+                                                        {!eventData?.iphone_winner || !eventData?.ktm_winner ? 'Click to Start 10-Min Auto Draw' : 'Reset Required'}
+                                                    </span>
+                                                </>
+                                            )}
                                         </button>
 
                                         <div className="flex gap-2">
