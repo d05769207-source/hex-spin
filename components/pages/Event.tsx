@@ -135,8 +135,8 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                                         // If ENDED or Past -> "VIEW WINNER" (maybe)
                                         // If WAITING -> "COMING SOON"
                                         className={`w-full text-[10px] font-bold py-1.5 rounded border transition-all ${eventData?.status === 'LIVE_IPHONE'
-                                                ? 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30 cursor-pointer animate-pulse'
-                                                : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
+                                            ? 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30 cursor-pointer animate-pulse'
+                                            : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
                                             }`}
                                     >
                                         {eventData?.status === 'LIVE_IPHONE' ? '● VIEW LIVE DRAW' : 'COMING SOON'}
@@ -180,8 +180,8 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                                         onClick={() => onViewDraw('KTM')}
                                         disabled={eventData?.status !== 'LIVE_KTM'}
                                         className={`w-full text-[10px] font-bold py-1.5 rounded border transition-all ${eventData?.status === 'LIVE_KTM'
-                                                ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/30 cursor-pointer animate-pulse'
-                                                : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
+                                            ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/30 cursor-pointer animate-pulse'
+                                            : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
                                             }`}
                                     >
                                         {eventData?.status === 'LIVE_KTM' ? '● VIEW LIVE DRAW' : 'COMING SOON'}
@@ -508,58 +508,10 @@ const EndedView: React.FC = () => {
     );
 };
 
-const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAdminMode = false, onTriggerAdmin, onBack }) => {
+const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: LotteryEventData | null }> = ({ isAdminMode = false, onTriggerAdmin, onBack, eventData }) => {
     const [eventState, setEventState] = useState<EventState>('JOINING');
     const [ktmEntry, setKtmEntry] = useState<number | null>(null);
     const [iphoneEntry, setIphoneEntry] = useState<number | null>(null);
-    const [eventData, setEventData] = useState<LotteryEventData | null>(null);
-
-    // Global Cleanup for Event Page
-    useEffect(() => {
-        return () => {
-            soundManager.stopAll();
-        };
-    }, []);
-
-    // Fetch Event Data Realtime
-    useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'events', 'sunday_lottery'), (doc) => {
-            if (doc.exists()) {
-                const data = doc.data() as LotteryEventData;
-                setEventData(data);
-
-                // State Machine Logic based on DB status
-                switch (data.status) {
-                    case 'LIVE_IPHONE':
-                        // Do NOT force user into draw. Let them join manually via button.
-                        break;
-                    case 'LIVE_KTM':
-                        // Do NOT force user into draw.
-                        break;
-                    case 'ENDED':
-                        setEventState('ENDED');
-                        break;
-                    default:
-                        // Only force back to lobby if we are NOT in a valid draw state
-                        // If status becomes WAITING, we should go back to JOINING
-                        if (data.status === 'WAITING') {
-                            setEventState('JOINING');
-                        }
-                        break;
-                }
-
-                // Override specific view states if we have winners to show immediately? 
-                // Better approach: Let the views handle data.
-                if (data.iphone_winner && eventState === 'IPHONE_DRAW') {
-                    // Transition to winner? Or does DrawView handle revealing the winner?
-                    // DrawView handles the reveal animation. 
-                    // If we want to show the static winner card:
-                    // setEventState('IPHONE_WINNER');
-                }
-            }
-        });
-        return () => unsub();
-    }, []);
 
     // Automation Logic (Crowd Trigger for Offline Support)
     useEffect(() => {
@@ -603,13 +555,7 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
                 // 2.1 Transition iPhone to WAITING (After Winner Reveal AND Time Ended)
                 else if (status === 'LIVE_IPHONE' && iphone_winner) {
                     // Check if we are past the end time AND some buffer (e.g. 60s)
-                    // If winner was picked early (for progressive reveal), we rely on tIphoneEnd
-                    // If winner was picked late (at tIphoneEnd), we rely on the buffer
-
                     const timeSinceEnd = now.getTime() - tIphoneEnd.getTime();
-
-                    // Allow at least 60 seconds of "Winner View" regardless of when it ended
-                    // But strictly, we shouldn't end before tIphoneEnd
 
                     if (now > tIphoneEnd && timeSinceEnd > 60000) {
                         await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'WAITING' });
@@ -656,23 +602,37 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
             }
         };
 
-        const interval = setInterval(checkAutomation, 30000); // Check every 30s (Quota Optimization)
+        const interval = setInterval(checkAutomation, 30000); // Check every 30s
         checkAutomation(); // Run immediately
         return () => clearInterval(interval);
     }, [eventData]);
 
+    // Update state based on props change
+    useEffect(() => {
+        if (eventData) {
+            switch (eventData.status) {
+                case 'ENDED':
+                    setEventState('ENDED');
+                    break;
+                case 'WAITING':
+                    if (eventState !== 'JOINING') setEventState('JOINING');
+                    break;
+                default:
+                    break;
+            }
+        }
+    }, [eventData]); // Depend on eventData prop
+
     // Long Press Logic
     const timerRef = useRef<NodeJS.Timeout | null>(null);
-
     const handlePressStart = () => {
         timerRef.current = setTimeout(() => {
             if (onTriggerAdmin) {
                 if (navigator.vibrate) navigator.vibrate(200);
                 onTriggerAdmin();
             }
-        }, 5000); // 5 seconds
+        }, 5000);
     };
-
     const handlePressEnd = () => {
         if (timerRef.current) {
             clearTimeout(timerRef.current);
@@ -718,7 +678,6 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
             onPointerLeave={handlePressEnd}
             onContextMenu={(e) => e.preventDefault()}
         >
-            {/* Back Button for Lobby */}
             <button
                 onClick={onBack}
                 className="absolute top-4 left-0 z-50 p-2 text-white/50 hover:text-white transition-colors"
@@ -748,194 +707,230 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void }> = ({ isAd
     );
 };
 
-const GlassEventCard: React.FC<{
-    title: string;
-    description: string;
-    image: string;
-    active: boolean;
-    onClick: () => void;
-    entryFee?: string;
-    prizes: React.ReactNode[];
-}> = ({ title, description, image, active, onClick, entryFee, prizes }) => {
-    return (
-        <div
-            onClick={active ? onClick : undefined}
-            className={`
-                relative w-full h-[240px] rounded-[32px] overflow-hidden 
-                transition-all duration-500 ease-out transform
-                ${active
-                    ? 'scale-100 opacity-100 shadow-[0_20px_40px_rgba(0,0,0,0.4)] hover:scale-[1.02] cursor-pointer'
-                    : 'scale-95 opacity-60 grayscale-[0.5] pointer-events-none'
+const EventLobby: React.FC<{ onSelect: (id: string) => void, eventData: LotteryEventData | null }> = ({ onSelect, eventData }) => {
+
+    // Countdown Logic for Lobby Card
+    const [timeString, setTimeString] = useState("00:00:00");
+
+    useEffect(() => {
+        const updateTimer = () => {
+            if (!eventData) return;
+            // Target next draw
+            const now = new Date();
+            const iphoneStart = eventData.iphone_start.toDate();
+            // Simple logic: count down to iPhone start (7PM)
+            // If passed, count to KTM? Or just show "LIVE"?
+            // For this UI demo, let's count to iPhone start.
+
+            let target = iphoneStart;
+            if (now > iphoneStart) {
+                // If iPhone started, maybe show KTM start?
+                // matching original logic
+                const ktmStart = eventData.ktm_start.toDate();
+                if (now < ktmStart) target = ktmStart;
+                else {
+                    // next week
+                    target = new Date(iphoneStart);
+                    target.setDate(target.getDate() + 7);
                 }
-            `}
-        >
-            {/* Background Image */}
-            <div className="absolute inset-0">
-                <img src={image} alt={title} className="w-full h-full object-cover" />
-                {/* Gradient Overlay for Readability */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-            </div>
+            }
 
-            {/* Glass Content Area */}
-            <div className="absolute bottom-0 left-0 right-0 p-5 bg-gradient-to-b from-white/5 to-black/60 backdrop-blur-xl border-t border-white/10 flex flex-col gap-3">
-                <div className="flex justify-between items-start">
-                    <div>
-                        <div className={`
-                            inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-widest mb-1
-                            ${active ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-gray-500/20 text-gray-400'}
-                        `}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
-                            {active ? 'Live Now' : 'Coming Soon'}
+            const diff = target.getTime() - now.getTime();
+            if (diff <= 0) {
+                setTimeString("00:00:00");
+                return;
+            }
+            const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+            const m = Math.floor((diff / (1000 * 60)) % 60);
+            const s = Math.floor((diff / 1000) % 60);
+            setTimeString(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+        };
+        const i = setInterval(updateTimer, 1000);
+        updateTimer();
+        return () => clearInterval(i);
+    }, [eventData]);
+
+
+    return (
+        <div className="h-full flex flex-col relative overflow-hidden pb-4 font-['Inter']">
+            {/* Styles for Teko and Custom Gradients */}
+            <style>{`
+                .font-display { font-family: 'Teko', sans-serif; }
+                .text-gradient-gold {
+                    background: linear-gradient(to bottom, #FFF7CC, #FFD700, #B8860B);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                }
+                .shadow-glow-gold {
+                     box-shadow: 0 0 20px rgba(255, 215, 0, 0.15);
+                }
+                .prize-card-glass {
+                    background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+                    backdrop-filter: blur(8px);
+                    border: 1px solid rgba(255, 215, 0, 0.1);
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(255,255,255,0.05);
+                }
+            `}</style>
+
+            <main className="pt-4 px-4 space-y-6 mx-auto w-full">
+                {/* Header Title */}
+                <div className="text-center relative">
+                    <h1 className="font-display font-bold text-3xl text-white tracking-[0.2em] opacity-90 drop-shadow-md">
+                        EVENT <span className="text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-yellow-500 to-yellow-600">ARENA</span>
+                    </h1>
+                    <div className="h-px w-20 mx-auto mt-1 bg-gradient-to-r from-transparent via-yellow-500/50 to-transparent"></div>
+                </div>
+
+                {/* Sunday Lottery Hero Card */}
+                <div className="relative group w-full rounded-[2rem] p-[1px] bg-gradient-to-b from-yellow-500/30 via-white/5 to-transparent shadow-glow-gold transition-transform duration-500">
+                    <div className="absolute inset-0 bg-yellow-500/5 blur-xl rounded-[2rem]"></div>
+                    <div className="relative w-full bg-[#08080c] rounded-[calc(2rem-1px)] overflow-hidden">
+
+                        {/* Background Image */}
+                        <div className="absolute inset-0">
+                            <img alt="Lottery Background" className="w-full h-full object-cover opacity-30 mix-blend-luminosity scale-110 group-hover:scale-105 transition-transform duration-1000 ease-out" src="/images/poster_sunday_lottery.png" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#08080c] via-[#08080c]/80 to-[#08080c]/40"></div>
                         </div>
-                        <h3 className="text-2xl font-black text-white leading-none">{title}</h3>
-                        <p className="text-[10px] text-gray-400 font-medium mt-0.5">{description}</p>
-                    </div>
 
-                    {/* Entry Badge */}
-                    {entryFee && (
-                        <div className="flex flex-col items-end">
-                            <span className="text-[8px] text-gray-500 uppercase font-BOLD tracking-wider">Entry</span>
-                            <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded-lg border border-white/10">
-                                {entryFee === 'Free' ? (
-                                    <span className="text-xs font-black text-green-400">FREE</span>
-                                ) : (
-                                    <>
-                                        <div className="w-4 h-4 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/50 text-[10px]">💰</div>
-                                        <span className="text-xs font-bold text-yellow-400">{entryFee}</span>
-                                    </>
-                                )}
+                        <div className="relative z-10 p-5 flex flex-col h-full">
+                            {/* Card Header: Live Tag & Title */}
+                            <div className="flex justify-between items-end mb-6 border-b border-white/5 pb-3">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className={`w-1.5 h-1.5 rounded-full ${eventData?.status?.startsWith('LIVE') ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]' : 'bg-gray-500'}`}></span>
+                                        <span className={`text-[10px] uppercase tracking-widest font-bold ${eventData?.status?.startsWith('LIVE') ? 'text-green-400' : 'text-gray-400'}`}>
+                                            {eventData?.status?.startsWith('LIVE') ? 'Live Now' : 'Up Next'}
+                                        </span>
+                                    </div>
+                                    <h2 className="font-display font-bold text-2xl text-gradient-gold leading-none tracking-wide">SUNDAY LOTTERY</h2>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-[8px] uppercase tracking-widest text-gray-500 font-bold block mb-0.5">Ends In</span>
+                                    <div className="font-display font-medium text-lg text-white tracking-widest bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                                        {timeString.split(':').map((part, i) => (
+                                            <span key={i}>
+                                                {part}
+                                                {i < 2 && <span className="text-yellow-500 mx-px">:</span>}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Prizes Grid */}
+                            <div className="mb-2">
+                                <div className="flex justify-between items-end mb-2">
+                                    <span className="text-[10px] uppercase tracking-[0.2em] text-gray-400 font-semibold">Grand Prizes</span>
+                                    <span className="text-[10px] text-yellow-500/80 italic">Limited entries available</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="prize-card-glass rounded-xl p-2 flex flex-col items-center justify-center relative group/card cursor-pointer">
+                                        <div className="absolute top-1.5 right-1.5 opacity-50">
+                                            <span className="text-[8px] text-white material-symbols-outlined">i</span>
+                                        </div>
+                                        <div className="mb-1.5 transform hover:scale-110 transition-transform duration-300">
+                                            <IPhoneToken size={32} showLabel={false} />
+                                        </div>
+                                        <span className="font-display font-bold text-base text-white leading-none">iPhone Token</span>
+                                        <div className="flex flex-col items-center mt-0.5">
+                                            <span className="text-[10px] text-white font-bold tracking-wider">₹1,49,000</span>
+                                            <span className="text-[6px] text-gray-500 uppercase tracking-widest">Value in INR</span>
+                                        </div>
+                                        <div className="absolute inset-0 border border-yellow-500/0 rounded-xl group-hover/card:border-yellow-500/30 transition-colors duration-300"></div>
+                                    </div>
+                                    <div className="prize-card-glass rounded-xl p-2 flex flex-col items-center justify-center relative group/card cursor-pointer">
+                                        <div className="absolute top-1.5 right-1.5 opacity-50">
+                                            <span className="text-[8px] text-white">i</span>
+                                        </div>
+                                        <div className="mb-1.5 transform hover:scale-110 transition-transform duration-300">
+                                            <KTMToken size={32} showLabel={false} />
+                                        </div>
+                                        <span className="font-display font-bold text-base text-white leading-none">KTM Token</span>
+                                        <div className="flex flex-col items-center mt-0.5">
+                                            <span className="text-[10px] text-white font-bold tracking-wider">₹3,40,000</span>
+                                            <span className="text-[6px] text-gray-500 uppercase tracking-widest">Value in INR</span>
+                                        </div>
+                                        <div className="absolute inset-0 border border-orange-500/0 rounded-xl group-hover/card:border-orange-500/30 transition-colors duration-300"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Enter Button */}
+                            <div className="mt-6">
+                                <button
+                                    onClick={() => onSelect('sunday_lottery')}
+                                    className="w-full relative overflow-hidden group/btn rounded-xl"
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-yellow-600 via-yellow-500 to-yellow-600 transition-all duration-300 group-hover/btn:brightness-110"></div>
+                                    <div className="absolute inset-0 opacity-10 mix-blend-overlay" style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/carbon-fibre.png')" }}></div>
+                                    <div className="relative px-4 py-2.5 flex items-center justify-center gap-2">
+                                        <span className="font-display font-bold text-lg text-black tracking-wide">ENTER ARENA</span>
+                                        <span className="font-bold text-black group-hover/btn:translate-x-1 transition-transform text-sm">→</span>
+                                    </div>
+                                    <div className="absolute top-0 -inset-full h-full w-1/2 z-5 block transform -skew-x-12 bg-gradient-to-r from-transparent to-white opacity-20 group-hover/btn:animate-shine" style={{ transition: '0.5s' }}></div>
+                                </button>
+                                <div className="text-center mt-2">
+                                    <span className="text-[10px] text-gray-500 font-medium">Entry Fee: <span className="text-green-400">FREE</span></span>
+                                </div>
                             </div>
                         </div>
-                    )}
+                    </div>
                 </div>
 
-                {/* Divider */}
-                <div className="h-px w-full bg-white/10" />
-
-                {/* Footer: Prizes and Action */}
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <span className="text-[8px] text-gray-500 uppercase font-bold tracking-wider">Prizes:</span>
-                        <div className="flex -space-x-2">
-                            {prizes}
+                {/* Speed Rush Card (Coming Soon) */}
+                <div className="relative w-full rounded-2xl border border-white/5 bg-black/40 overflow-hidden grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all duration-500">
+                    <div className="absolute inset-0">
+                        <img alt="Racing Background" className="w-full h-full object-cover opacity-20" src="/images/poster_ktm_rush.png" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+                    </div>
+                    <div className="relative z-10 p-4 flex items-center justify-between">
+                        <div>
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-gray-500"></span>
+                                <span className="text-[8px] uppercase tracking-widest text-gray-500 font-bold">Coming Soon</span>
+                            </div>
+                            <h3 className="font-display font-bold text-xl text-white tracking-wide">SPEED RUSH</h3>
+                            <p className="text-[8px] text-gray-400 font-light mt-0.5">High stakes racing event</p>
+                        </div>
+                        <div className="h-8 w-8 rounded-full border border-white/10 flex items-center justify-center bg-white/5 backdrop-blur-sm">
+                            <span className="text-gray-400 text-sm">🔒</span>
                         </div>
                     </div>
-
-                    {active && (
-                        <button className="bg-white text-black text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full hover:bg-gray-200 transition-colors shadow-lg shadow-white/10">
-                            Enter Arena
-                        </button>
-                    )}
                 </div>
-            </div>
-        </div>
-    );
-};
-
-const EventLobby: React.FC<{ onSelect: (id: string) => void }> = ({ onSelect }) => {
-    return (
-        <div className="h-full flex flex-col relative overflow-hidden bg-black pb-4">
-            {/* Background Effects */}
-            <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-[-20%] left-[-20%] w-[500px] h-[500px] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-slow" />
-                <div className="absolute bottom-[-10%] right-[-20%] w-[400px] h-[400px] bg-blue-600/20 rounded-full blur-[100px] animate-pulse-slow delay-1000" />
-            </div>
-
-            {/* Header */}
-            <div className="relative z-10 pt-10 pb-8 px-6 flex flex-col items-center text-center">
-                <div className="inline-block relative mb-2">
-                    <div className="absolute -inset-2 bg-gradient-to-r from-blue-500/20 to-purple-500/20 blur-xl rounded-full" />
-                    <h1 className="relative text-5xl font-black text-white tracking-tighter drop-shadow-xl italic">
-                        EVENT <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400">ARENA</span>
-                    </h1>
-                </div>
-
-                <div className="px-5 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md shadow-lg shadow-black/20">
-                    <p className="text-[10px] font-bold text-blue-200 uppercase tracking-widest flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                        Live Tournaments
-                    </p>
-                </div>
-            </div>
-
-            {/* Scrollable List */}
-            <div className="flex-1 overflow-y-auto px-4 pb-20 space-y-6 relative z-10 no-scrollbar">
-
-                {/* 1. Sunday Lottery */}
-                <GlassEventCard
-                    title="Sunday Lottery"
-                    description="Win iPhone 15 & KTM RC"
-                    image="/images/poster_sunday_lottery.png"
-                    active={true}
-                    onClick={() => onSelect('sunday_lottery')}
-                    entryFee="Free"
-                    prizes={[
-                        <div key="iphone" className="relative z-20 transform hover:scale-110 transition-transform">
-                            <IPhoneToken size={24} showLabel={false} />
-                        </div>,
-                        <div key="ktm" className="relative z-10 transform hover:scale-110 transition-transform">
-                            <KTMToken size={24} showLabel={false} />
-                        </div>
-                    ]}
-                />
-
-                {/* 2. Speed Rush */}
-                <GlassEventCard
-                    title="Speed Rush"
-                    description="High Stakes Racing"
-                    image="/images/poster_ktm_rush.png"
-                    active={false} // Upcoming
-                    onClick={() => { }}
-                    entryFee="500"
-                    prizes={[
-                        <div key="ktm" className="relative z-10">
-                            <KTMToken size={24} />
-                        </div>,
-                        <div key="etoken" className="relative z-0">
-                            <EToken size={20} />
-                        </div>
-                    ]}
-                />
-
-                {/* 3. Mega Loot */}
-                <GlassEventCard
-                    title="Mega Loot"
-                    description="Unlock Mystery Chests"
-                    image="/images/poster_mega_loot.png"
-                    active={false} // Upcoming
-                    onClick={() => { }}
-                    entryFee="1000"
-                    prizes={[
-                        <div key="spin" className="relative z-10">
-                            <SpinToken size={22} />
-                        </div>,
-                        <div key="etoken" className="relative z-0">
-                            <EToken size={20} />
-                        </div>
-                    ]}
-                />
-
-                {/* Spacer (To ensure scrolling past bottom menu if any) */}
-                <div className="h-10" />
-            </div>
+            </main>
         </div>
     );
 };
 
 const Event: React.FC<EventProps> = (props) => {
     const [view, setView] = useState<'LOBBY' | 'SUNDAY_LOTTERY'>('LOBBY');
+    const [eventData, setEventData] = useState<LotteryEventData | null>(null);
+
+    // Fetch Event Data Logic moved to Parent to share with Lobby
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'events', 'sunday_lottery'), (doc) => {
+            if (doc.exists()) {
+                const data = doc.data() as LotteryEventData;
+                setEventData(data);
+            }
+        });
+        return () => unsub();
+    }, []);
+
 
     return (
-        <div className="w-full max-w-md mx-auto h-[85vh] flex flex-col bg-black">
+        <div className="w-full max-w-md mx-auto h-[85vh] flex flex-col">
             {view === 'LOBBY' ? (
-                <EventLobby onSelect={(id) => {
-                    if (id === 'sunday_lottery') setView('SUNDAY_LOTTERY');
-                }} />
+                <EventLobby
+                    onSelect={(id) => {
+                        if (id === 'sunday_lottery') setView('SUNDAY_LOTTERY');
+                    }}
+                    eventData={eventData}
+                />
             ) : (
-                <SundayLotteryView {...props} onBack={() => setView('LOBBY')} />
+                <SundayLotteryView {...props} eventData={eventData} onBack={() => setView('LOBBY')} />
             )}
         </div>
     );
 };
-
 export default Event;

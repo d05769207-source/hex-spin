@@ -21,7 +21,7 @@ import IPhoneToken from './components/iPhoneToken';
 import EToken from './components/EToken';
 import InfoModal from './components/InfoModal';
 import SuperModeTransition from './components/SuperModeTransition'; // NEW: Animation Component
-import { Volume2, VolumeX, Info } from 'lucide-react';
+import { Volume2, VolumeX, Info, Mail } from 'lucide-react';
 import './index.css';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
@@ -128,6 +128,7 @@ const App: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
   const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
   const [showSuperModeTransition, setShowSuperModeTransition] = useState<boolean>(false); // NEW: Transition State
+  const [unreadMailCount, setUnreadMailCount] = useState<number>(2); // NEW: Mailbox State
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true); // Sync State
   const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false);
@@ -778,6 +779,12 @@ const App: React.FC = () => {
     alert('Ad Watched! You earned 5 Tokens.');
   };
 
+  const handleMailClick = () => {
+    console.log("📩 Mailbox clicked! Unread count:", unreadMailCount);
+    // Future: Open Mail/Notifications Modal
+    alert(`You have ${unreadMailCount} unread messages/gifts!`);
+  };
+
   // --- AUTH HANDLERS ---
   const handleLoginSuccess = () => {
     // Logic handled in useEffect via onAuthStateChanged
@@ -1193,12 +1200,27 @@ const App: React.FC = () => {
               </div>
 
               {/* Info Icon - Below tokens on right */}
-              <button
-                onClick={() => setShowInfoModal(true)}
-                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
-              >
-                <Info size={14} className="text-white" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Mailbox Icon with Badge */}
+                <button
+                  onClick={handleMailClick}
+                  className="relative p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
+                >
+                  <Mail size={14} className="text-white" />
+                  {unreadMailCount > 0 && (
+                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-gray-900 rounded-full flex items-center justify-center border border-black shadow-sm">
+                      <span className="text-[9px] font-bold text-white leading-none">{unreadMailCount}</span>
+                    </div>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => setShowInfoModal(true)}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors border border-white/10"
+                >
+                  <Info size={14} className="text-white" />
+                </button>
+              </div>
             </div>
           )}
         </div>
