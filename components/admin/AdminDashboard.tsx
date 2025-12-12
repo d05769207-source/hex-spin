@@ -831,6 +831,143 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                 </div>
                             </div>
 
+                            {/* LOGIC TEST LAB */}
+                            <div className="bg-gray-900/50 border border-indigo-500/30 rounded-xl p-6 relative overflow-hidden mb-6">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                    <Bot size={100} />
+                                </div>
+                                <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                                    <span className="text-2xl">🧪</span> Logic Test Lab (Time Travel)
+                                </h3>
+                                <p className="text-sm text-gray-400 mb-6 max-w-2xl">
+                                    Simulate different times to verify event logic without waiting.
+                                    <strong> Use "Reset to Real Time" when done!</strong>
+                                </p>
+
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6 relative z-10">
+                                    <button
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const daysUntilSunday = (7 - now.getDay()) % 7;
+                                            const target = new Date(now);
+                                            target.setDate(now.getDate() + daysUntilSunday);
+                                            target.setHours(18, 30, 0, 0);
+                                            const offset = target.getTime() - Date.now();
+                                            setSimulatedTimeOffset(offset);
+                                            alert("⏳ Time Travel: Sunday 6:30 PM (Entry Open)\nRefresh Event Page!");
+                                            window.location.reload();
+                                        }}
+                                        className="p-3 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-lg text-indigo-200 text-xs font-bold text-left hover:scale-[1.02] transition-transform"
+                                    >
+                                        1. Pre-Event (6:30 PM)
+                                        <div className="text-[10px] opacity-60 font-normal mt-1">Entry Allowed</div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const daysUntilSunday = (7 - now.getDay()) % 7;
+                                            const target = new Date(now);
+                                            target.setDate(now.getDate() + daysUntilSunday);
+                                            target.setHours(18, 55, 0, 0);
+                                            const offset = target.getTime() - Date.now();
+                                            setSimulatedTimeOffset(offset);
+                                            alert("⏳ Time Travel: Sunday 6:55 PM (Entry Closed)\nRefresh Event Page!");
+                                            window.location.reload();
+                                        }}
+                                        className="p-3 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-lg text-indigo-200 text-xs font-bold text-left hover:scale-[1.02] transition-transform"
+                                    >
+                                        2. Locked (6:55 PM)
+                                        <div className="text-[10px] opacity-60 font-normal mt-1">Entry Blocked</div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const daysUntilSunday = (7 - now.getDay()) % 7;
+                                            const target = new Date(now);
+                                            target.setDate(now.getDate() + daysUntilSunday);
+                                            target.setHours(19, 0, 5, 0); // 7:00:05 PM
+                                            const offset = target.getTime() - Date.now();
+                                            setSimulatedTimeOffset(offset);
+                                            alert("⏳ Time Travel: Sunday 7:00 PM (iPhone Start)\nRefresh Event Page to see Auto-Trigger!");
+                                            window.location.reload();
+                                        }}
+                                        className="p-3 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-lg text-indigo-200 text-xs font-bold text-left hover:scale-[1.02] transition-transform"
+                                    >
+                                        3. iPhone Live (7:00 PM)
+                                        <div className="text-[10px] opacity-60 font-normal mt-1">Auto-Start Trigger</div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const daysUntilSunday = (7 - now.getDay()) % 7;
+                                            const target = new Date(now);
+                                            target.setDate(now.getDate() + daysUntilSunday);
+                                            target.setHours(20, 0, 5, 0); // 8:00:05 PM
+                                            const offset = target.getTime() - Date.now();
+                                            setSimulatedTimeOffset(offset);
+                                            alert("⏳ Time Travel: Sunday 8:00 PM (KTM Start)\nRefresh Event Page!");
+                                            window.location.reload();
+                                        }}
+                                        className="p-3 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-lg text-indigo-200 text-xs font-bold text-left hover:scale-[1.02] transition-transform"
+                                    >
+                                        4. KTM Live (8:00 PM)
+                                        <div className="text-[10px] opacity-60 font-normal mt-1">Auto-Start Trigger</div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const daysUntilSunday = (7 - now.getDay()) % 7;
+                                            const target = new Date(now);
+                                            target.setDate(now.getDate() + daysUntilSunday);
+                                            target.setHours(21, 5, 0, 0); // 9:05 PM
+                                            const offset = target.getTime() - Date.now();
+                                            setSimulatedTimeOffset(offset);
+                                            alert("⏳ Time Travel: Sunday 9:05 PM\nCheck if User Data Resets!");
+                                            window.location.reload();
+                                        }}
+                                        className="p-3 bg-indigo-900/40 hover:bg-indigo-900/60 border border-indigo-500/30 rounded-lg text-indigo-200 text-xs font-bold text-left hover:scale-[1.02] transition-transform"
+                                    >
+                                        5. Post-Event (9:05 PM)
+                                        <div className="text-[10px] opacity-60 font-normal mt-1">Weekly Reset Test</div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            clearSimulatedTime();
+                                            alert("✅ Time Reset to Real Time.");
+                                            window.location.reload();
+                                        }}
+                                        className="p-3 bg-green-900/40 hover:bg-green-900/60 border border-green-500/30 rounded-lg text-green-200 text-xs font-bold text-left hover:scale-[1.02] transition-transform"
+                                    >
+                                        🔁 Reset to Real Time
+                                        <div className="text-[10px] opacity-60 font-normal mt-1">Disable Simulation</div>
+                                    </button>
+                                </div>
+
+                                <div className="border-t border-indigo-500/20 pt-4">
+                                    <button
+                                        onClick={async () => {
+                                            if (confirm("💥 FORCE RESET EVENT DATA?\n\nThis will clear winners and set status to WAITING. Use this to re-run tests.")) {
+                                                const { updateDoc, doc } = await import('firebase/firestore');
+                                                await updateDoc(doc(db, 'events', 'sunday_lottery'), {
+                                                    status: 'WAITING',
+                                                    iphone_winner: null,
+                                                    ktm_winner: null
+                                                });
+                                                alert("💥 Event Data Reset!");
+                                            }
+                                        }}
+                                        className="w-full py-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 rounded hover:text-red-300 text-xs font-black tracking-widest transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <RefreshCw size={14} /> FORCE RESET DATA (CLEAR WINNERS)
+                                    </button>
+                                </div>
+                            </div>
+
                             <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
                                 <h3 className="text-lg font-bold text-white mb-4">Sunday Lottery Setup</h3>
                                 <p className="text-sm text-gray-400 mb-6">

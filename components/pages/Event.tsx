@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import PrizeImage from '../PrizeImage';
 import { soundManager } from '../../utils/SoundManager';
+import { getCurrentTime } from '../../utils/weekUtils';
 import EToken from '../EToken';
 import KTMToken from '../KTMToken';
 import IPhoneToken from '../iPhoneToken';
 import SpinToken from '../SpinToken';
 import { db } from '../../firebase';
-import { doc, onSnapshot, Timestamp, updateDoc, runTransaction } from 'firebase/firestore';
+import { doc, onSnapshot, Timestamp, updateDoc, runTransaction, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 
 type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 'KTM_DRAW' | 'KTM_WINNER' | 'ENDED';
 
@@ -41,7 +42,7 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
         const updateCountdown = () => {
             if (!eventData) return;
 
-            const now = new Date();
+            const now = getCurrentTime();
 
             // Determine which draw is next
             const iphoneStart = eventData.iphone_start.toDate();
@@ -250,7 +251,7 @@ const DrawView: React.FC<DrawViewProps> = ({ prize, onBack, winnerData, startTim
             return;
         }
 
-        const now = new Date().getTime();
+        const now = getCurrentTime().getTime();
         const start = startTime.toDate().getTime();
         const elapsed = now - start;
 
@@ -466,7 +467,7 @@ const WaitingView: React.FC = () => {
 
     useEffect(() => {
         const updateCountdown = () => {
-            const now = new Date();
+            const now = getCurrentTime();
             const ktmTime = new Date(now);
             ktmTime.setHours(20, 0, 0, 0);
             const diff = ktmTime.getTime() - now.getTime();
@@ -508,6 +509,31 @@ const EndedView: React.FC = () => {
     );
 };
 
+// Helper function for time restriction
+const checkLotteryTimeRestriction = (): { allowed: boolean; message?: string } => {
+    const now = getCurrentTime();
+    const isSunday = now.getDay() === 0;
+
+    if (isSunday) {
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+        const currentMinutes = hours * 60 + minutes;
+
+        // 6:50 PM = 18:50 = 1130 minutes
+        // 9:00 PM = 21:00 = 1260 minutes
+        const START_BLOCK = 18 * 60 + 50; // 1130
+        const END_BLOCK = 21 * 60; // 1260
+
+        if (currentMinutes >= START_BLOCK && currentMinutes < END_BLOCK) {
+            return {
+                allowed: false,
+                message: "Entries are closed from 6:50 PM to 9:00 PM for the live draw! Please try again later."
+            };
+        }
+    }
+    return { allowed: true };
+};
+
 const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: LotteryEventData | null }> = ({ isAdminMode = false, onTriggerAdmin, onBack, eventData }) => {
     const [eventState, setEventState] = useState<EventState>('JOINING');
     const [ktmEntry, setKtmEntry] = useState<number | null>(null);
@@ -518,7 +544,7 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
         if (!eventData) return;
 
         const checkAutomation = async () => {
-            const now = new Date();
+            const now = getCurrentTime();
             const { iphone_start, iphone_end, ktm_start, ktm_end, status, iphone_winner, ktm_winner } = eventData;
 
             const tIphoneStart = iphone_start.toDate();
@@ -527,15 +553,8 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
             const tKtmEnd = ktm_end.toDate();
 
             try {
-                // 1. Trigger iPhone LIVE (7:00 PM)
+                // 1. Trigger iPhone LIVE & PICK WINNER (7:00 PM)
                 if (status === 'WAITING' && now >= tIphoneStart && now < tIphoneEnd && !iphone_winner) {
-                    await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'LIVE_IPHONE' });
-                    console.log('🤖 Auto-Trigger: iPhone Draw LIVE');
-                }
-
-                // 2. Trigger iPhone Winner (7:10 PM) - PICK WINNER FIRST
-                // Only if winner not already picked (Fallback for pure auto mode)
-                else if (status === 'LIVE_IPHONE' && now >= tIphoneEnd && !iphone_winner) {
                     await runTransaction(db, async (transaction) => {
                         const sfDocRef = doc(db, "events", "sunday_lottery");
                         const sfDoc = await transaction.get(sfDocRef);
@@ -544,15 +563,17 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
                         if (!sfDoc.data().iphone_winner) {
                             const randomNum = Math.floor(Math.random() * 900000) + 100000;
                             transaction.update(sfDocRef, {
+                                status: 'LIVE_IPHONE',
                                 iphone_winner: { number: randomNum, name: 'Lucky Winner' },
                                 last_updated: Timestamp.now()
-                                // Note: Status remains LIVE_IPHONE so users see the animation
                             });
-                            console.log('🤖 Auto-Trigger: iPhone Winner Picked', randomNum);
+                            console.log('🤖 Auto-Trigger: iPhone LIVE + Winner Picked', randomNum);
                         }
                     });
                 }
-                // 2.1 Transition iPhone to WAITING (After Winner Reveal AND Time Ended)
+
+                // 2. Transition iPhone to WAITING (After Time Ended)
+                // Note: No separate winner pick step anymore.
                 else if (status === 'LIVE_IPHONE' && iphone_winner) {
                     // Check if we are past the end time AND some buffer (e.g. 60s)
                     const timeSinceEnd = now.getTime() - tIphoneEnd.getTime();
@@ -563,14 +584,8 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
                     }
                 }
 
-                // 3. Trigger KTM LIVE (8:00 PM)
+                // 3. Trigger KTM LIVE & PICK WINNER (8:00 PM)
                 else if (status === 'WAITING' && now >= tKtmStart && now < tKtmEnd && !ktm_winner) {
-                    await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'LIVE_KTM' });
-                    console.log('🤖 Auto-Trigger: KTM Draw LIVE');
-                }
-
-                // 4. Trigger KTM Winner (8:10 PM) - PICK WINNER FIRST
-                else if (status === 'LIVE_KTM' && now >= tKtmEnd && !ktm_winner) {
                     await runTransaction(db, async (transaction) => {
                         const sfDocRef = doc(db, "events", "sunday_lottery");
                         const sfDoc = await transaction.get(sfDocRef);
@@ -579,15 +594,16 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
                         if (!sfDoc.data().ktm_winner) {
                             const randomNum = Math.floor(Math.random() * 900000) + 100000;
                             transaction.update(sfDocRef, {
+                                status: 'LIVE_KTM',
                                 ktm_winner: { number: randomNum, name: 'Lucky Winner' },
                                 last_updated: Timestamp.now()
-                                // Status remains LIVE_KTM
                             });
-                            console.log('🤖 Auto-Trigger: KTM Winner Picked', randomNum);
+                            console.log('🤖 Auto-Trigger: KTM LIVE + Winner Picked', randomNum);
                         }
                     });
                 }
-                // 4.1 Transition KTM to ENDED (After Winner Reveal AND Time Ended)
+
+                // 4. Transition KTM to ENDED (After Time Ended)
                 else if (status === 'LIVE_KTM' && ktm_winner) {
                     const timeSinceEnd = now.getTime() - tKtmEnd.getTime();
 
@@ -649,20 +665,119 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
 
         const savedKtm = localStorage.getItem('lottery_ktm_entry');
         const savedIphone = localStorage.getItem('lottery_iphone_entry');
-        if (savedKtm) setKtmEntry(parseInt(savedKtm));
-        if (savedIphone) setIphoneEntry(parseInt(savedIphone));
+        const savedTimeStr = localStorage.getItem('lottery_timestamp');
+
+        // Reset Logic
+        const checkReset = () => {
+            // If no timestamp, force reset (Legacy Logic Removal as requested)
+            if (!savedTimeStr && (savedKtm || savedIphone)) {
+                localStorage.removeItem('lottery_ktm_entry');
+                localStorage.removeItem('lottery_iphone_entry');
+                setKtmEntry(null);
+                setIphoneEntry(null);
+                return;
+            }
+
+            if (savedTimeStr) {
+                const savedTime = parseInt(savedTimeStr);
+                // Calculate Last Sunday 9:00 PM (21:00)
+                const now = getCurrentTime();
+                const day = now.getDay(); // 0 is Sunday
+                const diffToSunday = day === 0 ? 0 : day;
+                // If today is Sunday, we need to check if we passed 9 PM.
+                // If passed 9 PM, the 'reset point' is today 9 PM.
+                // If before 9 PM, the 'reset point' was LAST Sunday 9 PM.
+
+                // Simpler approach: Get the most recent "Sunday 9 PM" that happened in the past.
+                // Create date for 'Today 9 PM'
+                let resetPoint = getCurrentTime();
+                resetPoint.setHours(21, 0, 0, 0);
+
+                // If today is NOT Sunday, go back to last Sunday
+                if (day !== 0) {
+                    resetPoint.setDate(resetPoint.getDate() - day);
+                } else {
+                    // Today IS Sunday.
+                    // If now < 9 PM, then the reset point was actually LAST week's Sunday 9 PM.
+                    if (now.getTime() < resetPoint.getTime()) {
+                        resetPoint.setDate(resetPoint.getDate() - 7);
+                    }
+                    // If now > 9 PM, then reset point is today 9 PM.
+                }
+
+                // Logic: If savedTime is BEFORE the resetPoint, it means it's old -> Clear it.
+                if (savedTime < resetPoint.getTime()) {
+                    console.log("Weekly Reset: Clearing old entries.");
+                    localStorage.removeItem('lottery_ktm_entry');
+                    localStorage.removeItem('lottery_iphone_entry');
+                    localStorage.removeItem('lottery_timestamp');
+                    setKtmEntry(null);
+                    setIphoneEntry(null);
+                    return;
+                }
+            }
+
+            // If not cleared, set state
+            if (savedKtm) setKtmEntry(parseInt(savedKtm));
+            if (savedIphone) setIphoneEntry(parseInt(savedIphone));
+        };
+
+        checkReset();
     }, []);
 
     const handleJoinKTM = async () => {
-        const luckyNumber = Math.floor(Math.random() * 100000) + 1;
-        setKtmEntry(luckyNumber);
-        localStorage.setItem('lottery_ktm_entry', luckyNumber.toString());
+        const timeCheck = checkLotteryTimeRestriction();
+        if (!timeCheck.allowed) {
+            alert(timeCheck.message);
+            return;
+        }
+
+        try {
+            // Generate unique code
+            const luckyNumber = Math.floor(Math.random() * 900000) + 100000;
+
+            // Save to Firestore
+            await addDoc(collection(db, 'sunday_lottery_participants'), {
+                code: luckyNumber,
+                prize: 'KTM',
+                joinedAt: Timestamp.now(),
+            });
+            console.log('Processed new KTM entry:', luckyNumber);
+
+            setKtmEntry(luckyNumber);
+            localStorage.setItem('lottery_ktm_entry', luckyNumber.toString());
+            localStorage.setItem('lottery_timestamp', getCurrentTime().getTime().toString());
+        } catch (error) {
+            console.error("Error joining KTM lottery:", error);
+            alert("Failed to join. Please check your internet connection.");
+        }
     };
 
     const handleJoinIPhone = async () => {
-        const luckyNumber = Math.floor(Math.random() * 100000) + 1;
-        setIphoneEntry(luckyNumber);
-        localStorage.setItem('lottery_iphone_entry', luckyNumber.toString());
+        const timeCheck = checkLotteryTimeRestriction();
+        if (!timeCheck.allowed) {
+            alert(timeCheck.message);
+            return;
+        }
+
+        try {
+            const luckyNumber = Math.floor(Math.random() * 900000) + 100000;
+
+            // Save to Firestore
+            await addDoc(collection(db, 'sunday_lottery_participants'), {
+                code: luckyNumber,
+                prize: 'iPhone',
+                joinedAt: Timestamp.now(),
+            });
+            console.log('Processed new iPhone entry:', luckyNumber);
+
+            setIphoneEntry(luckyNumber);
+            localStorage.setItem('lottery_iphone_entry', luckyNumber.toString());
+            localStorage.setItem('lottery_timestamp', getCurrentTime().getTime().toString());
+        } catch (error) {
+            console.error("Error joining iPhone lottery:", error);
+            alert("Failed to join. Please check your internet connection.");
+        }
     };
 
     const handleViewDraw = (selectedPrize: 'iPhone' | 'KTM') => {
