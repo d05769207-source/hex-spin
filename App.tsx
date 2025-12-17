@@ -684,6 +684,20 @@ const App: React.FC = () => {
     }
     // END Super Mode Handling
 
+    // CHECK LEVEL UP
+    const oldLevel = calculateLevel(totalSpinsRef.current - count); // Estimate old level based on pre-spin count
+    const newLevel = finalWinningsUpdates.level;
+
+    if (newLevel > oldLevel) {
+      console.log(`🎉 Level Up Detected: ${oldLevel} -> ${newLevel}. Sending Reward Mail...`);
+      // Dynamic import to avoid cycles or ensure service availability
+      import('./services/mailboxService').then(({ createLevelUpRewardMessage }) => {
+        if (user?.id) {
+          createLevelUpRewardMessage(user.id, newLevel);
+        }
+      });
+    }
+
     // 🔥 IMMEDIATE SAVE: Save winnings and stats
     saveUserProgress(finalWinningsUpdates);
 

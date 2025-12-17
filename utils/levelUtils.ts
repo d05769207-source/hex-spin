@@ -1,56 +1,34 @@
-
 // Level System Configuration
-// Level 1: 0 spins
-// Level 2: 50 spins
-// Level 3: 80 spins
-// Level 4: 100 spins
-// Level 5: 200 spins
-// Level 20: ~1100 spins
-// Level 100: ~21000 spins
+// Level 1: 10 spins
+// Level 10: 1000 spins
+// Level 50: 25,000 spins
+// Level 100: 100,000 spins
 
-// Formula for Level >= 5: Spins = 2 * L^2 + 10 * L + 100
-// L5 = 2(25) + 50 + 100 = 200
-// L20 = 2(400) + 200 + 100 = 1100
-// L100 = 2(10000) + 1000 + 100 = 21100
-
-const EARLY_LEVELS: { [key: number]: number } = {
-    1: 0,
-    2: 50,
-    3: 80,
-    4: 100,
-};
+// Formula: Spins = 10 * Level^2
 
 export const calculateLevel = (totalSpins: number): number => {
-    // Check early levels first
-    if (totalSpins < 50) return 1;
-    if (totalSpins < 80) return 2;
-    if (totalSpins < 100) return 3;
-    if (totalSpins < 200) return 4;
+    if (totalSpins < 10) return 1;
 
-    // For Level 5 and above, we need to solve the quadratic equation for L:
-    // 2L^2 + 10L + (100 - Spins) = 0
-    // ax^2 + bx + c = 0
-    // a = 2, b = 10, c = 100 - Spins
-    // L = (-b + sqrt(b^2 - 4ac)) / 2a
+    // Formula: Level = sqrt(Spins / 10)
+    const level = Math.sqrt(totalSpins / 10);
 
-    const a = 2;
-    const b = 10;
-    const c = 100 - totalSpins;
-
-    const discriminant = b * b - 4 * a * c;
-
-    if (discriminant < 0) return 4; // Should not happen if spins >= 200
-
-    const level = (-b + Math.sqrt(discriminant)) / (2 * a);
-
+    // Cap at 100 if needed, or let it grow indefinitely? 
+    // User mentioned "100 level jane me", implying 100 is a soft cap or goal.
+    // For now, simple calculation.
     return Math.floor(level);
 };
 
 export const getSpinsForLevel = (level: number): number => {
-    if (level <= 1) return 0;
-    if (level <= 4) return EARLY_LEVELS[level];
+    if (level <= 1) return 0; // Level 1 starts at 0
+    // Actually, usually "Spins needed to reach Level X".
+    // If Level 1 is start, you need 0 spins.
+    // To reach Level 2 (from 1), you need spins.
 
-    return 2 * (level * level) + 10 * level + 100;
+    // Let's stick to the curve:
+    // Reach Level 2: 10 * 2^2 = 40 spins?
+    // Reach Level 100: 10 * 100^2 = 100,000 spins.
+
+    return 10 * (level * level);
 };
 
 export const getLevelProgress = (totalSpins: number) => {
@@ -75,4 +53,19 @@ export const getLevelProgress = (totalSpins: number) => {
         progress,
         totalSpins
     };
+};
+
+export const getLevelReward = (level: number): number => {
+    if (level <= 0) return 0;
+    if (level === 100) return 0; // Mystery Box, handled separately or manual claim? For now 0 e-tokens automatically.
+
+    // Formula from Profile.tsx:
+    // Level 1 = 10, Level 99 = 1000
+    // Linear interpolation: y = 10.102 * (x - 1) + 10
+
+    let tokens = Math.floor(10.10204 * (level - 1) + 10);
+
+    if (level === 99) tokens = 1000;
+
+    return tokens;
 };

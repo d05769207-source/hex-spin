@@ -367,13 +367,46 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
   // Generate levels data
   const levels = Array.from({ length: 100 }, (_, i) => {
     const level = i + 1;
-    let reward = '10 Coins';
-    if (level % 10 === 0) reward = '100 Coins';
-    if (level % 5 === 0 && level % 10 !== 0) reward = '50 Coins';
-    if (level === 100) reward = '1000 Coins + Trophy';
+    let reward = '';
+
+    if (level === 100) {
+      reward = 'Biggest Mystery Box ?';
+    } else {
+      // Logic: Level 1 = 10, Level 99 = 1000
+      // Formula: 10 + ((level - 1) * (990 / 98)) -> approx 10 per level
+      // Simplify: 10 * level? Level 1=10, Level 99=990. Close enough to 1000.
+      // Let's make Level 99 exactly 1000 for cleaner look.
+
+      const eTokens = Math.round(level * 10.1); // slightly more than 10 to reach 1000
+      // Manual adjustment for cleaner numbers if needed, but let's stick to user request roughly
+      // User said: "level 1 me 10 e token ... 99 level tak aapko 1k e token adjust karne hai"
+
+      // Let's use a linear interpolation:
+      // y = mx + c
+      // (1, 10), (99, 1000)
+      // m = (1000 - 10) / (99 - 1) = 990 / 98 = 10.102...
+      // y = 10.102 * (x - 1) + 10
+
+      let tokens = Math.floor(10.10204 * (level - 1) + 10);
+
+      // Round to nearest 5 or 10 for cleaner look?
+      // User didn't specify, but cleaner numbers look better. 
+      // Let's just give exact calculated integer for now as requested "adjust karne hai"
+
+      // Override for Level 99 to ensure it hits 1000 exactly due to rounding
+      if (level === 99) tokens = 1000;
+
+      reward = `${tokens} E-Tokens`;
+    }
 
     return { level, reward };
   });
+
+  const formatRank = (rank: number) => {
+    if (rank <= 0) return '-';
+    if (rank < 1000) return `#${rank}`;
+    return `#${(rank / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  };
 
   return (
     <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 relative">
@@ -558,7 +591,7 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                 </div>
                 <div className="flex flex-col items-end">
                   <span className="text-yellow-400 font-bold text-xs">
-                    {userRank > 0 ? `#${userRank}` : '-'}
+                    {formatRank(userRank)}
                   </span>
                   <span className="text-gray-500 text-[8px] uppercase tracking-wider">Rank</span>
                 </div>
@@ -571,11 +604,11 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
           <div className="grid grid-cols-2 gap-3 mb-6" onClick={() => setShowSettings(false)}>
             <div className="bg-gray-900/60 border border-yellow-500/20 rounded-xl p-3 flex items-center justify-between">
               <div className="flex flex-col">
-                <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Coins</span>
-                <span className="text-yellow-400 font-bold text-xl drop-shadow-sm">{coins.toLocaleString()}</span>
+                <span className="text-gray-400 text-[10px] uppercase tracking-wider">Total Spins</span>
+                <span className="text-yellow-400 font-bold text-xl drop-shadow-sm">{(user?.totalSpins || 0).toLocaleString()}</span>
               </div>
               <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center border border-yellow-500/30">
-                <span className="text-lg">💰</span>
+                <RefreshCw size={18} className="text-yellow-500" />
               </div>
             </div>
             <div className="bg-gray-900/60 border border-green-500/20 rounded-xl p-3 flex items-center justify-between">
@@ -675,17 +708,24 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                         w-8 h-8 rounded-md flex items-center justify-center
                         ${isCurrent ? 'bg-red-500/20 text-red-400' : isCompleted ? 'bg-gray-800 text-gray-600' : 'bg-white/5 text-gray-500'}
                       `}>
-                        {item.level === 100 ? <Trophy size={14} /> : <span className="text-sm">🎁</span>}
+                        {item.level === 100 ? <Trophy size={14} /> : <EToken size={14} />}
                       </div>
                       <div className="flex flex-col">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${isCurrent ? 'text-green-400' : 'text-gray-400'}`}>
-                          {isCurrent ? 'Auto Claim' : 'Reward'}
+                        <span className={`text-[10px] font-bold uppercase tracking-wider text-gray-400`}>
+                          Reward
                         </span>
                         <span className={`text-xs font-black ${isCurrent ? 'text-red-400' : 'text-gray-500'}`}>
                           {item.reward}
                         </span>
                       </div>
                     </div>
+
+                    {/* Claimed Badge */}
+                    {(isCurrent || isCompleted) && (
+                      <div className="absolute top-0 right-0 bg-green-500/20 text-green-400 text-[8px] font-black px-2 py-0.5 rounded-bl-lg border-l border-b border-green-500/30 uppercase tracking-widest shadow-sm">
+                        Claimed
+                      </div>
+                    )}
 
                     {isLocked && <Lock size={12} className="text-gray-700" />}
                   </div>

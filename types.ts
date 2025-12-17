@@ -128,6 +128,7 @@ export interface RealUserStats {
 // Mailbox Message Types
 export enum MessageType {
   WEEKLY_REWARD = 'WEEKLY_REWARD',
+  LEVEL_REWARD = 'LEVEL_REWARD',
   NOTICE = 'NOTICE',
   SYSTEM = 'SYSTEM'
 }

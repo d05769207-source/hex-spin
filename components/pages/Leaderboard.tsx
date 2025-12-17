@@ -435,6 +435,11 @@ const Leaderboard: React.FC = () => {
   ];
 
 
+  const formatRank = (rank: number) => {
+    if (rank <= 0) return '-';
+    if (rank < 1000) return rank.toString();
+    return `${(rank / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  };
 
   return (
     <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 pb-24 md:pb-0 relative">
@@ -447,10 +452,10 @@ const Leaderboard: React.FC = () => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex bg-white/5 backdrop-blur-md rounded-full p-1 border border-white/20 mb-4">
+      <div className="flex w-fit mx-auto bg-black/40 backdrop-blur-md rounded-full p-1 border border-white/20 mb-4">
         <button
           onClick={() => setActiveTab('PRIZE')}
-          className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'PRIZE'
+          className={`w-24 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center ${activeTab === 'PRIZE'
             ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
             : 'text-gray-300 hover:text-white'
             }`}
@@ -459,7 +464,7 @@ const Leaderboard: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('WEEKLY')}
-          className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'WEEKLY'
+          className={`w-24 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center ${activeTab === 'WEEKLY'
             ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20'
             : 'text-gray-300 hover:text-white'
             }`}
@@ -468,7 +473,7 @@ const Leaderboard: React.FC = () => {
         </button>
         <button
           onClick={() => setActiveTab('FRIENDS')}
-          className={`flex-1 px-3 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${activeTab === 'FRIENDS'
+          className={`w-24 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center ${activeTab === 'FRIENDS'
             ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20'
             : 'text-gray-300 hover:text-white'
             }`}
@@ -588,7 +593,7 @@ const Leaderboard: React.FC = () => {
                           {/* Styled Rank Text - Fixed Width (w-9) & Left Aligned - Smaller text */}
                           <div className="w-9 flex items-center justify-start gap-[1px]">
                             <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>#</span>
-                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{player.rank}</span>
+                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{formatRank(player.rank)}</span>
                           </div>
 
                           {/* User Photo */}
@@ -724,7 +729,7 @@ const Leaderboard: React.FC = () => {
                         <div className="flex items-center gap-1.5 mr-2">
                           <div className="w-9 flex items-center justify-start gap-[1px]">
                             <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>#</span>
-                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{player.rank}</span>
+                            <span className={`text-base font-bold italic transform -rotate-2 tracking-normal ${rankColor} drop-shadow-[1px_1px_1px_rgba(0,0,0,0.8)]`} style={{ fontFamily: 'sans-serif' }}>{formatRank(player.rank)}</span>
                           </div>
 
                           <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full p-[1px] ${rankBg} overflow-hidden shadow-lg flex-shrink-0`}>
@@ -807,7 +812,7 @@ const Leaderboard: React.FC = () => {
 
               const lower = Math.floor((r - 1) / gap) * gap + 1;
               const upper = lower + gap - 1;
-              return `Top ${lower}-${upper}`;
+              return `Top ${formatRank(lower)}-${formatRank(upper)}`;
             })();
 
             const rankTextClass = isFriends ? 'text-sky-400' : 'text-yellow-400';

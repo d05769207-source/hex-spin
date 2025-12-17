@@ -272,3 +272,41 @@ export const createNoticeMessage = async (
         throw error;
     }
 };
+
+/**
+ * Create a level up reward message
+ */
+export const createLevelUpRewardMessage = async (
+    userId: string,
+    level: number
+): Promise<string> => {
+    try {
+        const { getLevelReward } = await import('../utils/levelUtils');
+        const eTokensEarned = getLevelReward(level);
+
+        if (eTokensEarned <= 0) return '';
+
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        const message: any = {
+            userId,
+            type: MessageType.LEVEL_REWARD,
+            title: '🎉 Level Up Reward!',
+            description: `Level ${level} Reward: ${eTokensEarned} E-Tokens`,
+            createdAt: Timestamp.now(),
+            expiresAt: Timestamp.fromDate(expiresAt),
+            status: MessageStatus.UNREAD,
+            rewardType: 'E_TOKEN',
+            rewardAmount: eTokensEarned,
+            isExpired: false
+        };
+
+        const docRef = await addDoc(collection(db, 'mailbox'), message);
+        console.log(`✅ Level ${level} reward message created for user ${userId}`);
+        return docRef.id;
+    } catch (error) {
+        console.error('❌ Error creating level up reward message:', error);
+        return '';
+    }
+};

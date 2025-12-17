@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Mail, Bell, Clock, Gift, CheckCircle, Loader } from 'lucide-react';
+import { ArrowLeft, Mail, Bell, Clock, Gift, CheckCircle, Loader, Trophy } from 'lucide-react';
 import { User, MailboxMessage, MessageType, MessageStatus } from '../../types';
 import { getUserMessages, claimMessage, markMessageAsRead } from '../../services/mailboxService';
 import EToken from '../EToken';
@@ -19,11 +19,6 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
     const [claiming, setClaiming] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-    const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
-        setToast({ message, type });
-        setTimeout(() => setToast(null), 3000);
-    };
-
     // Load messages on mount and when user changes
     useEffect(() => {
         if (user && !user.isGuest) {
@@ -33,18 +28,23 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
         }
     }, [user]);
 
-    const loadMessages = async (silent = false) => {
+    const loadMessages = async () => {
         if (!user || user.isGuest) return;
 
-        if (!silent) setLoading(true);
+        setLoading(true);
         try {
             const fetchedMessages = await getUserMessages(user.id);
             setMessages(fetchedMessages);
         } catch (error) {
             console.error('Error loading messages:', error);
         } finally {
-            if (!silent) setLoading(false);
+            setLoading(false);
         }
+    };
+
+    const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
     };
 
     const handleClaimReward = async (message: MailboxMessage) => {
@@ -56,18 +56,17 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
 
             if (result.success) {
                 // Show success feedback via Toast
-                showNotification(`🎉 Claimed ${result.rewardAmount} ${result.rewardType}!`, 'success');
+                showNotification(`Reward Claimed`, 'success');
 
                 // Notify parent component to update balance
                 if (onRewardClaimed) {
                     onRewardClaimed(result.rewardAmount, result.rewardType);
                 }
 
-                // OPTIMISTIC UPDATE: Remove message locally immediately
-                setMessages(prev => prev.filter(m => m.id !== message.id));
-
-                // Reload messages silently to sync state
-                await loadMessages(true);
+                // Optimistic Update: Update local state immediately to remove item seamlessly
+                setMessages(prev => prev.map(m =>
+                    m.id === message.id ? { ...m, status: MessageStatus.CLAIMED } : m
+                ));
             }
         } catch (error: any) {
             showNotification(`Failed to claim: ${error.message}`, 'error');
@@ -103,11 +102,11 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
         }
     };
 
-    const inboxMessages = messages.filter(m => m.type === MessageType.WEEKLY_REWARD && m.status !== MessageStatus.CLAIMED);
+    const inboxMessages = messages.filter(m => (m.type === MessageType.WEEKLY_REWARD || m.type === MessageType.LEVEL_REWARD) && m.status !== MessageStatus.CLAIMED);
     const noticeMessages = messages.filter(m => m.type === MessageType.NOTICE || m.type === MessageType.SYSTEM);
 
     return (
-        <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300">
+        <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 relative">
 
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
@@ -126,10 +125,10 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
             </div>
 
             {/* Tabs */}
-            <div className="flex bg-black/40 rounded-full p-1 border border-white/10 mb-6">
+            <div className="flex w-fit mx-auto bg-black/40 rounded-full p-1 border border-white/10 mb-6">
                 <button
                     onClick={() => setActiveTab('INBOX')}
-                    className={`flex-1 px-4 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'INBOX'
+                    className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'INBOX'
                         ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20'
                         : 'text-gray-400 hover:text-white'
                         }`}
@@ -144,7 +143,7 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                 </button>
                 <button
                     onClick={() => setActiveTab('NOTICE')}
-                    className={`flex-1 px-4 py-2 rounded-full text-sm font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'NOTICE'
+                    className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'NOTICE'
                         ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20'
                         : 'text-gray-400 hover:text-white'
                         }`}
@@ -160,7 +159,7 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto pb-20">
+            <div className="flex-1 overflow-y-auto pb-20 scrollbar-hide">
                 {loading ? (
                     <div className="flex flex-col items-center justify-center h-64 gap-4">
                         <Loader className="animate-spin text-yellow-500" size={32} />
@@ -172,13 +171,13 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                         {activeTab === 'INBOX' && (
                             <div className="space-y-3">
                                 {inboxMessages.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-64 gap-4">
+                                    <div className="flex flex-col items-center justify-center h-64 gap-4 animate-in fade-in duration-500">
                                         <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center">
                                             <Mail size={32} className="text-gray-600" />
                                         </div>
                                         <p className="text-gray-400 text-sm">No rewards to claim</p>
                                         <p className="text-gray-600 text-xs text-center max-w-xs">
-                                            Weekly rewards will appear here after the weekly reset
+                                            Rewards will appear here
                                         </p>
                                     </div>
                                 ) : (
@@ -186,83 +185,57 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                                         <div
                                             key={message.id}
                                             onClick={() => handleMarkAsRead(message)}
-                                            className={`bg-gradient-to-br from-yellow-900/20 to-orange-900/20 border-2 ${message.status === MessageStatus.UNREAD
-                                                ? 'border-yellow-500/50'
-                                                : 'border-white/10'
-                                                } rounded-xl p-4 relative overflow-hidden cursor-pointer hover:border-yellow-500/70 transition-all`}
+                                            className={`bg-gradient-to-r from-gray-900/90 to-black/90 border border-white/10 rounded-xl p-3 relative overflow-hidden flex items-center gap-3 animate-in slide-in-from-bottom duration-300`}
                                         >
-                                            {/* Background glow */}
-                                            <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
-
                                             {/* Unread indicator */}
                                             {message.status === MessageStatus.UNREAD && (
-                                                <div className="absolute top-3 right-3 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                                                <div className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse z-20" />
                                             )}
 
-                                            <div className="relative z-10">
-                                                {/* Icon and Title */}
-                                                <div className="flex items-start gap-3 mb-3">
-                                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center flex-shrink-0 shadow-lg">
-                                                        <Gift size={24} className="text-white" />
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <h3 className="text-white font-black text-base mb-1">
-                                                            {message.title}
-                                                        </h3>
-                                                        <p className="text-gray-300 text-xs leading-relaxed">
-                                                            {message.description}
-                                                        </p>
+                                            {/* Left: Icon */}
+                                            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 flex items-center justify-center flex-shrink-0 p-1">
+                                                <EToken size={24} />
+                                            </div>
+
+                                            {/* Middle: Content */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-0.5">
+                                                    <h3 className="text-white font-bold text-sm truncate">
+                                                        {message.title}
+                                                    </h3>
+                                                    {/* Timer Badge */}
+                                                    <div className="flex items-center gap-1 bg-white/5 px-1.5 py-0.5 rounded text-[10px] text-gray-400">
+                                                        <Clock size={10} />
+                                                        <span>{getTimeRemaining(message.expiresAt)}</span>
                                                     </div>
                                                 </div>
-
-                                                {/* Reward Display */}
-                                                <div className="bg-black/30 rounded-lg p-3 mb-3 border border-white/10">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-gray-400 text-xs uppercase tracking-wider">Reward</span>
-                                                        <div className="flex items-center gap-2">
-                                                            {message.rewardType === 'E_TOKEN' && <EToken size={20} />}
-                                                            <span className="text-yellow-400 font-black text-lg">
-                                                                {message.rewardAmount}
-                                                            </span>
-                                                            <span className="text-gray-400 text-xs">
-                                                                {message.rewardType === 'E_TOKEN' ? 'E-Token' : message.rewardType}
-                                                            </span>
-                                                        </div>
-                                                    </div>
+                                                <div className="flex items-center gap-1.5 text-xs text-gray-400">
                                                     {message.sourceCoins && (
-                                                        <p className="text-gray-500 text-xs mt-2">
-                                                            Converted from {message.sourceCoins.toLocaleString()} coins
-                                                        </p>
+                                                        <>
+                                                            <span>{(message.sourceCoins / 1000).toFixed(0)}k Coins</span>
+                                                            <ArrowLeft size={10} className="text-gray-600 rotate-180" />
+                                                        </>
                                                     )}
-                                                </div>
-
-                                                {/* Expiry Timer */}
-                                                <div className="flex items-center gap-2 mb-3">
-                                                    <Clock size={14} className="text-orange-400" />
-                                                    <span className="text-orange-400 text-xs font-bold">
-                                                        {getTimeRemaining(message.expiresAt)}
+                                                    <span className="text-yellow-400 font-bold flex items-center gap-1">
+                                                        {message.rewardAmount} {message.rewardType === 'E_TOKEN' ? 'E-Token' : message.rewardType}
                                                     </span>
                                                 </div>
+                                            </div>
 
-                                                {/* Claim Button */}
+                                            {/* Right: Claim Button */}
+                                            <div className="flex-shrink-0">
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         handleClaimReward(message);
                                                     }}
                                                     disabled={claiming === message.id}
-                                                    className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-black py-3 rounded-lg uppercase tracking-wider text-sm shadow-lg shadow-green-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                                    className="bg-yellow-500 hover:bg-yellow-400 text-black font-black text-xs px-4 py-2 rounded-lg uppercase tracking-wider shadow-lg shadow-yellow-500/20 disabled:opacity-50 disabled:grayscale transition-all flex items-center gap-1"
                                                 >
                                                     {claiming === message.id ? (
-                                                        <>
-                                                            <Loader className="animate-spin" size={16} />
-                                                            Claiming...
-                                                        </>
+                                                        <Loader size={14} className="animate-spin" />
                                                     ) : (
-                                                        <>
-                                                            <CheckCircle size={16} />
-                                                            Claim Reward
-                                                        </>
+                                                        'Claim'
                                                     )}
                                                 </button>
                                             </div>
@@ -276,7 +249,7 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                         {activeTab === 'NOTICE' && (
                             <div className="space-y-3">
                                 {noticeMessages.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-64 gap-4">
+                                    <div className="flex flex-col items-center justify-center h-64 gap-4 animate-in fade-in duration-500">
                                         <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center">
                                             <Bell size={32} className="text-gray-600" />
                                         </div>
@@ -293,7 +266,7 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                                             className={`bg-gray-900/60 border ${message.status === MessageStatus.UNREAD
                                                 ? 'border-cyan-500/50'
                                                 : 'border-white/10'
-                                                } rounded-xl p-4 relative cursor-pointer hover:bg-gray-900/80 transition-all`}
+                                                } rounded-xl p-4 relative cursor-pointer hover:bg-gray-900/80 transition-all animate-in slide-in-from-bottom duration-300`}
                                         >
                                             {/* Unread indicator */}
                                             {message.status === MessageStatus.UNREAD && (
@@ -324,26 +297,24 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                     </>
                 )}
             </div>
-        </div>
 
-            {/* Toast Notification */ }
-    {
-        toast && (
-            <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-50 w-[90%] max-w-sm">
-                <div className={`
-                        px-4 py-3 rounded-xl shadow-2xl backdrop-blur-md border border-white/10
-                        flex items-center gap-3 animate-in slide-in-from-bottom-5 fade-in duration-300
-                        ${toast.type === 'success' ? 'bg-black/80 text-green-400' : 'bg-black/80 text-red-400'}
-                    `}>
-                    <div className={`p-1.5 rounded-full ${toast.type === 'success' ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-                        {toast.type === 'success' ? <CheckCircle size={16} /> : <ArrowLeft size={16} className="rotate-180" />}
+            {/* Toast Notification - Compact & Centered */}
+            {toast && (
+                <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-300 animate-in slide-in-from-bottom-5 fade-in w-auto">
+                    <div className={`flex items-center gap-2 px-4 py-2 rounded-full border shadow-2xl backdrop-blur-md ${toast.type === 'success'
+                        ? 'bg-black/80 border-green-500/30 text-green-400'
+                        : 'bg-black/80 border-red-500/30 text-red-400'
+                        }`}>
+                        {toast.type === 'success' ? (
+                            <CheckCircle size={14} className="flex-shrink-0" />
+                        ) : (
+                            <ArrowLeft size={14} className="rotate-180 flex-shrink-0" />
+                        )}
+                        <span className="text-xs font-bold whitespace-nowrap">{toast.message}</span>
                     </div>
-                    <span className="font-bold text-sm tracking-wide">{toast.message}</span>
                 </div>
-            </div>
-        )
-    }
-        </div >
+            )}
+        </div>
     );
 };
 
