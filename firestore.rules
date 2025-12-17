@@ -31,6 +31,14 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    // Mailbox system - users can read/write their own messages
+    match /mailbox/{messageId} {
+      allow read, write: if request.auth != null && 
+                            request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && 
+                       request.auth.uid == request.resource.data.userId;
+    }
+
     // Allow participants to join the lottery (Sunday Lottery)
     match /sunday_lottery_participants/{document=**} {
       allow read, write: if true;

@@ -35,11 +35,20 @@ interface JoiningViewProps {
     eventData: LotteryEventData | null;
 }
 
+// ... (imports remain same)
+
+// ... (interfaces remain same)
+
 const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoinKTM, onJoinIPhone, onViewDraw, eventData }) => {
     const [timeUntilDraw, setTimeUntilDraw] = useState('');
+    const [isRestricted, setIsRestricted] = useState(false);
 
     useEffect(() => {
         const updateCountdown = () => {
+            // Check Restriction
+            const restriction = checkLotteryTimeRestriction();
+            setIsRestricted(!restriction.allowed);
+
             if (!eventData) return;
 
             const now = getCurrentTime();
@@ -49,11 +58,9 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
             const ktmStart = eventData.ktm_start.toDate();
 
             let targetDate = iphoneStart;
-            let label = "iPhone Draw";
 
             if (now > iphoneStart && now < ktmStart) {
                 targetDate = ktmStart;
-                label = "KTM Draw";
             } else if (now > ktmStart) {
                 // Next week
                 targetDate = new Date(iphoneStart);
@@ -109,8 +116,8 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                             <div className="flex items-center gap-2 mb-1">
                                 <span className="text-xs font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded text-[10px]">7:00 PM</span>
                             </div>
-                            <h3 className="text-lg font-black text-white leading-tight">Win iPhone 15</h3>
-                            <p className="text-[10px] text-indigo-200/70 truncate">Pro Max 256GB Titanium</p>
+                            <h3 className="text-lg font-black text-white leading-tight">iPhone Token</h3>
+                            <p className="text-[10px] text-indigo-200/70 truncate">Value: ₹1,49,000</p>
 
                             {iphoneEntry ? (
                                 <div className="mt-2 flex flex-col gap-2">
@@ -123,33 +130,36 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                                     <button
                                         onClick={() => onViewDraw('iPhone')}
                                         disabled={eventData?.status !== 'LIVE_IPHONE' && eventData?.status !== 'LIVE_KTM' && eventData?.status !== 'ENDED'}
-                                        // Allow view if LIVE or ENDED (to see results), but specifically user asked for 'LIVE' to view draw. 
-                                        // Actually, if it's ENDED, we might want to allow viewing results too.
-                                        // User logic: "jab live ho tab hi view drow ka option aaye"
-                                        // Let's stick strictly to what user asked: Only if LIVE.
-                                        // But wait, if iphone draw is over (LIVE_KTM), they might still want to see iphone winner?
-                                        // Let's enable it if status is LIVE_IPHONE for now.
-                                        // If status is LIVE_KTM, iPhone is arguably 'done', but maybe we still allow viewing?
-                                        // The user's complaint is about "draw starts". 
-                                        // Let's simply change the text and action:
-                                        // If LIVE_IPHONE -> Active "VIEW LIVE DRAW"
-                                        // If ENDED or Past -> "VIEW WINNER" (maybe)
-                                        // If WAITING -> "COMING SOON"
                                         className={`w-full text-[10px] font-bold py-1.5 rounded border transition-all ${eventData?.status === 'LIVE_IPHONE'
-                                            ? 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30 cursor-pointer animate-pulse'
+                                            ? 'bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border-indigo-500/30 cursor-pointer shadow-indigo-500/50'
                                             : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
                                             }`}
                                     >
-                                        {eventData?.status === 'LIVE_IPHONE' ? '● VIEW LIVE DRAW' : 'COMING SOON'}
+                                        {eventData?.status === 'LIVE_IPHONE' ? '● VIEW LIVE DRAW' : 'STARTING SOON'}
                                     </button>
                                 </div>
                             ) : (
-                                <button
-                                    onClick={onJoinIPhone}
-                                    className="mt-2 w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 rounded shadow-lg shadow-indigo-900/20 transition-all active:scale-95"
-                                >
-                                    Join for Free
-                                </button>
+                                isRestricted ? (
+                                    <button
+                                        onClick={() => {
+                                            if (eventData?.status === 'LIVE_IPHONE') onViewDraw('iPhone');
+                                        }}
+                                        disabled={eventData?.status !== 'LIVE_IPHONE'}
+                                        className={`mt-2 w-full text-white text-xs font-bold py-2 rounded shadow-lg transition-all ${eventData?.status === 'LIVE_IPHONE'
+                                            ? 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-indigo-500/50'
+                                            : 'bg-gray-700 cursor-not-allowed opacity-70'
+                                            }`}
+                                    >
+                                        {eventData?.status === 'LIVE_IPHONE' ? '● WATCH LIVE' : '⛔ ENTRIES CLOSED'}
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={onJoinIPhone}
+                                        className="mt-2 w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 rounded shadow-lg shadow-indigo-900/20 transition-all active:scale-95"
+                                    >
+                                        Join for Free
+                                    </button>
+                                )
                             )}
                         </div>
                         <div className="w-16 h-16 flex-shrink-0 drop-shadow-2xl">
@@ -166,8 +176,8 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                             <div className="flex items-center gap-2 mb-1">
                                 <span className="text-xs font-bold text-orange-300 bg-orange-500/10 px-2 py-0.5 rounded text-[10px]">8:00 PM</span>
                             </div>
-                            <h3 className="text-lg font-black text-white leading-tight">Win KTM RC</h3>
-                            <p className="text-[10px] text-orange-200/70 truncate">RC 390 GP Edition</p>
+                            <h3 className="text-lg font-black text-white leading-tight">KTM Token</h3>
+                            <p className="text-[10px] text-orange-200/70 truncate">Value: ₹3,40,000</p>
 
                             {ktmEntry ? (
                                 <div className="mt-2 flex flex-col gap-2">
@@ -181,20 +191,35 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
                                         onClick={() => onViewDraw('KTM')}
                                         disabled={eventData?.status !== 'LIVE_KTM'}
                                         className={`w-full text-[10px] font-bold py-1.5 rounded border transition-all ${eventData?.status === 'LIVE_KTM'
-                                            ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/30 cursor-pointer animate-pulse'
+                                            ? 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border-orange-500/30 cursor-pointer shadow-orange-500/50'
                                             : 'bg-gray-800/50 text-gray-500 border-gray-700 cursor-not-allowed'
                                             }`}
                                     >
-                                        {eventData?.status === 'LIVE_KTM' ? '● VIEW LIVE DRAW' : 'COMING SOON'}
+                                        {eventData?.status === 'LIVE_KTM' ? '● VIEW LIVE DRAW' : 'STARTING SOON'}
                                     </button>
                                 </div>
                             ) : (
-                                <button
-                                    onClick={onJoinKTM}
-                                    className="mt-2 w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white text-xs font-bold py-2 rounded shadow-lg shadow-orange-900/20 transition-all active:scale-95"
-                                >
-                                    Join for Free
-                                </button>
+                                isRestricted ? (
+                                    <button
+                                        onClick={() => {
+                                            if (eventData?.status === 'LIVE_KTM') onViewDraw('KTM');
+                                        }}
+                                        disabled={eventData?.status !== 'LIVE_KTM'}
+                                        className={`mt-2 w-full text-white text-xs font-bold py-2 rounded shadow-lg transition-all ${eventData?.status === 'LIVE_KTM'
+                                            ? 'bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 cursor-pointer shadow-orange-500/50'
+                                            : 'bg-gray-700 cursor-not-allowed opacity-70'
+                                            }`}
+                                    >
+                                        {eventData?.status === 'LIVE_KTM' ? '● WATCH LIVE' : '⛔ ENTRIES CLOSED'}
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={onJoinKTM}
+                                        className="mt-2 w-full bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white text-xs font-bold py-2 rounded shadow-lg shadow-orange-900/20 transition-all active:scale-95"
+                                    >
+                                        Join for Free
+                                    </button>
+                                )
                             )}
                         </div>
                         <div className="w-16 h-16 flex-shrink-0 drop-shadow-2xl">
@@ -547,6 +572,14 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
             const now = getCurrentTime();
             const { iphone_start, iphone_end, ktm_start, ktm_end, status, iphone_winner, ktm_winner } = eventData;
 
+            // SAFEGUARD: If event was updated less than 1 minute ago, DO NOT run automation checks.
+            // This prevents race conditions where Admin starts event and Client immediately kills it due to time mismatch.
+            const lastUpdate = eventData.last_updated?.toDate().getTime() || 0;
+            if (now.getTime() - lastUpdate < 60000) {
+                console.log("⏳ Automation Skipped: Recent Update detected");
+                return;
+            }
+
             const tIphoneStart = iphone_start.toDate();
             const tIphoneEnd = iphone_end.toDate();
             const tKtmStart = ktm_start.toDate();
@@ -793,14 +826,16 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
             onPointerLeave={handlePressEnd}
             onContextMenu={(e) => e.preventDefault()}
         >
-            <button
-                onClick={onBack}
-                className="absolute top-4 left-0 z-50 p-2 text-white/50 hover:text-white transition-colors"
-            >
-                ← Back to Events
-            </button>
+            {eventState === 'JOINING' && (
+                <button
+                    onClick={onBack}
+                    className="absolute top-4 left-4 z-50 flex items-center justify-center w-8 h-8 bg-black/40 backdrop-blur-md border border-white/10 rounded-full text-gray-300 hover:bg-white/10 hover:text-white transition-all shadow-lg"
+                >
+                    <span className="text-sm font-bold">←</span>
+                </button>
+            )}
 
-            <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden min-h-[600px] flex flex-col mt-8">
+            <div className="bg-black/40 backdrop-blur-md rounded-2xl border border-white/5 shadow-2xl overflow-hidden min-h-[600px] flex flex-col mt-2">
                 {eventState === 'JOINING' && (
                     <JoiningView
                         ktmEntry={ktmEntry}

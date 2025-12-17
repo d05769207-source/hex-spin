@@ -1,94 +1,49 @@
-A problem was found with the configuration of task ':app:processDebugMainManifest' (type 'ProcessApplicationManifest').
-  - In plugin 'com.android.internal.version-check' type 'com.android.build.gradle.tasks.ProcessApplicationManifest' property 'mainManifest' specifies file 'C:\Users\Jay Kumar\Desktop\copy-of-hexfire-royal-spin-new-11\android\app\src\main\AndroidManifest.xml' which doesn't exist.
-    
-    Reason: An input file was expected to be present but it doesn't exist.
-    
-    Possible solutions:
-      1. Make sure the file exists before the task is called.
-      2. Make sure that the task which produces the file is declared as an input.
-    
-    For more information, please refer to https://docs.gradle.org/8.13/userguide/validation_problems.html#input_file_does_not_exist in the Gradle documentation.
+installHook.js:1 ❌ Error getting unread count: FirebaseError: Missing or insufficient permissions.
+overrideMethod	@	installHook.js:1
+getUnreadCount	@	mailboxService.ts:238
+await in getUnreadCount		
+loadUnreadCount	@	App.tsx:824
+(anonymous)	@	App.tsx:375
+setInterval		
+(anonymous)	@	App.tsx:374
+<App>		
+(anonymous)	@	index.tsx:13
+App.tsx:206 RENDER App: totalSpins = 10 isSyncEnabled = true
+installHook.js:1 RENDER App: totalSpins = 10 isSyncEnabled = true
+App.tsx:206 RENDER App: totalSpins = 10 isSyncEnabled = true
+installHook.js:1 RENDER App: totalSpins = 10 isSyncEnabled = true
+App.tsx:1017 Gesture rejected (Not a 'P')
+App.tsx:206 RENDER App: totalSpins = 10 isSyncEnabled = true
+installHook.js:1 RENDER App: totalSpins = 10 isSyncEnabled = true
+App.tsx:206 RENDER App: totalSpins = 10 isSyncEnabled = true
+installHook.js:1 RENDER App: totalSpins = 10 isSyncEnabled = true
+App.tsx:1017 Gesture rejected (Not a 'P')
+App.tsx:206 RENDER App: totalSpins = 10 isSyncEnabled = true
+installHook.js:1 RENDER App: totalSpins = 10 isSyncEnabled = true
+App.tsx:805 📩 Mailbox clicked! Unread count: 0
+App.tsx:206 RENDER App: totalSpins = 10 isSyncEnabled = true
+installHook.js:1 RENDER App: totalSpins = 10 isSyncEnabled = true
+installHook.js:1 ❌ Error fetching user messages: FirebaseError: Missing or insufficient permissions.
+overrideMethod	@	installHook.js:1
+getUserMessages	@	mailboxService.ts:93
+await in getUserMessages		
+loadMessages	@	Mailbox.tsx:35
+(anonymous)	@	Mailbox.tsx:24
+<Mailbox>		
+renderContent	@	App.tsx:1113
+App	@	App.tsx:1281
+<App>		
+(anonymous)	@	index.tsx:13
+installHook.js:1 ❌ Error fetching user messages: FirebaseError: Missing or insufficient permissions.
+overrideMethod	@	installHook.js:1
+getUserMessages	@	mailboxService.ts:93
+await in getUserMessages		
+loadMessages	@	Mailbox.tsx:35
+(anonymous)	@	Mailbox.tsx:24
+<Mailbox>		
+renderContent	@	App.tsx:1113
+App	@	App.tsx:1281
+<App>		
+(anonymous)	@	index.tsx:13
+﻿
 
-* Try:
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
-
-* Exception is:
-org.gradle.internal.execution.WorkValidationException: A problem was found with the configuration of task ':app:processDebugMainManifest' (type 'ProcessApplicationManifest').
-  - In plugin 'com.android.internal.version-check' type 'com.android.build.gradle.tasks.ProcessApplicationManifest' property 'mainManifest' specifies file 'C:\Users\Jay Kumar\Desktop\copy-of-hexfire-royal-spin-new-11\android\app\src\main\AndroidManifest.xml' which doesn't exist.
-    
-    Reason: An input file was expected to be present but it doesn't exist.
-    
-    Possible solutions:
-      1. Make sure the file exists before the task is called.
-      2. Make sure that the task which produces the file is declared as an input.
-    
-    For more information, please refer to https://docs.gradle.org/8.13/userguide/validation_problems.html#input_file_does_not_exist in the Gradle documentation.
-	at org.gradle.internal.execution.WorkValidationException$BuilderWithSummary.build(WorkValidationException.java:137)
-	at org.gradle.internal.execution.WorkValidationException$BuilderWithSummary.get(WorkValidationException.java:119)
-	at org.gradle.internal.execution.steps.ValidateStep.throwValidationException(ValidateStep.java:174)
-	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:99)
-	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:56)
-	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:64)
-	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:43)
-	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.executeWithNonEmptySources(AbstractSkipEmptyWorkStep.java:125)
-	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:56)
-	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:36)
-	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
-	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:36)
-	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:23)
-	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
-	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
-	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
-	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
-	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
-	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
-	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
-	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
-	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
-	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
-	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
-	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
-	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
-	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
-	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
-	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:61)
-	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
-	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
-	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:40)
-	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
-	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
-	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
-	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
-	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
-	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
-	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
-	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
-	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
-	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
-	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
-	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
-	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
-	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
-	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
-	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
-	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
-	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
-	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
-	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
-	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
-	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
-	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
-	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
-	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
-	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
-	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
-
-
-Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
-
-You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
-
-For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
-Ask Gemini

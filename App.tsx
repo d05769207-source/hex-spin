@@ -10,6 +10,7 @@ import Profile from './components/pages/Profile';
 import Leaderboard from './components/pages/Leaderboard';
 import Event from './components/pages/Event';
 import Shop from './components/pages/Shop';
+import Mailbox from './components/pages/Mailbox';
 import LoginModal from './components/auth/LoginModal';
 import UsernameModal from './components/auth/UsernameModal';
 import WeeklyTimer from './components/WeeklyTimer';
@@ -36,6 +37,7 @@ import MaintenancePoster from './components/MaintenancePoster';
 // NEW: Import Weekly Reset Hook
 import { useWeeklyReset } from './hooks/useWeeklyReset';
 import { soundManager } from './utils/SoundManager';
+import { getUnreadCount, deleteExpiredMessages } from './services/mailboxService';
 
 // --- AUDIO SYSTEM MOVED TO SpinWheel.tsx ---
 
@@ -128,7 +130,7 @@ const App: React.FC = () => {
   const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
   const [showReferralModal, setShowReferralModal] = useState<boolean>(false);
   const [showSuperModeTransition, setShowSuperModeTransition] = useState<boolean>(false); // NEW: Transition State
-  const [unreadMailCount, setUnreadMailCount] = useState<number>(2); // NEW: Mailbox State
+  const [unreadMailCount, setUnreadMailCount] = useState<number>(0); // Mailbox unread count
 
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true); // Sync State
   const [isSyncEnabled, setIsSyncEnabled] = useState<boolean>(false);
@@ -358,6 +360,26 @@ const App: React.FC = () => {
 
     return () => unsubscribe();
   }, []);
+
+  // Load unread count when user logs in and periodically refresh
+  useEffect(() => {
+    if (user && !user.isGuest) {
+      // Initial load
+      loadUnreadCount();
+
+      // Delete expired messages on app load
+      deleteExpiredMessages();
+
+      // Refresh unread count every 30 seconds
+      const interval = setInterval(() => {
+        loadUnreadCount();
+      }, 30000);
+
+      return () => clearInterval(interval);
+    } else {
+      setUnreadMailCount(0);
+    }
+  }, [user?.id]);
 
   // --- DIRECT SYNC HELPER (Replaces Debounced useEffect) ---
   const saveUserProgress = async (updates: Partial<User> & { [key: string]: any }) => {
@@ -781,8 +803,27 @@ const App: React.FC = () => {
 
   const handleMailClick = () => {
     console.log("📩 Mailbox clicked! Unread count:", unreadMailCount);
-    // Future: Open Mail/Notifications Modal
-    alert(`You have ${unreadMailCount} unread messages/gifts!`);
+    setCurrentPage('MAILBOX');
+  };
+
+  const handleRewardClaimed = (amount: number, type: string) => {
+    // Update local state when reward is claimed from mailbox
+    if (type === 'E_TOKEN') {
+      setETokens(prev => prev + amount);
+    } else if (type === 'COINS') {
+      setCoins(prev => prev + amount);
+    } else if (type === 'SPIN_TOKEN') {
+      setBalance(prev => prev + amount);
+    }
+    // Reload unread count
+    loadUnreadCount();
+  };
+
+  const loadUnreadCount = async () => {
+    if (user && !user.isGuest) {
+      const count = await getUnreadCount(user.id);
+      setUnreadMailCount(count);
+    }
   };
 
   // --- AUTH HANDLERS ---
@@ -1063,6 +1104,16 @@ const App: React.FC = () => {
               ktmTokens={ktmTokens}
               iphoneTokens={iphoneTokens}
               initialTab={profileInitialTab}
+            />
+          </div>
+        );
+      case 'MAILBOX':
+        return (
+          <div className="flex-1 pt-24 md:pt-20 overflow-hidden md:pr-24">
+            <Mailbox
+              onBack={() => setCurrentPage('HOME')}
+              user={user}
+              onRewardClaimed={handleRewardClaimed}
             />
           </div>
         );

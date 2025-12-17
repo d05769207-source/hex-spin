@@ -24,7 +24,7 @@ export interface SpinCost {
   five: number;
 }
 
-export type Page = 'HOME' | 'EVENT' | 'RANK' | 'SHOP' | 'PROFILE' | 'ADMIN_DASHBOARD';
+export type Page = 'HOME' | 'EVENT' | 'RANK' | 'SHOP' | 'PROFILE' | 'MAILBOX' | 'ADMIN_DASHBOARD';
 
 export interface User {
   id: string;
@@ -123,4 +123,37 @@ export interface RealUserStats {
   averageCoins: number;
   maxCoins: number;
   top10MaxCoins: number;
+}
+
+// Mailbox Message Types
+export enum MessageType {
+  WEEKLY_REWARD = 'WEEKLY_REWARD',
+  NOTICE = 'NOTICE',
+  SYSTEM = 'SYSTEM'
+}
+
+export enum MessageStatus {
+  UNREAD = 'UNREAD',
+  READ = 'READ',
+  CLAIMED = 'CLAIMED'
+}
+
+export interface MailboxMessage {
+  id: string;
+  userId: string;
+  type: MessageType;
+  title: string;
+  description: string;
+  createdAt: Date;
+  expiresAt: Date;
+  status: MessageStatus;
+
+  // Reward data (for WEEKLY_REWARD type)
+  rewardType?: 'E_TOKEN' | 'COINS' | 'SPIN_TOKEN';
+  rewardAmount?: number;
+  sourceCoins?: number; // Original coins that were converted
+
+  // Metadata
+  isExpired?: boolean;
+  claimedAt?: Date;
 }

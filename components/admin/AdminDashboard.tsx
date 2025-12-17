@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { doc, updateDoc, Timestamp, collection, getDocs, orderBy, query, limit, onSnapshot } from 'firebase/firestore';
-import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate } from '../../utils/weekUtils';
+import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate, getCurrentTime } from '../../utils/weekUtils';
 import {
     startMaintenanceMode,
     endMaintenanceMode,
@@ -743,7 +743,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                                     return;
                                                 }
 
-                                                const now = new Date();
+                                                const now = getCurrentTime();
                                                 const tenMinsLater = new Date(now.getTime() + 10 * 60 * 1000);
 
                                                 let nextUpdate = {};

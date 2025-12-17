@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { doc, updateDoc, increment, Timestamp } from 'firebase/firestore';
+import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from '../types';
-import { getCurrentWeekId, getTimeRemaining } from '../utils/weekUtils';
+import { getCurrentWeekId } from '../utils/weekUtils';
+import { createWeeklyRewardMessage } from '../services/mailboxService';
 
 // Add state setters to the hook for immediate UI feedback
 export const useWeeklyReset = (
@@ -43,6 +44,9 @@ export const useWeeklyReset = (
             }
 
             if (shouldReset) {
+                // LOCK IMMEDIATELY to prevent double-firing due to race conditions (e.g. if dependencies change while awaiting)
+                processedWeekId.current = currentWeekId;
+
                 console.log("🔄 Detecting New Week! Performing Weekly Reset...");
 
                 // 1. Calculate Conversion using LIVE coins
@@ -52,30 +56,37 @@ export const useWeeklyReset = (
                 try {
                     const userRef = doc(db, 'users', user.id);
 
-                    // 2. Perform Update
+                    // 2. Reset coins and update week ID
                     await updateDoc(userRef, {
                         coins: 0, // Reset coins
-                        eTokens: increment(eTokensToEarn), // Add E-Tokens
                         lastWeekId: currentWeekId, // Mark this week as processed
                         weeklyResetTime: Timestamp.now() // Audit trail
                     });
 
-                    // 3. Notify User
+                    // 3. Create inbox message for E-Token reward (if earned any)
+                    if (eTokensToEarn > 0) {
+                        await createWeeklyRewardMessage(user.id, eTokensToEarn, currentCoins);
+                        console.log(`✅ Created inbox message for ${eTokensToEarn} E-Tokens`);
+                    }
+
+                    // 4. Notify User
                     console.log(`✅ Weekly Reset Complete. Converted ${currentCoins} coins to ${eTokensToEarn} E-Tokens.`);
 
                     // IMMEDIATE UI UPDATE
                     setCoins(0);
-                    setETokens(prev => prev + eTokensToEarn);
+                    // NOTE: E-Tokens are NOT added here anymore - user must claim from mailbox
 
                     if (currentCoins > 0) {
-                        alert(`Weekly Reset!\n\nNew Week Started.\nYour ${currentCoins} Coins have been converted to ${eTokensToEarn} E-Tokens.\nGood luck for this week!`);
+                        console.log(`Silent Reset: User has claimable rewards in mailbox.`);
                     }
 
                 } catch (error) {
                     console.error("❌ Error performing weekly reset:", error);
+                    // If failed, maybe release lock? But safer to just fail for this session to avoid infinite loops.
                 }
             } else if (!user.lastWeekId) {
                 // Initialize for first time run on existing users
+                processedWeekId.current = currentWeekId;
                 try {
                     const userRef = doc(db, 'users', user.id);
                     await updateDoc(userRef, {
@@ -84,9 +95,10 @@ export const useWeeklyReset = (
                 } catch (e) {
                     console.error("Error init week id", e);
                 }
+            } else {
+                // Nothing to do, but mark as processed so we don't keep checking
+                processedWeekId.current = currentWeekId;
             }
-
-            processedWeekId.current = currentWeekId;
         };
 
         // Initial check
