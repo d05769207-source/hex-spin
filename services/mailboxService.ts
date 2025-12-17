@@ -185,15 +185,33 @@ export const markMessageAsRead = async (messageId: string): Promise<void> => {
 };
 
 /**
+ * Mark multiple messages as read (Batch)
+ */
+export const markMessagesAsReadBatch = async (messageIds: string[]): Promise<void> => {
+    if (messageIds.length === 0) return;
+
+    try {
+        const batchPromises = messageIds.map(id =>
+            updateDoc(doc(db, 'mailbox', id), { status: MessageStatus.READ })
+        );
+        await Promise.all(batchPromises);
+        console.log(`✅ Marked ${messageIds.length} messages as read`);
+    } catch (error) {
+        console.error('❌ Error batch marking messages as read:', error);
+    }
+};
+
+/**
  * Delete expired messages
  * Should be called periodically (e.g., on app load or via cloud function)
  */
-export const deleteExpiredMessages = async (): Promise<number> => {
+export const deleteExpiredMessages = async (userId: string): Promise<number> => {
     try {
         const now = Timestamp.now();
 
         const q = query(
             collection(db, 'mailbox'),
+            where('userId', '==', userId),
             where('expiresAt', '<', now)
         );
 
@@ -310,3 +328,7 @@ export const createLevelUpRewardMessage = async (
         return '';
     }
 };
+
+
+
+

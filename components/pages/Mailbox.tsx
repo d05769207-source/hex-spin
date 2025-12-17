@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Mail, Bell, Clock, Gift, CheckCircle, Loader, Trophy } from 'lucide-react';
 import { User, MailboxMessage, MessageType, MessageStatus } from '../../types';
-import { getUserMessages, claimMessage, markMessageAsRead } from '../../services/mailboxService';
+import { getUserMessages, claimMessage, markMessageAsRead, markMessagesAsReadBatch } from '../../services/mailboxService';
 import EToken from '../EToken';
 
 interface MailboxProps {
     onBack: () => void;
     user: User | null;
     onRewardClaimed?: (amount: number, type: string) => void;
+    onMessagesRead?: () => void;
 }
 
 type TabType = 'INBOX' | 'NOTICE';
 
-const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
+const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMessagesRead }) => {
     const [activeTab, setActiveTab] = useState<TabType>('INBOX');
     const [messages, setMessages] = useState<MailboxMessage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -42,10 +43,67 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
         }
     };
 
+    // Auto-cleanup expired messages every second
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const now = Date.now();
+            setMessages(prevMessages => {
+                const validMessages = prevMessages.filter(msg => {
+                    const expiryTime = new Date(msg.expiresAt).getTime();
+                    return expiryTime > now;
+                });
+
+                // Only update state if messages were actually removed to prevent unnecessary re-renders
+                if (validMessages.length !== prevMessages.length) {
+                    return validMessages;
+                }
+                return prevMessages;
+            });
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, []);
+
+    // Auto-mark messages as read when viewing tab
+    useEffect(() => {
+        if (!user || messages.length === 0) return;
+
+        const unreadIds = messages
+            .filter(m => {
+                if (activeTab === 'INBOX') {
+                    // Filter logic for Inbox
+                    return (m.type === MessageType.WEEKLY_REWARD || m.type === MessageType.LEVEL_REWARD)
+                        && m.status === MessageStatus.UNREAD;
+                } else {
+                    // Filter logic for Notice
+                    return (m.type === MessageType.NOTICE || m.type === MessageType.SYSTEM)
+                        && m.status === MessageStatus.UNREAD;
+                }
+            })
+            .map(m => m.id);
+
+        if (unreadIds.length > 0) {
+            // Mark as read immediately in UI
+            setMessages(prev => prev.map(m =>
+                unreadIds.includes(m.id) ? { ...m, status: MessageStatus.READ } : m
+            ));
+
+            // Sync with Server (Batch)
+            markMessagesAsReadBatch(unreadIds);
+
+            // Notify parent to update global unread count
+            if (onMessagesRead) {
+                onMessagesRead();
+            }
+        }
+    }, [activeTab, messages, user, onMessagesRead]);
+
     const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 3000);
     };
+
+
 
     const handleClaimReward = async (message: MailboxMessage) => {
         if (!user || claiming) return;
@@ -84,6 +142,8 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
             ));
         }
     };
+
+
 
     const getTimeRemaining = (expiresAt: Date): string => {
         const now = new Date();
@@ -134,12 +194,12 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                         }`}
                 >
                     <Mail size={16} />
-                    Inbox
-                    {inboxMessages.length > 0 && (
-                        <span className="bg-red-500 text-white text-xs font-black px-1.5 py-0.5 rounded-full">
-                            {inboxMessages.length}
-                        </span>
-                    )}
+                    <span className="relative">
+                        Inbox
+                        {inboxMessages.some(m => m.status === MessageStatus.UNREAD) && (
+                            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-cyan-300 rounded-full shadow-[0_0_10px_rgba(34,211,238,1),0_0_20px_rgba(34,211,238,0.8)] animate-pulse" />
+                        )}
+                    </span>
                 </button>
                 <button
                     onClick={() => setActiveTab('NOTICE')}
@@ -149,12 +209,12 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                         }`}
                 >
                     <Bell size={16} />
-                    Notice
-                    {noticeMessages.length > 0 && (
-                        <span className="bg-red-500 text-white text-xs font-black px-1.5 py-0.5 rounded-full">
-                            {noticeMessages.length}
-                        </span>
-                    )}
+                    <span className="relative">
+                        Notice
+                        {noticeMessages.some(m => m.status === MessageStatus.UNREAD) && (
+                            <span className="absolute -top-0.5 -right-0.6 w-1.5 h-1.5 bg-yellow-300 rounded-full shadow-[0_0_10px_rgba(253,224,71,1),0_0_20px_rgba(253,224,71,0.8)] animate-pulse" />
+                        )}
+                    </span>
                 </button>
             </div>
 
@@ -314,6 +374,9 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed }) => {
                     </div>
                 </div>
             )}
+
+
+
         </div>
     );
 };

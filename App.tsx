@@ -368,7 +368,7 @@ const App: React.FC = () => {
       loadUnreadCount();
 
       // Delete expired messages on app load
-      deleteExpiredMessages();
+      deleteExpiredMessages(user.id);
 
       // Refresh unread count every 30 seconds
       const interval = setInterval(() => {
@@ -1128,6 +1128,7 @@ const App: React.FC = () => {
               onBack={() => setCurrentPage('HOME')}
               user={user}
               onRewardClaimed={handleRewardClaimed}
+              onMessagesRead={loadUnreadCount}
             />
           </div>
         );
@@ -1273,9 +1274,7 @@ const App: React.FC = () => {
                 >
                   <Mail size={14} className="text-white" />
                   {unreadMailCount > 0 && (
-                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-gray-900 rounded-full flex items-center justify-center border border-black shadow-sm">
-                      <span className="text-[9px] font-bold text-white leading-none">{unreadMailCount}</span>
-                    </div>
+                    <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-cyan-300 rounded-full shadow-[0_0_10px_rgba(34,211,238,1),0_0_20px_rgba(34,211,238,0.8)] animate-pulse" />
                   )}
                 </button>
 
