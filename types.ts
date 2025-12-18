@@ -51,6 +51,7 @@ export interface User {
   referredBy?: string; // UID of the user who referred this user
   referralDismissed?: boolean; // Has user permanently dismissed the referral prompt?
   lastLevelRewardTriggered?: number; // The last level for which the referrer received a reward
+  referralEarnings?: number; // Total eTokens earned from referrals (Signups + Level Ups)
   inrBalance?: number; // Real money balance in Rupees (INR)
   spinsToday?: number; // Spins performed today (resets daily)
   lastSpinDate?: Date; // Date of the last spin (for daily reset)
@@ -129,6 +130,7 @@ export interface RealUserStats {
 export enum MessageType {
   WEEKLY_REWARD = 'WEEKLY_REWARD',
   LEVEL_REWARD = 'LEVEL_REWARD',
+  REFERRAL_REWARD = 'REFERRAL_REWARD',
   NOTICE = 'NOTICE',
   SYSTEM = 'SYSTEM'
 }

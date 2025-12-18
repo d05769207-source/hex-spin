@@ -1,6 +1,6 @@
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc, runTransaction, increment, collection, query, where, getDocs } from 'firebase/firestore';
-import { User } from '../types';
+import { doc, getDoc, updateDoc, runTransaction, increment, collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { User, MessageType, MessageStatus } from '../types';
 
 /**
  * Validates a referral code.
@@ -38,11 +38,14 @@ export const validateReferralCode = async (code: string, currentUserId: string):
     }
 };
 
+
+
 /**
  * Applies a referral code to the current user.
  * Awards 5 tokens to the referrer immediately.
  */
 export const applyReferral = async (currentUserId: string, referrerId: string): Promise<{ success: boolean; message: string }> => {
+    console.log(`[DEBUG] applyReferral called: user=${currentUserId}, referrer=${referrerId}`);
     try {
         await runTransaction(db, async (transaction) => {
             const currentUserRef = doc(db, 'users', currentUserId);
@@ -72,12 +75,37 @@ export const applyReferral = async (currentUserId: string, referrerId: string): 
                 lastLevelRewardTriggered: currentUserData.level || 1 // Start tracking from current level
             });
 
-            // 2. Update Referrer (Add 5 Tokens + Increment Count)
+            // 2. Update Referrer (Add 50 eTokens via Mailbox + Increment Count/Earnings)
+            // Note: We do NOT increment 'eTokens' directly anymore. User must claim from Mailbox.
+            // We DO increment 'referralEarnings' to track lifetime stats.
+
             transaction.update(referrerRef, {
-                tokens: increment(5),
-                referralCount: increment(1)
+                referralCount: increment(1),
+                referralEarnings: increment(50)
             });
         });
+
+        // Send Mailbox Message (Direct Implementation to avoid import issues)
+        try {
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+            await addDoc(collection(db, 'mailbox'), {
+                userId: referrerId,
+                type: MessageType.REFERRAL_REWARD,
+                title: '🎁 Referral Reward!',
+                description: `New Referral Bonus: 50 E-Tokens`,
+                createdAt: new Date(),
+                expiresAt: expiresAt,
+                status: MessageStatus.UNREAD,
+                rewardType: 'E_TOKEN',
+                rewardAmount: 50,
+                isExpired: false
+            });
+            console.log(`✅ Direct Mailbox Write Success for ${referrerId}`);
+        } catch (msgError) {
+            console.error('❌ Direct Mailbox Write Failed:', msgError);
+        }
 
         return { success: true, message: 'Referral applied successfully!' };
     } catch (error: any) {
@@ -126,14 +154,20 @@ export const processLevelUpReward = async (currentUserId: string, currentLevel: 
         // If currentLevel > 100, we might still award for the levels up to 100 if not yet awarded.
         // For simplicity, we assume generic "1 token per level".
 
-        if (levelsGained <= 0) return;
+        if (levelsGained <= 0) {
+            console.log(`[DEBUG] levelsGained <= 0 (${levelsGained}), skipping reward.`);
+            return;
+        }
+
+        console.log(`[DEBUG] Processing level up reward: levelsGained=${levelsGained}, referrer=${referrerId}`);
 
         await runTransaction(db, async (transaction) => {
             const referrerRef = doc(db, 'users', referrerId);
 
-            // 1. Award Tokens to Referrer
+            // 1. Award 20 eTokens per level to Referrer (Via Mailbox)
+            // Only update earnings tracker here
             transaction.update(referrerRef, {
-                tokens: increment(levelsGained)
+                referralEarnings: increment(levelsGained * 20)
             });
 
             // 2. Update Current User's tracker
@@ -142,7 +176,29 @@ export const processLevelUpReward = async (currentUserId: string, currentLevel: 
             });
         });
 
-        console.log(`Awarded ${levelsGained} tokens to referrer ${referrerId} for level up to ${currentLevel}`);
+        // Send Mailbox Message (Direct Implementation)
+        try {
+            const now = new Date();
+            const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+            await addDoc(collection(db, 'mailbox'), {
+                userId: referrerId,
+                type: MessageType.REFERRAL_REWARD,
+                title: '🎁 Referral Reward!',
+                description: `Friend Level Up Bonus (${levelsGained} levels): ${levelsGained * 20} E-Tokens`,
+                createdAt: new Date(),
+                expiresAt: expiresAt,
+                status: MessageStatus.UNREAD,
+                rewardType: 'E_TOKEN',
+                rewardAmount: levelsGained * 20,
+                isExpired: false
+            });
+            console.log(`✅ Direct Mailbox Write Success for LevelUp: ${referrerId}`);
+        } catch (msgError) {
+            console.error('❌ Direct Mailbox Write LevelUp Failed:', msgError);
+        }
+
+        console.log(`Awarded ${levelsGained} levels worth of tokens to referrer ${referrerId}`);
 
     } catch (error) {
         console.error('Error processing level up reward:', error);

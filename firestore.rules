@@ -32,11 +32,14 @@ service cloud.firestore {
     }
 
     // Mailbox system - users can read/write their own messages
+    // Mailbox system
     match /mailbox/{messageId} {
-      allow read, write: if request.auth != null && 
-                            request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && 
-                       request.auth.uid == request.resource.data.userId;
+      // User can only read, update (mark read/claim), or delete THEIR OWN messages
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Allow ANY authenticated user to CREATE a message for anyone
+      // This is required so User B can send a "Referral Reward" to User A
+      allow create: if request.auth != null;
     }
 
     // Allow participants to join the lottery (Sunday Lottery)

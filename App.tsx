@@ -362,23 +362,32 @@ const App: React.FC = () => {
   }, []);
 
   // Load unread count when user logs in and periodically refresh
+  // Load unread count when user logs in and subscribe to changes
   useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
     if (user && !user.isGuest) {
-      // Initial load
-      loadUnreadCount();
+      // Import dynamically to avoid circle, though we are in App.tsx so imports are already top-level usually.
+      // But since we are using a service function we just imported...
+      import('./services/mailboxService').then(({ subscribeToUnreadCount, deleteExpiredMessages }) => {
+        // 1. Clean up expired messages once on load
+        deleteExpiredMessages(user.id);
 
-      // Delete expired messages on app load
-      deleteExpiredMessages(user.id);
-
-      // Refresh unread count every 30 seconds
-      const interval = setInterval(() => {
-        loadUnreadCount();
-      }, 30000);
-
-      return () => clearInterval(interval);
+        // 2. Subscribe to real-time updates
+        unsubscribe = subscribeToUnreadCount(user.id, (count) => {
+          setUnreadMailCount(count);
+        });
+      });
     } else {
       setUnreadMailCount(0);
     }
+
+    // Cleanup listener on unmount or user change
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, [user?.id]);
 
   // --- DIRECT SYNC HELPER (Replaces Debounced useEffect) ---
@@ -696,6 +705,12 @@ const App: React.FC = () => {
           createLevelUpRewardMessage(user.id, newLevel);
         }
       });
+      // TRIGGER REFERRAL REWARD (Referrer gets 20 tokens/level)
+      import('./services/referralService').then(({ processLevelUpReward }) => {
+        if (user?.id) {
+          processLevelUpReward(user.id, newLevel);
+        }
+      });
     }
 
     // 🔥 IMMEDIATE SAVE: Save winnings and stats
@@ -830,7 +845,7 @@ const App: React.FC = () => {
       setBalance(prev => prev + amount);
     }
     // Reload unread count
-    loadUnreadCount();
+    // loadUnreadCount(); <--- NO LONGER NEEDED (Handled by Real-time Listener)
   };
 
   const loadUnreadCount = async () => {
@@ -1128,7 +1143,7 @@ const App: React.FC = () => {
               onBack={() => setCurrentPage('HOME')}
               user={user}
               onRewardClaimed={handleRewardClaimed}
-              onMessagesRead={loadUnreadCount}
+            // onMessagesRead={loadUnreadCount} <-- REMOVED: Managed by Firestore Listener
             />
           </div>
         );

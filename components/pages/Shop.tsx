@@ -14,6 +14,19 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
    const referralCode = user?.referralCode || 'LOADING...';
    const referralCount = user?.referralCount || 0;
 
+   // DEBUG: TEST BUTTON
+   const handleTestReward = async () => {
+      if (!user) return;
+      try {
+         const { createReferralRewardMessage } = await import('../../services/mailboxService');
+         await createReferralRewardMessage(user.id, 50, 'Test Reward');
+         alert('Test Message Sent! Check Mailbox.');
+      } catch (e) {
+         alert('Error: ' + e);
+      }
+   };
+
+
    const handleCopyCode = () => {
       navigator.clipboard.writeText(referralCode);
       setCopied(true);
@@ -53,7 +66,7 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
                   </div>
                   <div>
                      <h3 className="text-lg font-black text-white uppercase italic">Watch Ad</h3>
-                     <p className="text-xs text-cyan-400 font-bold">Get 5 Tokens Instantly</p>
+                     <p className="text-xs text-cyan-400 font-bold">Get 50 eTokens Instantly</p>
                   </div>
                </div>
 
@@ -66,59 +79,88 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
             </div>
          </div>
 
-         {/* 2. REFERRAL SECTION */}
-         <div className="bg-gradient-to-br from-purple-900/40 to-blue-900/40 border border-purple-500/30 rounded-xl p-5 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+         {/* 2. REFERRAL SECTION - Redesigned */}
+         <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 relative overflow-hidden shadow-2xl">
+            {/* Ambient Background */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-600/20 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl -ml-10 -mb-10 pointer-events-none"></div>
 
-            <div className="flex items-center gap-2 mb-4">
-               <Users size={20} className="text-purple-400" />
-               <h3 className="text-lg font-black text-white uppercase tracking-wider">Refer & Earn</h3>
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-5 relative z-10">
+               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-purple-500/30 flex items-center justify-center">
+                  <Users size={16} className="text-purple-300" />
+               </div>
+               <div>
+                  <h3 className="text-base font-black text-white uppercase tracking-wider leading-none">Refer & Earn</h3>
+                  <p className="text-[10px] text-gray-400 font-medium">Invite friends, earn crypto</p>
+               </div>
             </div>
 
-            <div className="bg-black/40 rounded-lg p-4 mb-4 border border-white/5">
-               <p className="text-gray-400 text-xs mb-2 uppercase font-bold">Your Referral Code</p>
-               <div className="flex items-center justify-between bg-black/60 rounded p-3 border border-white/10">
-                  <span className="text-xl font-mono font-bold text-white tracking-widest">{referralCode}</span>
+            {/* Stats Row */}
+            <div className="grid grid-cols-2 gap-3 mb-5">
+               <div className="bg-black/40 rounded-xl p-3 border border-white/5 flex flex-col items-center justify-center relative overflow-hidden group">
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-0.5">Friends</span>
+                  <span className="text-2xl font-black text-white group-hover:scale-110 transition-transform duration-300">{referralCount}</span>
+                  <div className="absolute inset-0 bg-gradient-to-t from-purple-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+               </div>
+               <div className="bg-black/40 rounded-xl p-3 border border-white/5 flex flex-col items-center justify-center relative overflow-hidden group">
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-0.5">Earned</span>
+                  <span className="text-2xl font-black text-yellow-400 group-hover:scale-110 transition-transform duration-300">
+                     {(user?.referralEarnings || (referralCount * 50)).toLocaleString()}
+                  </span>
+                  <div className="absolute inset-0 bg-gradient-to-t from-yellow-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+               </div>
+            </div>
+
+            {/* Code Box */}
+            <div className="bg-gradient-to-r from-gray-900 to-black rounded-xl p-1 mb-5 border border-white/10 shadow-inner">
+               <div className="flex items-center justify-between pl-4 pr-1 py-1">
+                  <div className="flex flex-col">
+                     <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Your Code</span>
+                     <span className="text-lg font-mono font-bold text-white tracking-widest">{referralCode}</span>
+                  </div>
                   <button
                      onClick={handleCopyCode}
-                     className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                     className={`px-4 py-2 rounded-lg font-bold text-xs uppercase transition-all duration-300 ${copied
+                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                        : 'bg-white/10 text-white hover:bg-white/20 border border-white/10'
+                        }`}
                   >
-                     {copied ? <span className="text-green-400 text-xs font-bold">Copied!</span> : <Copy size={18} className="text-gray-400" />}
+                     {copied ? 'Copied' : 'Copy'}
                   </button>
                </div>
             </div>
 
-            <div className="flex items-center justify-between mb-6">
-               <div className="flex flex-col">
-                  <span className="text-3xl font-black text-white">{referralCount}</span>
-                  <span className="text-xs text-purple-300 font-bold uppercase">Friends Referred</span>
-               </div>
-               <div className="flex flex-col items-end">
-                  <span className="text-xl font-bold text-yellow-400">+{referralCount * 5}</span>
-                  <span className="text-xs text-gray-400 uppercase">Tokens Earned</span>
-               </div>
-            </div>
-
+            {/* Share Button */}
             <button
                onClick={handleShare}
-               className="w-full py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
+               className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-purple-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 mb-5 relative overflow-hidden"
             >
-               <Share2 size={18} />
-               Share with Friends
+               <div className="absolute inset-0 bg-white/20 translate-y-full hover:translate-y-0 transition-transform duration-300"></div>
+               <Share2 size={16} />
+               <span className="text-xs uppercase tracking-widest relative z-10">Share Invite Link</span>
             </button>
 
-            <div className="mt-4 p-3 bg-white/5 rounded-lg border border-white/5">
-               <h4 className="text-xs font-bold text-white uppercase mb-2">Rewards Breakdown:</h4>
-               <ul className="space-y-1 text-[10px] text-gray-400">
-                  <li className="flex items-center gap-2">
-                     <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                     <span><strong className="text-white">5 Tokens</strong> instantly when they join</span>
-                  </li>
-                  <li className="flex items-center gap-2">
-                     <span className="w-1.5 h-1.5 rounded-full bg-yellow-500"></span>
-                     <span><strong className="text-white">1 Token</strong> for every level they gain (up to Lvl 100)</span>
-                  </li>
-               </ul>
+            {/* Compact Breakdown */}
+            <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+               <div className="flex items-center gap-2 mb-2 opacity-70">
+                  <Gift size={12} className="text-purple-400" />
+                  <span className="text-[10px] font-bold text-gray-300 uppercase">Rewards Breakdown</span>
+               </div>
+               <div className="grid grid-cols-1 gap-2">
+                  <div className="flex items-center gap-3">
+                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
+                     <p className="text-[10px] text-gray-400">
+                        <span className="text-white font-bold">50 eTokens</span> instantly per invite
+                     </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                     <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]"></div>
+                     <p className="text-[10px] text-gray-400">
+                        <span className="text-white font-bold">20 eTokens</span> per level up (Lvl 1-100)
+                     </p>
+                  </div>
+               </div>
             </div>
          </div>
 

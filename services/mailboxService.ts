@@ -11,7 +11,8 @@ import {
     getDocs,
     getDoc,
     Timestamp,
-    increment
+    increment,
+    onSnapshot
 } from 'firebase/firestore';
 import { MailboxMessage, MessageType, MessageStatus } from '../types';
 
@@ -58,12 +59,14 @@ export const getUserMessages = async (userId: string): Promise<MailboxMessage[]>
     try {
         const now = Timestamp.now();
 
+        // SIMPLIFIED DEBUG QUERY
+        // This bypasses complex index requirements to check if messages simply exist.
         const q = query(
             collection(db, 'mailbox'),
-            where('userId', '==', userId),
-            where('expiresAt', '>', now),
-            orderBy('expiresAt', 'asc'),
-            orderBy('createdAt', 'desc')
+            where('userId', '==', userId)
+            // where('expiresAt', '>', now),
+            // orderBy('expiresAt', 'asc'),
+            // orderBy('createdAt', 'desc')
         );
 
         const snapshot = await getDocs(q);
@@ -175,10 +178,21 @@ export const claimMessage = async (
 export const markMessageAsRead = async (messageId: string): Promise<void> => {
     try {
         const messageRef = doc(db, 'mailbox', messageId);
-        await updateDoc(messageRef, {
-            status: MessageStatus.READ
-        });
-        console.log(`✅ Message ${messageId} marked as read`);
+        const docSnap = await getDoc(messageRef);
+
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            const updates: any = { status: MessageStatus.READ };
+
+            // IF NOTICE/SYSTEM -> Expire in 10 minutes
+            if (data.type === MessageType.NOTICE || data.type === MessageType.SYSTEM) {
+                const tenMinutesLater = new Date(Date.now() + 10 * 60 * 1000);
+                updates.expiresAt = Timestamp.fromDate(tenMinutesLater);
+            }
+
+            await updateDoc(messageRef, updates);
+            console.log(`✅ Message ${messageId} marked as read`);
+        }
     } catch (error) {
         console.error('❌ Error marking message as read:', error);
     }
@@ -186,16 +200,40 @@ export const markMessageAsRead = async (messageId: string): Promise<void> => {
 
 /**
  * Mark multiple messages as read (Batch)
+ * - Autosets NOTICE expiry to 10 minutes from now
  */
 export const markMessagesAsReadBatch = async (messageIds: string[]): Promise<void> => {
     if (messageIds.length === 0) return;
 
     try {
-        const batchPromises = messageIds.map(id =>
-            updateDoc(doc(db, 'mailbox', id), { status: MessageStatus.READ })
-        );
-        await Promise.all(batchPromises);
-        console.log(`✅ Marked ${messageIds.length} messages as read`);
+        // We need to check message types to apply specific logic
+        // But for efficiency in batch, we can't read all docs first if we don't have them passed.
+        // However, usually this is called with IDs filtered by the UI effectively.
+
+        // BETTER APPROACH: Just read them, it's safer functionality-wise, 
+        // OR rely on the fact that this function is only called for a specific filtered list if we trust the caller.
+
+        // Let's iterate and update individually to be safe and correct (Firestore limits batches to 500, we are fine)
+        const updatePromises = messageIds.map(async (id) => {
+            const docRef = doc(db, 'mailbox', id);
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                const updates: any = { status: MessageStatus.READ };
+
+                // IF NOTICE/SYSTEM -> Expire in 10 minutes
+                if (data.type === MessageType.NOTICE || data.type === MessageType.SYSTEM) {
+                    const tenMinutesLater = new Date(Date.now() + 10 * 60 * 1000);
+                    updates.expiresAt = Timestamp.fromDate(tenMinutesLater);
+                }
+
+                await updateDoc(docRef, updates);
+            }
+        });
+
+        await Promise.all(updatePromises);
+        console.log(`✅ Marked ${messageIds.length} messages as read with type-specific expiry.`);
     } catch (error) {
         console.error('❌ Error batch marking messages as read:', error);
     }
@@ -259,13 +297,43 @@ export const getUnreadCount = async (userId: string): Promise<number> => {
 };
 
 /**
+ * Subscribe to unread message count (Real-time)
+ */
+export const subscribeToUnreadCount = (userId: string, callback: (count: number) => void): (() => void) => {
+    try {
+        const now = Timestamp.now();
+
+        const q = query(
+            collection(db, 'mailbox'),
+            where('userId', '==', userId),
+            where('status', '==', MessageStatus.UNREAD),
+            where('expiresAt', '>', now)
+        );
+
+        // Real-time listener
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const count = snapshot.size;
+            // console.log(`🔄 Real-time unread count for ${userId}: ${count}`);
+            callback(count);
+        }, (error) => {
+            console.error('❌ Error in unread count listener:', error);
+        });
+
+        return unsubscribe;
+    } catch (error) {
+        console.error('❌ Error setting up unread count listener:', error);
+        return () => { }; // Return empty unsubscribe if setup fails
+    }
+};
+
+/**
  * Create a system notice message
  */
 export const createNoticeMessage = async (
     userId: string,
     title: string,
     description: string,
-    expiryDays: number = 30
+    expiryDays: number = 7 // Default set to 7 days as per new requirement
 ): Promise<string> => {
     try {
         const now = new Date();
@@ -325,6 +393,41 @@ export const createLevelUpRewardMessage = async (
         return docRef.id;
     } catch (error) {
         console.error('❌ Error creating level up reward message:', error);
+        return '';
+    }
+};
+
+/**
+     * Create a referral reward message
+     */
+export const createReferralRewardMessage = async (
+    userId: string,
+    amount: number,
+    reason: string
+): Promise<string> => {
+    console.log(`[DEBUG] createReferralRewardMessage called: userId=${userId}, amount=${amount}`);
+    try {
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days expiry
+
+        const message = {
+            userId,
+            type: MessageType.REFERRAL_REWARD,
+            title: '🎁 Referral Reward!',
+            description: `${reason}: ${amount} E-Tokens`,
+            createdAt: Timestamp.now(),
+            expiresAt: Timestamp.fromDate(expiresAt),
+            status: MessageStatus.UNREAD,
+            rewardType: 'E_TOKEN',
+            rewardAmount: amount,
+            isExpired: false
+        };
+
+        const docRef = await addDoc(collection(db, 'mailbox'), message);
+        console.log(`✅ Referral reward message created for user ${userId}`);
+        return docRef.id;
+    } catch (error) {
+        console.error('❌ Error creating referral reward message:', error);
         return '';
     }
 };

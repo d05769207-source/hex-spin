@@ -35,6 +35,7 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMess
         setLoading(true);
         try {
             const fetchedMessages = await getUserMessages(user.id);
+            console.log(`[DEBUG] Mailbox loaded messages:`, fetchedMessages);
             setMessages(fetchedMessages);
         } catch (error) {
             console.error('Error loading messages:', error);
@@ -72,7 +73,7 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMess
             .filter(m => {
                 if (activeTab === 'INBOX') {
                     // Filter logic for Inbox
-                    return (m.type === MessageType.WEEKLY_REWARD || m.type === MessageType.LEVEL_REWARD)
+                    return (m.type === MessageType.WEEKLY_REWARD || m.type === MessageType.LEVEL_REWARD || m.type === MessageType.REFERRAL_REWARD)
                         && m.status === MessageStatus.UNREAD;
                 } else {
                     // Filter logic for Notice
@@ -162,60 +163,56 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMess
         }
     };
 
-    const inboxMessages = messages.filter(m => (m.type === MessageType.WEEKLY_REWARD || m.type === MessageType.LEVEL_REWARD) && m.status !== MessageStatus.CLAIMED);
+    const inboxMessages = messages.filter(m => (m.type === MessageType.WEEKLY_REWARD || m.type === MessageType.LEVEL_REWARD || m.type === MessageType.REFERRAL_REWARD) && m.status !== MessageStatus.CLAIMED);
     const noticeMessages = messages.filter(m => m.type === MessageType.NOTICE || m.type === MessageType.SYSTEM);
 
     return (
         <div className="w-full max-w-md mx-auto h-full flex flex-col p-4 animate-in slide-in-from-right duration-300 relative">
 
-            {/* Header */}
-            <div className="flex items-center justify-between mb-6">
+            {/* Header with Tabs - Compact */}
+            < div className="flex items-center justify-between mb-4" >
                 <button
                     onClick={onBack}
-                    className="p-2 bg-white/5 rounded-full hover:bg-white/10 text-white transition-colors"
+                    className="p-1.5 bg-white/5 rounded-full hover:bg-white/10 text-white transition-colors flex-shrink-0"
                 >
-                    <ArrowLeft size={20} />
+                    <ArrowLeft size={18} />
                 </button>
 
-                <h1 className="text-2xl font-black text-white uppercase tracking-wider">
-                    Mailbox
-                </h1>
+                {/* Tabs moved to Header */}
+                <div className="flex bg-black/40 rounded-full p-0.5 border border-white/10 mx-auto">
+                    <button
+                        onClick={() => setActiveTab('INBOX')}
+                        className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'INBOX'
+                            ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20'
+                            : 'text-gray-400 hover:text-white'
+                            }`}
+                    >
+                        <Mail size={16} />
+                        <span className="relative">
+                            Inbox
+                            {inboxMessages.some(m => m.status === MessageStatus.UNREAD) && (
+                                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-cyan-300 rounded-full shadow-[0_0_10px_rgba(34,211,238,1),0_0_20px_rgba(34,211,238,0.8)] animate-pulse" />
+                            )}
+                        </span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('NOTICE')}
+                        className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'NOTICE'
+                            ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20'
+                            : 'text-gray-400 hover:text-white'
+                            }`}
+                    >
+                        <Bell size={16} />
+                        <span className="relative">
+                            Notice
+                            {noticeMessages.some(m => m.status === MessageStatus.UNREAD) && (
+                                <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-yellow-300 rounded-full shadow-[0_0_10px_rgba(253,224,71,1),0_0_20px_rgba(253,224,71,0.8)] animate-pulse" />
+                            )}
+                        </span>
+                    </button>
+                </div>
 
-                <div className="w-10" /> {/* Spacer for alignment */}
-            </div>
-
-            {/* Tabs */}
-            <div className="flex w-fit mx-auto bg-black/40 rounded-full p-1 border border-white/10 mb-6">
-                <button
-                    onClick={() => setActiveTab('INBOX')}
-                    className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'INBOX'
-                        ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20'
-                        : 'text-gray-400 hover:text-white'
-                        }`}
-                >
-                    <Mail size={16} />
-                    <span className="relative">
-                        Inbox
-                        {inboxMessages.some(m => m.status === MessageStatus.UNREAD) && (
-                            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-cyan-300 rounded-full shadow-[0_0_10px_rgba(34,211,238,1),0_0_20px_rgba(34,211,238,0.8)] animate-pulse" />
-                        )}
-                    </span>
-                </button>
-                <button
-                    onClick={() => setActiveTab('NOTICE')}
-                    className={`px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${activeTab === 'NOTICE'
-                        ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20'
-                        : 'text-gray-400 hover:text-white'
-                        }`}
-                >
-                    <Bell size={16} />
-                    <span className="relative">
-                        Notice
-                        {noticeMessages.some(m => m.status === MessageStatus.UNREAD) && (
-                            <span className="absolute -top-0.5 -right-0.6 w-1.5 h-1.5 bg-yellow-300 rounded-full shadow-[0_0_10px_rgba(253,224,71,1),0_0_20px_rgba(253,224,71,0.8)] animate-pulse" />
-                        )}
-                    </span>
-                </button>
+                <div className="w-8" /> {/* Small spacer balance */}
             </div>
 
             {/* Content */}
