@@ -157,7 +157,7 @@ const App: React.FC = () => {
 
       // Check if day has changed
       if (now.getDate() !== lastCheckDate.getDate() || now.getMonth() !== lastCheckDate.getMonth()) {
-        console.log('🌑 Midnight Detected! Resetting Daily Stats...');
+
 
         // 1. Reset State Locally
         setSpinsToday(0);
@@ -172,7 +172,7 @@ const App: React.FC = () => {
             superModeSpinsLeft: 0,
             superModeEndTime: null,
             lastSpinDate: Timestamp.now()
-          }).then(() => console.log('✅ Daily stats reset in Firestore'));
+          });
         }
 
         // Update last check time
@@ -203,7 +203,7 @@ const App: React.FC = () => {
     return () => clearInterval(botInterval);
   }, []);
 
-  console.log('RENDER App: totalSpins =', totalSpins, 'isSyncEnabled =', isSyncEnabled);
+
 
   // AUTH LISTENER
   useEffect(() => {
@@ -226,12 +226,12 @@ const App: React.FC = () => {
           // Load user data from Firestore
           try {
             const userDocRef = doc(db, 'users', firebaseUser.uid);
-            console.log('Loading user data for UID:', firebaseUser.uid);
+
             const userDoc = await getDoc(userDocRef);
 
             if (userDoc.exists()) {
               const userData = userDoc.data();
-              console.log('✅ User data found in Firestore:', userData);
+
 
               setBalance(userData.tokens !== undefined ? userData.tokens : 10);
               setCoins(userData.coins || 0);
@@ -267,26 +267,10 @@ const App: React.FC = () => {
                 lastWeekId: userData.lastWeekId // CRITICAL: Populate lastWeekId so useWeeklyReset knows the state
               } : null);
 
-              console.log('✅ User data loaded successfully:', {
-                tokens: userData.tokens || 10,
-                coins: userData.coins || 0,
-                eTokens: userData.eTokens || 0,
-                ktmTokens: userData.ktmTokens || 0,
-                iphoneTokens: userData.iphoneTokens || 0,
-                inrBalance: userData.inrBalance || 0,
-                totalSpins: userData.totalSpins || 0,
-                photoURL: userData.photoURL,
-                referralCode: userData.referralCode,
-                referralCount: userData.referralCount || 0,
-                referredBy: userData.referredBy,
-                referralDismissed: userData.referralDismissed
-              });
+
 
               // Check if we should show the referral modal
-              console.log('Checking referral status:', {
-                referredBy: userData.referredBy,
-                referralDismissed: userData.referralDismissed
-              });
+
 
               // Referral modal logic removed as it is now handled in UsernameModal
 
@@ -305,7 +289,7 @@ const App: React.FC = () => {
                 });
               }
             } else {
-              console.log('⚠️ No user document found in Firestore, prompting for username...');
+
               // New User Flow: Show Username Modal to collect username & referral code
               // We DO NOT create the user document here anymore. It happens in handleUsernameSet.
               setShowUsernameModal(true);
@@ -314,12 +298,10 @@ const App: React.FC = () => {
             // Enable sync AFTER data is loaded with a small delay
             setTimeout(() => {
               setIsSyncEnabled(true);
-              console.log('✅ Firestore sync enabled');
+
             }, 1000);
           } catch (error) {
-            console.error('❌ Error loading user data from Firestore:', error);
-            console.error('Error code:', error.code);
-            console.error('Error message:', error.message);
+            // Error handled silently
 
             // Fallback to defaults on error
             setBalance(10);
@@ -404,7 +386,7 @@ const App: React.FC = () => {
       };
 
       await updateDoc(userDocRef, dataToSave);
-      console.log('✅ Data Synced to Firestore:', dataToSave);
+
 
       // --- LEADERBOARD SYNC (Throttled) ---
       // We still check leaderboard update criteria here, but triggered by direct actions
@@ -437,7 +419,7 @@ const App: React.FC = () => {
       }
 
     } catch (error: any) {
-      console.error('❌ Error saving user progress:', error);
+      // Error silently handled
     }
   };
 
@@ -469,10 +451,10 @@ const App: React.FC = () => {
           // Only update if server is AHEAD (greater) or RESET (0)
           // Ignore if server is BEHIND (less), which is likely a stale echo
           if (serverSpins > localSpins || serverSpins === 0) {
-            console.log('🔄 External update accepted for spinsToday:', serverSpins);
+            // console.log('🔄 External update accepted for spinsToday:', serverSpins);
             setSpinsToday(serverSpins);
           } else if (serverSpins < localSpins) {
-            console.log(`⚠️ Ignoring stale spinsToday update. Server: ${serverSpins}, Local: ${localSpins}`);
+            // console.log(`⚠️ Ignoring stale spinsToday update. Server: ${serverSpins}, Local: ${localSpins}`);
           }
         }
 
@@ -481,7 +463,7 @@ const App: React.FC = () => {
           const newEndTime = data.superModeEndTime.toDate();
           const currentEndTime = superModeEndTimeRef.current;
           if (!currentEndTime || newEndTime.getTime() !== currentEndTime.getTime()) {
-            console.log('🔄 External update detected for superModeEndTime:', newEndTime);
+
             setSuperModeEndTime(newEndTime);
           }
         }
@@ -498,14 +480,14 @@ const App: React.FC = () => {
             // But usually 0 means "expired". 
             // If local is 50 (just activated) and server says 0 (old state), we MUST ignore 0.
             if (localSuper === 50 && serverSuper === 0) {
-              console.log(`⚠️ Ignoring stale superModeSpinsLeft (0) immediately after activation.`);
+
             } else {
-              console.log('🔄 External update accepted for Super Mode:', serverSuper);
+
               setSuperModeSpinsLeft(serverSuper);
             }
           } else if (serverSuper > localSuper && serverSuper !== 50) {
             // Server says 45, Local says 40. Server is "behind" in consumption. Ignore.
-            console.log(`⚠️ Ignoring stale superModeSpinsLeft update. Server: ${serverSuper}, Local: ${localSuper}`);
+
           }
         }
 
@@ -513,8 +495,23 @@ const App: React.FC = () => {
         if (data.photoURL) {
           setUser(prev => {
             if (prev && prev.photoURL !== data.photoURL) {
-              console.log('🔄 Photo URL updated from Firestore:', data.photoURL);
+              // console.log('🔄 Photo URL updated from Firestore:', data.photoURL);
               return { ...prev, photoURL: data.photoURL };
+            }
+            return prev;
+          });
+        }
+
+        // SYNC REFERRAL STATS (Real-time update)
+        if (data.referralCount !== undefined || data.referralEarnings !== undefined) {
+          setUser(prev => {
+            if (!prev) return null;
+            const newCount = data.referralCount !== undefined ? data.referralCount : prev.referralCount;
+            const newEarnings = data.referralEarnings !== undefined ? data.referralEarnings : prev.referralEarnings;
+
+            if (newCount !== prev.referralCount || newEarnings !== prev.referralEarnings) {
+              // console.log(`🔄 Referral Stats Updated: Count=${newCount}, Earnings=${newEarnings}`);
+              return { ...prev, referralCount: newCount, referralEarnings: newEarnings };
             }
             return prev;
           });
@@ -542,15 +539,15 @@ const App: React.FC = () => {
   }, [eTokens, user]);
 
   const handleSpin = useCallback(async (count: number) => {
-    console.log('🚀 handleSpinRequest CALLED with count:', count);
+
 
     // TOKEN COST LOGIC: 1 Spin = 1 P-Token
     const cost = count;
-    console.log('💰 Cost:', cost, 'Balance:', balance, 'SuperSpins:', superModeSpinsLeft);
+
 
     // AUTH LOGIC: If balance is low (Always check, Super Mode is NOT free)
     if (!isAdminMode && balance < cost) {
-      console.log('❌ Insufficient balance, showing login/shop');
+
       if (!user) {
         setShowLoginModal(true);
       } else {
@@ -559,7 +556,7 @@ const App: React.FC = () => {
       return;
     }
 
-    console.log('✅ Balance check passed, proceeding with spin');
+
 
     // Deduct Balance (if not admin) - ALWAYS DEDUCT & SAVE IMMEDIATELY
     if (!isAdminMode) {
@@ -608,7 +605,7 @@ const App: React.FC = () => {
       // SUPER MODE LUCK BOOST: Re-roll if Common (50% chance)
       // This effectively gives a second chance to get a better item based on the same weights
       if (isSuperMode && item.rarity === 'COMMON' && Math.random() > 0.5) {
-        console.log('🔥 Super Mode Luck Boost! Re-rolling...');
+
         item = getWeightedRandomItem();
       }
       winners.push(item);
@@ -636,12 +633,12 @@ const App: React.FC = () => {
     const newSpinsToday = spinsToday + count;
     setSpinsToday(newSpinsToday);
 
-    console.log(`🏁 Spin Complete. Count: ${count}, New Total: ${newTotalSpins}, New Today: ${newSpinsToday}`);
+
 
     // 2. CHECK SUPER MODE ACTIVATION (Crossing 100)
     let activatedSuperMode = false;
     if (spinsToday < 100 && newSpinsToday >= 100) {
-      console.log('🔥 SUPER MODE ACTIVATED! (50 Spins)');
+
       setSuperModeSpinsLeft(50);
       activatedSuperMode = true;
       setShowSuperModeTransition(true);
@@ -698,7 +695,7 @@ const App: React.FC = () => {
     const newLevel = finalWinningsUpdates.level;
 
     if (newLevel > oldLevel) {
-      console.log(`🎉 Level Up Detected: ${oldLevel} -> ${newLevel}. Sending Reward Mail...`);
+      // console.log(`🎉 Level Up Detected: ${oldLevel} -> ${newLevel}. Sending Reward Mail...`);
       // Dynamic import to avoid cycles or ensure service availability
       import('./services/mailboxService').then(({ createLevelUpRewardMessage }) => {
         if (user?.id) {
@@ -816,7 +813,7 @@ const App: React.FC = () => {
     const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
     // Mock Ad Logic
-    console.log('📺 Watching Ad...');
+
 
     // Simulate Ad Duration
     await wait(2000);
@@ -831,7 +828,7 @@ const App: React.FC = () => {
   };
 
   const handleMailClick = () => {
-    console.log("📩 Mailbox clicked! Unread count:", unreadMailCount);
+
     setCurrentPage('MAILBOX');
   };
 
@@ -887,24 +884,24 @@ const App: React.FC = () => {
         };
 
         const result = await createUserProfile(newUser);
-        console.log('✅ User profile created via handleUsernameSet', result);
+
 
         // 3. Handle Referral Code (if provided)
         if (referralCode) {
-          console.log('Processing referral code:', referralCode);
+
           const referrerId = await validateReferralCode(referralCode, auth.currentUser.uid);
 
           if (referrerId) {
             const referralResult = await applyReferral(auth.currentUser.uid, referrerId);
             if (referralResult.success) {
-              console.log('✅ Referral applied successfully');
+
               // Optional: Show success toast
             } else {
-              console.warn('❌ Failed to apply referral:', referralResult.message);
+
               throw new Error(referralResult.message || 'Referral failed');
             }
           } else {
-            console.warn('❌ Invalid referral code');
+
             throw new Error('Invalid referral code');
           }
         }
@@ -927,7 +924,7 @@ const App: React.FC = () => {
         // Since we set User state, the app should unlock.
 
       } catch (error) {
-        console.error("Error setting username:", error);
+        // Error handled silently
         alert("Error creating account. Please try again.");
       }
     }
@@ -944,7 +941,7 @@ const App: React.FC = () => {
       // Just reset page to HOME
       setCurrentPage('HOME');
     } catch (error) {
-      console.error("Logout failed", error);
+      // Error silently handled
     }
   };
 
@@ -967,7 +964,7 @@ const App: React.FC = () => {
       sessionStorage.removeItem('isAdmin');
       setCurrentPage('HOME');
     } catch (error) {
-      console.error("Logout failed", error);
+      // Error silently handled
     }
   };
 
@@ -1038,12 +1035,12 @@ const App: React.FC = () => {
     // Analyze Gesture
     const isPShape = detectPShape(gesturePoints);
     if (isPShape) {
-      console.log("⚡ 'P' Gesture Detected! Opening Admin...");
+
       setShowAdminLogin(true);
       // Haptic feedback
       if (navigator.vibrate) navigator.vibrate(200);
     } else {
-      console.log("Gesture rejected (Not a 'P')");
+
     }
     setGesturePoints([]);
   };

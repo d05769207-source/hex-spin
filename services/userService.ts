@@ -1,6 +1,7 @@
 import { doc, setDoc, getDoc, updateDoc, Timestamp, increment, runTransaction, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from '../types';
+import { createLevelUpRewardMessage } from './mailboxService';
 
 // Generate the next numeric User ID using a transaction
 export const getNextUserId = async (): Promise<number> => {
@@ -95,6 +96,9 @@ export const createUserProfile = async (user: User): Promise<{ displayId: number
                 lastSpinDate: Timestamp.now(),
                 superModeEndTime: null
             });
+
+            // Send Level 1 Reward Mail (10 E-Tokens)
+            await createLevelUpRewardMessage(user.uid, 1);
 
             return { displayId, referralCode };
         } else {

@@ -59,8 +59,7 @@ export const getUserMessages = async (userId: string): Promise<MailboxMessage[]>
     try {
         const now = Timestamp.now();
 
-        // SIMPLIFIED DEBUG QUERY
-        // This bypasses complex index requirements to check if messages simply exist.
+        // Query for user messages
         const q = query(
             collection(db, 'mailbox'),
             where('userId', '==', userId)
@@ -405,7 +404,6 @@ export const createReferralRewardMessage = async (
     amount: number,
     reason: string
 ): Promise<string> => {
-    console.log(`[DEBUG] createReferralRewardMessage called: userId=${userId}, amount=${amount}`);
     try {
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days expiry

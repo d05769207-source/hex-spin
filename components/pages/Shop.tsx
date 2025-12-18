@@ -14,17 +14,7 @@ const Shop: React.FC<ShopProps> = ({ user, onWatchAd }) => {
    const referralCode = user?.referralCode || 'LOADING...';
    const referralCount = user?.referralCount || 0;
 
-   // DEBUG: TEST BUTTON
-   const handleTestReward = async () => {
-      if (!user) return;
-      try {
-         const { createReferralRewardMessage } = await import('../../services/mailboxService');
-         await createReferralRewardMessage(user.id, 50, 'Test Reward');
-         alert('Test Message Sent! Check Mailbox.');
-      } catch (e) {
-         alert('Error: ' + e);
-      }
-   };
+
 
 
    const handleCopyCode = () => {

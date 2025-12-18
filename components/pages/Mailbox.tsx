@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Mail, Bell, Clock, Gift, CheckCircle, Loader, Trophy } from 'lucide-react';
+import { ArrowLeft, Mail, Bell, Clock, CheckCircle, Loader } from 'lucide-react';
 import { User, MailboxMessage, MessageType, MessageStatus } from '../../types';
 import { getUserMessages, claimMessage, markMessageAsRead, markMessagesAsReadBatch } from '../../services/mailboxService';
 import EToken from '../EToken';
@@ -35,10 +35,9 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMess
         setLoading(true);
         try {
             const fetchedMessages = await getUserMessages(user.id);
-            console.log(`[DEBUG] Mailbox loaded messages:`, fetchedMessages);
             setMessages(fetchedMessages);
         } catch (error) {
-            console.error('Error loading messages:', error);
+            // Error silently handled
         } finally {
             setLoading(false);
         }

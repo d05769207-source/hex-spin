@@ -154,7 +154,10 @@ const Leaderboard: React.FC = () => {
             username: myData?.username || currentUser.displayName || 'You',
             photoURL: myData?.photoURL || currentUser.photoURL || '',
             coins: myData?.coins || 0,
-            isMe: true
+            totalSpins: myData?.totalSpins || 0,
+            isMe: true,
+            // @ts-ignore
+            createdAt: myData?.createdAt?.toMillis ? myData.createdAt.toMillis() : (myData?.createdAt || Date.now())
           };
 
           // Fetch all friends' data
@@ -166,7 +169,10 @@ const Leaderboard: React.FC = () => {
               username: userData?.username || friend.username,
               photoURL: userData?.photoURL || friend.photoURL,
               coins: userData?.coins || 0,
-              isMe: false
+              totalSpins: userData?.totalSpins || 0,
+              isMe: false,
+              // @ts-ignore
+              createdAt: userData?.createdAt?.toMillis ? userData.createdAt.toMillis() : (userData?.createdAt || Date.now())
             } as LeaderboardEntry;
           });
 
@@ -174,7 +180,21 @@ const Leaderboard: React.FC = () => {
 
           // Combine and Sort
           const allPlayers = [me, ...friendsData];
-          allPlayers.sort((a, b) => b.coins - a.coins);
+          allPlayers.sort((a, b) => {
+            // 1. Sort by Total Spins (Highest First)
+            const spinsA = a.totalSpins || 0;
+            const spinsB = b.totalSpins || 0;
+            if (spinsB !== spinsA) {
+              return spinsB - spinsA;
+            }
+
+            // 2. Sort by Time (Oldest First / First Come First Serve)
+            // @ts-ignore
+            const timeA = a.createdAt || 0;
+            // @ts-ignore
+            const timeB = b.createdAt || 0;
+            return timeA - timeB;
+          });
 
           // Assign Ranks
           const rankedPlayers = allPlayers.map((player, index) => ({
@@ -750,13 +770,13 @@ const Leaderboard: React.FC = () => {
 
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1.5">
-                          <svg viewBox="0 0 36 36" className="w-5 h-5 md:w-6 md:h-6 drop-shadow-sm filter brightness-110">
-                            <circle cx="18" cy="18" r="16" fill="#eab308" stroke="#fef08a" strokeWidth="2" />
-                            <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
-                            <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
-                          </svg>
+                          {/* Total Spins Icon (Target) */}
+                          <div className={`w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center ${isCurrentUser ? 'text-sky-300' : 'text-gray-400'}`}>
+                            <span className="text-sm">🎯</span>
+                          </div>
+
                           <span className={`font-black text-sm md:text-base tracking-wider ${isCurrentUser ? 'text-sky-400 drop-shadow-[0_0_5px_rgba(14,165,233,0.5)]' : rankColor}`}>
-                            {player.coins.toLocaleString()}
+                            {(player.totalSpins || 0).toLocaleString()}
                           </span>
                         </div>
 
@@ -764,8 +784,26 @@ const Leaderboard: React.FC = () => {
                         {isCurrentUser ? (
                           <span className="text-[10px] bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded uppercase font-bold border border-sky-500/30">You</span>
                         ) : (
-                          // No add friend button here since they are already friends
-                          <div className="w-8"></div>
+                          <div className="relative">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (menuState?.id === player.userId) {
+                                  setMenuState(null);
+                                  return;
+                                }
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setMenuState({
+                                  id: player.userId,
+                                  top: rect.bottom + 8,
+                                  right: window.innerWidth - rect.right
+                                });
+                              }}
+                              className="menu-trigger p-1.5 rounded-full bg-white/5 hover:bg-white/20 text-gray-400 hover:text-white transition-colors border border-white/10"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -779,11 +817,13 @@ const Leaderboard: React.FC = () => {
               )}
             </div>
 
-            {/* Add Friends Placeholder */}
-            <div className="mt-4 p-4 bg-sky-900/20 border border-sky-500/30 rounded-xl text-center">
-              <p className="text-sky-400 text-xs font-bold mb-2">Add more friends to compete!</p>
-              <p className="text-gray-500 text-[10px]">Invite your friends to join the leaderboard</p>
-            </div>
+            {/* Add Friends Placeholder - ONLY if no friends */}
+            {friends.length === 0 && (
+              <div className="mt-4 p-4 bg-sky-900/20 border border-sky-500/30 rounded-xl text-center">
+                <p className="text-sky-400 text-xs font-bold mb-2">Add more friends to compete!</p>
+                <p className="text-gray-500 text-[10px]">Invite your friends to join the leaderboard</p>
+              </div>
+            )}
           </div>
         )
       }
@@ -847,12 +887,23 @@ const Leaderboard: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <svg viewBox="0 0 36 36" className="w-5 h-5 md:w-6 md:h-6 drop-shadow-sm filter brightness-110">
-                      <circle cx="18" cy="18" r="16" fill="#eab308" stroke="#fef08a" strokeWidth="2" />
-                      <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
-                      <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
-                    </svg>
-                    <span className={`${rankTextClass} font-black text-base drop-shadow-sm`}>{footerUser.coins.toLocaleString()}</span>
+                    {isFriends ? (
+                      <>
+                        <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-sky-500/20 text-sky-300 flex items-center justify-center">
+                          <span className="text-sm">🎯</span>
+                        </div>
+                        <span className={`${rankTextClass} font-black text-base drop-shadow-sm`}>{(footerUser.totalSpins || 0).toLocaleString()}</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg viewBox="0 0 36 36" className="w-5 h-5 md:w-6 md:h-6 drop-shadow-sm filter brightness-110">
+                          <circle cx="18" cy="18" r="16" fill="#eab308" stroke="#fef08a" strokeWidth="2" />
+                          <circle cx="18" cy="18" r="12" fill="none" stroke="#a16207" strokeWidth="1.5" strokeDasharray="3 2" />
+                          <text x="50%" y="50%" textAnchor="middle" dy=".3em" fontSize="16" fontWeight="bold" fill="#fff" style={{ textShadow: '0px 1px 2px #a16207' }}>$</text>
+                        </svg>
+                        <span className={`${rankTextClass} font-black text-base drop-shadow-sm`}>{footerUser.coins.toLocaleString()}</span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -870,30 +921,22 @@ const Leaderboard: React.FC = () => {
         >
           <div className="p-1">
             {/* Check if already friends or request sent */}
+            {/* Check if already friends or request sent */}
             {friends.some(f => f.id === menuState.id) ? (
-              <div className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-green-400 bg-white/5 rounded-lg cursor-default">
-                <Check size={14} />
-                Friends
-              </div>
+              // If friends, show nothing here, just the actions below
+              null
             ) : sentRequests.includes(menuState.id) ? (
-              <div className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-400 bg-white/5 rounded-lg cursor-default">
+              <div className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-400 bg-white/5 rounded-lg cursor-default mb-1">
                 <Check size={14} />
                 Request Sent
               </div>
             ) : (
               <button
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors mb-1"
                 onClick={(e) => {
                   e.stopPropagation();
                   // Find user details from leaderboard to pass to handleSendRequest
-                  // BUT wait, leaderboard only has Top 100.
-                  // Depending on where we clicked, we might need data from friendsLeaderboard or leaderboard.
-                  // Let's try finding in both or use the clicked user ID logic.
-
-                  // Actually, the previous logic was:
                   const targetUser = leaderboard.find(u => u.userId === menuState.id) || friendsLeaderboard.find(u => u.userId === menuState.id);
-                  // Added friendsLeaderboard check in case we are in Friends tab and clicked someone not in top 100
-
                   if (targetUser) {
                     handleSendRequest({ id: targetUser.userId, username: targetUser.username });
                   }
@@ -903,6 +946,18 @@ const Leaderboard: React.FC = () => {
                 Add Friend
               </button>
             )}
+
+            <button
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                showNotification("Gift feature to be added soon!", 'success');
+                setMenuState(null);
+              }}
+            >
+              <Send size={14} className="text-pink-400" />
+              Send Gift
+            </button>
 
             <button
               className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-gray-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"

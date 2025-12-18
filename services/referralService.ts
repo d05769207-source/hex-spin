@@ -45,7 +45,6 @@ export const validateReferralCode = async (code: string, currentUserId: string):
  * Awards 5 tokens to the referrer immediately.
  */
 export const applyReferral = async (currentUserId: string, referrerId: string): Promise<{ success: boolean; message: string }> => {
-    console.log(`[DEBUG] applyReferral called: user=${currentUserId}, referrer=${referrerId}`);
     try {
         await runTransaction(db, async (transaction) => {
             const currentUserRef = doc(db, 'users', currentUserId);
@@ -155,11 +154,8 @@ export const processLevelUpReward = async (currentUserId: string, currentLevel: 
         // For simplicity, we assume generic "1 token per level".
 
         if (levelsGained <= 0) {
-            console.log(`[DEBUG] levelsGained <= 0 (${levelsGained}), skipping reward.`);
             return;
         }
-
-        console.log(`[DEBUG] Processing level up reward: levelsGained=${levelsGained}, referrer=${referrerId}`);
 
         await runTransaction(db, async (transaction) => {
             const referrerRef = doc(db, 'users', referrerId);
