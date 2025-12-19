@@ -11,7 +11,11 @@ import Leaderboard from './components/pages/Leaderboard';
 import Event from './components/pages/Event';
 import Shop from './components/pages/Shop';
 import Mailbox from './components/pages/Mailbox';
-import LoginModal from './components/auth/LoginModal';
+import LoadingScreen from './components/LoadingScreen'; // NEW
+import AuthScreen from './components/auth/AuthScreen'; // NEW
+import LoginModal from './components/auth/LoginModal'; // Keep for legacy/admin fallback
+
+// Keep for legacy/admin fallback if needed, or remove later
 import UsernameModal from './components/auth/UsernameModal';
 import WeeklyTimer from './components/WeeklyTimer';
 import AdminLoginModal from './components/admin/AdminLoginModal';
@@ -25,7 +29,7 @@ import SuperModeTransition from './components/SuperModeTransition'; // NEW: Anim
 import { Volume2, VolumeX, Info, Mail } from 'lucide-react';
 import './index.css';
 import { auth, db } from './firebase';
-import { onAuthStateChanged, updateProfile, signOut } from 'firebase/auth';
+import { onAuthStateChanged, updateProfile, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot, increment } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
@@ -36,6 +40,7 @@ import { processLevelUpReward, validateReferralCode, applyReferral } from './ser
 import MaintenancePoster from './components/MaintenancePoster';
 // NEW: Import Weekly Reset Hook
 import { useWeeklyReset } from './hooks/useWeeklyReset';
+import { useDailyReset } from './hooks/useDailyReset'; // NEW: Daily Reset Hook
 import { soundManager } from './utils/SoundManager';
 import { getUnreadCount, deleteExpiredMessages } from './services/mailboxService';
 
@@ -97,9 +102,20 @@ const App: React.FC = () => {
   // NEW: Initialize Weekly Reset Hook
 
 
-  const [isLoading, setIsLoading] = useState<boolean>(true); // Add loading state
+  // NEW: Initialize Weekly Reset Hook
+
+  // NEW: Initialize Weekly Reset Hook
+
+  const [isLoadingScreen, setIsLoadingScreen] = useState<boolean>(true); // NEW: Global Loading State
+  // const [isLoading, setIsLoading] = useState<boolean>(true); // Renamed/Refactored
+  const isLoading = isLoadingScreen; // Mapping for usage in hooks
+
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+
+
   const [showUsernameModal, setShowUsernameModal] = useState<boolean>(false);
+
+  const [hasEnteredGame, setHasEnteredGame] = useState<boolean>(false); // NEW: Controls transition to Game
 
   // Admin State
   const [isAdminMode, setIsAdminMode] = useState<boolean>(() => {
@@ -147,47 +163,9 @@ const App: React.FC = () => {
   // Prevent running hook with partial user data (missing lastWeekId) by waiting for isLoading
   useWeeklyReset(isLoading ? null : user, coins, setCoins, setETokens);
 
-  // --- DAILY RESET LOGIC (Midnight Check) ---
-  useEffect(() => {
-    const checkMidnightReset = () => {
-      // We only care if user is logged in for persistence, but state updates should happen anyway
-      const now = new Date();
-      const lastCheck = localStorage.getItem('last_midnight_check');
-      const lastCheckDate = lastCheck ? new Date(parseInt(lastCheck)) : now;
-
-      // Check if day has changed
-      if (now.getDate() !== lastCheckDate.getDate() || now.getMonth() !== lastCheckDate.getMonth()) {
-
-
-        // 1. Reset State Locally
-        setSpinsToday(0);
-        setSuperModeSpinsLeft(0); // User requirement: Super Mode expires at midnight
-        setSuperModeEndTime(null);
-
-        // 2. Update Firestore if User is logged in
-        if (user && !user.isGuest) {
-          const userDocRef = doc(db, 'users', user.id);
-          updateDoc(userDocRef, {
-            spinsToday: 0,
-            superModeSpinsLeft: 0,
-            superModeEndTime: null,
-            lastSpinDate: Timestamp.now()
-          });
-        }
-
-        // Update last check time
-        localStorage.setItem('last_midnight_check', now.getTime().toString());
-      }
-    };
-
-    // Run check immediately on mount
-    checkMidnightReset();
-
-    // Set interval to check every minute
-    const intervalId = setInterval(checkMidnightReset, 60000);
-
-    return () => clearInterval(intervalId);
-  }, [user]);
+  // --- DAILY RESET LOGIC (Hook) ---
+  // Replaces the old interval-based check with a robust Day ID tracker
+  useDailyReset(user, setSpinsToday, setSuperModeSpinsLeft, setSuperModeEndTime);
 
   // --- AUTO BOT SYSTEM TRIGGER ---
   useEffect(() => {
@@ -323,7 +301,7 @@ const App: React.FC = () => {
           setShowUsernameModal(true);
         }
         setShowLoginModal(false);
-        setIsLoading(false); // Auth check complete
+        // setIsLoading(false); // Auth check handled by LoadingScreen
       } else {
         // User is signed out - Load guest data from localStorage
         setUser(null);
@@ -336,12 +314,40 @@ const App: React.FC = () => {
         setInrBalance(0); // Guests don't get real money
         setTotalSpins(0); // Guests don't track spins for now or load from local if needed
         totalSpinsRef.current = 0; // SYNC REF
-        setIsLoading(false); // Auth check complete (Guest mode)
+        // setIsLoading(false); // Auth check handled by LoadingScreen
       }
     });
 
     return () => unsubscribe();
   }, []);
+
+  // NEW: Handle Loading Screen Completion
+  const handleLoadingComplete = () => {
+    setIsLoadingScreen(false);
+  };
+
+  // NEW: Handle Guest & Login Entry
+  const enterGame = () => {
+    setHasEnteredGame(true);
+    setSoundEnabled(true); // Enable sound on entry
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      // Success will be handled by the onAuthStateChanged listener
+      enterGame();
+    } catch (error) {
+      console.error("Google Login Error:", error);
+      // Optional: Show error toast
+    }
+  };
+
+  // Auto-enter if user exists (handled in effect or simplified logic)
+  useEffect(() => {
+    if (user) setHasEnteredGame(true);
+  }, [user]);
 
   // Load unread count when user logs in and periodically refresh
   // Load unread count when user logs in and subscribe to changes
@@ -448,13 +454,25 @@ const App: React.FC = () => {
           const serverSpins = data.spinsToday;
           const localSpins = spinsTodayRef.current;
 
-          // Only update if server is AHEAD (greater) or RESET (0)
-          // Ignore if server is BEHIND (less), which is likely a stale echo
-          if (serverSpins > localSpins || serverSpins === 0) {
-            // console.log('🔄 External update accepted for spinsToday:', serverSpins);
-            setSpinsToday(serverSpins);
-          } else if (serverSpins < localSpins) {
-            // console.log(`⚠️ Ignoring stale spinsToday update. Server: ${serverSpins}, Local: ${localSpins}`);
+          // DATE CHECK: Ensure the server data is for TODAY
+          const serverDate = data.lastSpinDate ? data.lastSpinDate.toDate() : new Date();
+          const today = new Date();
+          const isServerDataToday = serverDate.getDate() === today.getDate() &&
+            serverDate.getMonth() === today.getMonth() &&
+            serverDate.getFullYear() === today.getFullYear();
+
+          if (isServerDataToday) {
+            // Normal Sync: Only update if server is AHEAD or resets to 0
+            if (serverSpins > localSpins || serverSpins === 0) {
+              setSpinsToday(serverSpins);
+            }
+          } else {
+            // Server data is OLD (Yesterday or earlier).
+            // We should treat serverSpins as 0 for today's context.
+            // If localSpins is 0 (we already reset), good.
+            // If localSpins > 0 (we spun today), we ignore the old server data.
+            // No action needed, effectively "filtering out" the stale 50 spins.
+            // console.log('⚠️ Ignoring old server data from:', serverDate);
           }
         }
 
@@ -1051,15 +1069,6 @@ const App: React.FC = () => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-cyan-500"></div>
-      </div>
-    );
-  }
-
-  // --- RENDER CONTENT BASED ON PAGE ---
   const renderContent = () => {
     switch (currentPage) {
       case 'HOME':
@@ -1067,7 +1076,6 @@ const App: React.FC = () => {
           <>
             {/* Main Game Area */}
             <div className="flex-1 relative flex items-center justify-center z-10 mt-14 md:mt-10 pb-8 md:pb-0 md:pr-24">
-
               <SpinWheel
                 ref={wheelRef}
                 onSpinComplete={handleSpinComplete}
@@ -1147,7 +1155,7 @@ const App: React.FC = () => {
       default:
         return null;
     }
-  }
+  };
 
   // If in Admin Dashboard mode, render only the dashboard
   if (currentPage === 'ADMIN_DASHBOARD') {
@@ -1158,6 +1166,32 @@ const App: React.FC = () => {
       />
     );
   }
+
+  // 1. SHOW LOADING SCREEN
+  if (isLoadingScreen) {
+    return <LoadingScreen onComplete={handleLoadingComplete} />;
+  }
+
+  // 2. SHOW AUTH SCREEN (If not logged in and hasn't entered as guest)
+  // We check if user is NOT logged in AND hasn't clicked "Guest" or "Login" yet
+  if (!user && !hasEnteredGame) {
+    return (
+      <>
+        <AuthScreen
+          onGoogleLogin={handleGoogleLogin}
+          onEmailLogin={() => setShowLoginModal(true)}
+        />
+        {showLoginModal && (
+          <LoginModal
+            onLoginSuccess={handleLoginSuccess}
+            onClose={() => setShowLoginModal(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+
 
   return (
     <div
@@ -1378,6 +1412,9 @@ const App: React.FC = () => {
 
       {/* MAINTENANCE POSTER - Global Overlay */}
       <MaintenancePoster />
+
+
+
     </div >
   );
 };
