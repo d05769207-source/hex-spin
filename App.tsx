@@ -33,7 +33,7 @@ import { onAuthStateChanged, updateProfile, signOut, GoogleAuthProvider, signInW
 import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot, increment } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
-import { attemptAutoBotUpdate } from './services/botService'; // NEW: Import Logic
+import { simulateSmartBotActivity } from './services/smartBotService'; // NEW: Smart Bot Logic
 import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
 import { processLevelUpReward, validateReferralCode, applyReferral } from './services/referralService';
@@ -170,13 +170,13 @@ const App: React.FC = () => {
   // --- AUTO BOT SYSTEM TRIGGER ---
   useEffect(() => {
     // Check immediately on load
-    attemptAutoBotUpdate();
+    simulateSmartBotActivity();
 
     // Then check every 2 minutes
     // (The function itself enforces the 10-minute cooldown, so checking often is cheap)
     const botInterval = setInterval(() => {
-      attemptAutoBotUpdate();
-    }, 2 * 60 * 1000);
+      simulateSmartBotActivity();
+    }, 1 * 60 * 1000);
 
     return () => clearInterval(botInterval);
   }, []);

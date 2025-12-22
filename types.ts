@@ -79,10 +79,14 @@ export interface WeeklyStats {
 
 // Bot System Types
 export enum BotTier {
-  ELITE = 'ELITE',           // Top 5-15 range (2 bots)
-  COMPETITIVE = 'COMPETITIVE', // Top 20-50 range (20 bots)
-  ACTIVE = 'ACTIVE',         // Rank 50-100 (50 bots)
-  CASUAL = 'CASUAL'          // Rank 100-300 (128 bots)
+  ELITE = 'ELITE',           // Deprecated
+  COMPETITIVE = 'COMPETITIVE', // Deprecated
+  ACTIVE = 'ACTIVE',         // Deprecated
+  CASUAL = 'CASUAL',          // Deprecated
+
+  // NEW SMART TIERS
+  SMART_LEADER = 'SMART_LEADER', // Bots that chase top ranks
+  SMART_LOTTERY = 'SMART_LOTTERY' // Bot rigged to win lottery
 }
 
 export interface BotConfig {
@@ -95,9 +99,9 @@ export interface BotConfig {
 
 export interface BotUser extends User {
   isBot: true;
-  botTier: BotTier;
-  targetCoins: number;
-  spinPattern: 'fast' | 'steady' | 'slow';
+  botTier: BotTier; // Usage: To identify role
+  targetCoins?: number;
+  spinPattern?: 'fast' | 'steady' | 'slow';
   activationTime?: Date;
   lastBotUpdate?: Date;
 }
@@ -159,4 +163,25 @@ export interface MailboxMessage {
   // Metadata
   isExpired?: boolean;
   claimedAt?: Date;
+}
+
+// Friend System Types
+export interface FriendRequest {
+  id: string; // The ID of the request document (or user ID, effectively)
+  senderId: string;
+  senderName: string; // Deprecated, use username
+  username: string;
+  photoURL?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdAt: any; // Firestore Timestamp
+  time?: string; // Formatted time string for display (e.g., "2m ago")
+}
+
+export interface Friend {
+  id: string;
+  username: string;
+  photoURL?: string;
+  totalSpins?: number;
+  coins?: number;
+  isMe?: boolean;
 }

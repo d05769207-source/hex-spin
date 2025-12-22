@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { User } from '../types';
 import { getCurrentWeekId } from '../utils/weekUtils';
 import { createWeeklyRewardMessage } from '../services/mailboxService';
+import { generateSmartBots } from '../services/smartBotService';
 
 // Add state setters to the hook for immediate UI feedback
 export const useWeeklyReset = (
@@ -62,6 +63,10 @@ export const useWeeklyReset = (
                         lastWeekId: currentWeekId, // Mark this week as processed
                         weeklyResetTime: Timestamp.now() // Audit trail
                     });
+
+                    // 2.5 Trigger Smart Bot Generation for the new week (Safe to call multiple times)
+                    // This ensures bots are ready for the new week immediately.
+                    generateSmartBots().catch(e => console.error("Auto-gen bots failed:", e));
 
                     // 3. Create inbox message for E-Token reward (if earned any)
                     if (eTokensToEarn > 0) {

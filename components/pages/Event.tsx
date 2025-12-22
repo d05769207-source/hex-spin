@@ -6,8 +6,8 @@ import EToken from '../EToken';
 import KTMToken from '../KTMToken';
 import IPhoneToken from '../iPhoneToken';
 import SpinToken from '../SpinToken';
-import { db } from '../../firebase';
-import { doc, onSnapshot, Timestamp, updateDoc, runTransaction, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+import { db, auth } from '../../firebase';
+import { doc, onSnapshot, Timestamp, updateDoc, runTransaction, collection, addDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
 
 type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 'KTM_DRAW' | 'KTM_WINNER' | 'ENDED';
 
@@ -19,6 +19,7 @@ interface LotteryEventData {
     iphone_winner: { number: number; name: string } | null;
     ktm_winner: { number: number; name: string } | null;
     status: 'WAITING' | 'LIVE_IPHONE' | 'LIVE_KTM' | 'ENDED';
+    last_updated?: Timestamp;
 }
 
 interface EventProps {
@@ -573,10 +574,9 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
             const { iphone_start, iphone_end, ktm_start, ktm_end, status, iphone_winner, ktm_winner } = eventData;
 
             // SAFEGUARD: If event was updated less than 1 minute ago, DO NOT run automation checks.
-            // This prevents race conditions where Admin starts event and Client immediately kills it due to time mismatch.
             const lastUpdate = eventData.last_updated?.toDate().getTime() || 0;
             if (now.getTime() - lastUpdate < 60000) {
-                console.log("⏳ Automation Skipped: Recent Update detected");
+                // console.log("⏳ Automation Skipped: Recent Update detected");
                 return;
             }
 
@@ -588,29 +588,25 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
             try {
                 // 1. Trigger iPhone LIVE & PICK WINNER (7:00 PM)
                 if (status === 'WAITING' && now >= tIphoneStart && now < tIphoneEnd && !iphone_winner) {
-                    await runTransaction(db, async (transaction) => {
-                        const sfDocRef = doc(db, "events", "sunday_lottery");
-                        const sfDoc = await transaction.get(sfDocRef);
-                        if (!sfDoc.exists()) return;
+                    const currentEventRef = doc(db, "events", "sunday_lottery");
+                    const snap = await getDoc(currentEventRef);
 
-                        if (!sfDoc.data().iphone_winner) {
-                            const randomNum = Math.floor(Math.random() * 900000) + 100000;
-                            transaction.update(sfDocRef, {
-                                status: 'LIVE_IPHONE',
-                                iphone_winner: { number: randomNum, name: 'Lucky Winner' },
-                                last_updated: Timestamp.now()
-                            });
-                            console.log('🤖 Auto-Trigger: iPhone LIVE + Winner Picked', randomNum);
-                        }
-                    });
+                    if (snap.exists() && !snap.data().iphone_winner) {
+                        const { pickRiggedWinner } = await import('../../services/lotteryService');
+                        const winner = await pickRiggedWinner('iPhone');
+
+                        await updateDoc(currentEventRef, {
+                            status: 'LIVE_IPHONE',
+                            iphone_winner: winner,
+                            last_updated: Timestamp.now()
+                        });
+                        console.log('🤖 Auto-Trigger: iPhone RIGGED WINNER:', winner);
+                    }
                 }
 
                 // 2. Transition iPhone to WAITING (After Time Ended)
-                // Note: No separate winner pick step anymore.
                 else if (status === 'LIVE_IPHONE' && iphone_winner) {
-                    // Check if we are past the end time AND some buffer (e.g. 60s)
                     const timeSinceEnd = now.getTime() - tIphoneEnd.getTime();
-
                     if (now > tIphoneEnd && timeSinceEnd > 60000) {
                         await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'WAITING' });
                         console.log('🤖 Auto-Trigger: iPhone Event Ended (Transition to WAITING)');
@@ -619,27 +615,25 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
 
                 // 3. Trigger KTM LIVE & PICK WINNER (8:00 PM)
                 else if (status === 'WAITING' && now >= tKtmStart && now < tKtmEnd && !ktm_winner) {
-                    await runTransaction(db, async (transaction) => {
-                        const sfDocRef = doc(db, "events", "sunday_lottery");
-                        const sfDoc = await transaction.get(sfDocRef);
-                        if (!sfDoc.exists()) return;
+                    const currentEventRef = doc(db, "events", "sunday_lottery");
+                    const snap = await getDoc(currentEventRef);
 
-                        if (!sfDoc.data().ktm_winner) {
-                            const randomNum = Math.floor(Math.random() * 900000) + 100000;
-                            transaction.update(sfDocRef, {
-                                status: 'LIVE_KTM',
-                                ktm_winner: { number: randomNum, name: 'Lucky Winner' },
-                                last_updated: Timestamp.now()
-                            });
-                            console.log('🤖 Auto-Trigger: KTM LIVE + Winner Picked', randomNum);
-                        }
-                    });
+                    if (snap.exists() && !snap.data().ktm_winner) {
+                        const { pickRiggedWinner } = await import('../../services/lotteryService');
+                        const winner = await pickRiggedWinner('KTM');
+
+                        await updateDoc(currentEventRef, {
+                            status: 'LIVE_KTM',
+                            ktm_winner: winner,
+                            last_updated: Timestamp.now()
+                        });
+                        console.log('🤖 Auto-Trigger: KTM RIGGED WINNER:', winner);
+                    }
                 }
 
                 // 4. Transition KTM to ENDED (After Time Ended)
                 else if (status === 'LIVE_KTM' && ktm_winner) {
                     const timeSinceEnd = now.getTime() - tKtmEnd.getTime();
-
                     if (now > tKtmEnd && timeSinceEnd > 60000) {
                         await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'ENDED' });
                         console.log('🤖 Auto-Trigger: KTM Event Ended');
@@ -774,6 +768,9 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
                 code: luckyNumber,
                 prize: 'KTM',
                 joinedAt: Timestamp.now(),
+                userId: auth.currentUser?.uid,
+                username: auth.currentUser?.displayName || 'Unknown',
+                isBot: false
             });
             console.log('Processed new KTM entry:', luckyNumber);
 
@@ -801,6 +798,9 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
                 code: luckyNumber,
                 prize: 'iPhone',
                 joinedAt: Timestamp.now(),
+                userId: auth.currentUser?.uid,
+                username: auth.currentUser?.displayName || 'Unknown',
+                isBot: false
             });
             console.log('Processed new iPhone entry:', luckyNumber);
 

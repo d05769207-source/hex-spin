@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, memo, forwardRef, useImperativeHa
 import { ITEMS } from '../constants';
 import { GameItem } from '../types';
 import Hexagon from './Hexagon';
+import { soundManager } from '../utils/SoundManager';
 
 export interface SpinWheelRef {
     spin: (winners: GameItem[]) => Promise<void>;
@@ -30,32 +31,23 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
     // Refs for Direct DOM Manipulation
     const hexagonRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-    // Audio Refs
-    const tickAudioRef = useRef<HTMLAudioElement | null>(null);
-    const winAudioRef = useRef<HTMLAudioElement | null>(null);
+    // Audio Refs - REMOVED (Using SoundManager)
 
     useEffect(() => {
-        tickAudioRef.current = new Audio('/sounds/spin_tick.mp3');
-        winAudioRef.current = new Audio('/sounds/win_impact.mp3');
-
-        // Preload
-        tickAudioRef.current.load();
-        winAudioRef.current.load();
+        // Preload sounds via SoundManager
+        soundManager.load({
+            spin_tick: '/sounds/spin_tick.mp3',
+            win_impact: '/sounds/win_impact.mp3'
+        });
     }, []);
 
     const playTickSound = (isFast: boolean) => {
-        if (!tickAudioRef.current) return;
-
-        // For fast spin, we want to ensure it plays rapidly without cutting off too awkwardly,
-        // but for a mechanical tick, resetting to 0 is usually best to get the "attack" of the sound.
-        tickAudioRef.current.currentTime = 0;
-        tickAudioRef.current.play().catch(() => { });
+        // Use SoundManager for consistent playback
+        soundManager.play('spin_tick', { volume: 0.6 }); // Slightly lower volume for tick
     };
 
     const playWinSound = () => {
-        if (!winAudioRef.current) return;
-        winAudioRef.current.currentTime = 0;
-        winAudioRef.current.play().catch(() => { });
+        soundManager.play('win_impact', { volume: 1.0 });
     };
 
     // Helper to wait
@@ -481,7 +473,7 @@ const SpinWheel = forwardRef<SpinWheelRef, SpinWheelProps>(({
                     return (
                         <Hexagon
                             key={item.id}
-                            ref={el => hexagonRefs.current[index] = el}
+                            ref={(el) => { hexagonRefs.current[index] = el; }}
                             item={item}
                             isActive={isActive}
                             isWon={isWon}

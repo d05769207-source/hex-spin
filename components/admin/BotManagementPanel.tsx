@@ -1,193 +1,115 @@
 import React, { useState, useEffect } from 'react';
 import {
-    getBotSystemConfig,
-    updateBotSystemConfig,
-    generateBotUsers,
-    activateBotsForWeek,
-    deactivateAllBots,
-    deleteAllBots,
-    getBotLeaderboard,
-    simulateBotActivity,
-    getRealUserStats
-} from '../../services/botService';
-import { getLeaderboardAnalytics } from '../../services/leaderboardService';
-import { BotSystemConfig, BotTier } from '../../types';
-import { Timestamp } from 'firebase/firestore'; // NEW: Added Import
+    generateSmartBots,
+    cleanupLegacyBots,
+    getSmartBots,
+    simulateSmartBotActivity
+} from '../../services/smartBotService';
+import { getLeaderboardAnalytics, syncUserToLeaderboard } from '../../services/leaderboardService';
+import { auth, db } from '../../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export const BotManagementPanel: React.FC = () => {
-    const [config, setConfig] = useState<BotSystemConfig | null>(null);
+    // Config state is removed as we hardcoded 3 bots for now.
+    // const [config, setConfig] = useState<BotSystemConfig | null>(null);
     const [loading, setLoading] = useState(false);
     const [analytics, setAnalytics] = useState<any>(null);
-    const [realUserStats, setRealUserStats] = useState<any>(null);
-    const [botLeaderboard, setBotLeaderboard] = useState<any[]>([]);
+    const [botList, setBotList] = useState<any[]>([]);
     const [showBotList, setShowBotList] = useState(false);
 
     useEffect(() => {
-        loadConfig();
         loadAnalytics();
-        loadRealUserStats();
     }, []);
-
-    const loadConfig = async () => {
-        const cfg = await getBotSystemConfig();
-        setConfig(cfg);
-    };
 
     const loadAnalytics = async () => {
         const stats = await getLeaderboardAnalytics();
         setAnalytics(stats);
     };
 
-    const loadRealUserStats = async () => {
-        const stats = await getRealUserStats();
-        setRealUserStats(stats);
+    const loadBotList = async () => {
+        const bots = await getSmartBots();
+        setBotList(bots);
     };
 
-    const loadBotLeaderboard = async () => {
-        const bots = await getBotLeaderboard();
-        setBotLeaderboard(bots);
-    };
-
-    const handleToggleSystem = async () => {
-        if (!config) return;
-        setLoading(true);
-        try {
-            await updateBotSystemConfig({ enabled: !config.enabled });
-            await loadConfig();
-            alert(`Bot system ${!config.enabled ? 'enabled' : 'disabled'} successfully!`);
-        } catch (error) {
-            alert('Error toggling bot system');
-        }
-        setLoading(false);
-    };
-
-    const handleGenerateBots = async () => {
-        if (!confirm('🛠️ This will RESET and REPAIR the bot system. It will delete old bots and create fresh ones. Continue?')) return;
+    const handleGenerateSmartBots = async () => {
+        if (!confirm('🛠️ This will DELETE all old bots and create 3 NEW Smart Bots. Continue?')) return;
 
         setLoading(true);
         try {
-            // NUCLEAR OPTION: Clear everything to ensure ID match
-            console.log('🗑️ Deleting old bots...');
-            await deleteAllBots();
+            console.log('🗑️ Cleaning legacy bots...');
+            await cleanupLegacyBots();
 
-            console.log('🤖 Generating fresh bots...');
-            await generateBotUsers();
+            console.log('🤖 Generating 3 Smart Bots...');
+            await generateSmartBots();
 
-            console.log('⚡ Activating bots...');
-            await activateBotsForWeek();
-
-            console.log('🎲 Simulating initial activity...');
-            await simulateBotActivity();
-
-            alert('✅ Success! Bots have been reset, activated, and synced. Please check the leaderboard now.');
+            alert('✅ Success! 3 Smart Bots Created & Synced to Users collection.');
             await loadAnalytics();
+            if (showBotList) loadBotList();
+
         } catch (error) {
             console.error(error);
-            alert('❌ Error during fix process. Check console.');
+            alert('❌ Error during generation. Check console.');
         }
         setLoading(false);
     };
 
-    const handleActivateBots = async () => {
+    const handleSimulateActivity = async () => {
         setLoading(true);
         try {
-            await activateBotsForWeek();
-            alert('✅ Bots activated based on tier schedule!');
-            await loadAnalytics();
+            await simulateSmartBotActivity();
+            alert('✅ Activity Simulated (This feature is in Phase 2 Development)');
         } catch (error) {
-            alert('❌ Error activating bots');
+            alert('❌ Error simulating activity');
         }
         setLoading(false);
     };
 
-    const handleDeactivateBots = async () => {
-        if (!confirm('This will reset all bot coins to 0. Continue?')) return;
-
+    const handleCleanup = async () => {
+        if (!confirm('Delete ALL bots?')) return;
         setLoading(true);
         try {
-            await deactivateAllBots();
-            alert('✅ All bots deactivated!');
+            await cleanupLegacyBots();
+            alert('✅ All bots deleted.');
             await loadAnalytics();
+            setBotList([]);
         } catch (error) {
-            alert('❌ Error deactivating bots');
+            alert('❌ Error cleaning up.');
         }
         setLoading(false);
     };
 
-    const handleSimulateBotActivity = async () => {
+    const handleSyncMyScore = async () => {
+        if (!auth.currentUser) return;
         setLoading(true);
         try {
-            // Update timestamp so auto-system knows it just ran
-            await updateBotSystemConfig({ lastGlobalUpdate: Timestamp.now() });
-
-            await simulateBotActivity();
-            alert('✅ Bot activity simulated & Timer Reset!');
-            await loadAnalytics();
-            await loadBotLeaderboard();
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            const snap = await getDoc(userRef);
+            if (snap.exists()) {
+                const data = snap.data();
+                await syncUserToLeaderboard(
+                    auth.currentUser.uid,
+                    data.username || "Admin",
+                    data.coins || 0,
+                    data.photoURL,
+                    data.totalSpins || 0,
+                    data.level || 1
+                );
+                alert(`✅ Synced! Your score (${data.coins}) is now on the Leaderboard.`);
+            }
         } catch (error) {
-            alert('❌ Error simulating bot activity');
+            console.error(error);
+            alert('❌ Error syncing score.');
         }
         setLoading(false);
     };
 
-    const handleDeleteAllBots = async () => {
-        if (!confirm('⚠️ This will DELETE all bot users permanently. Continue?')) return;
-
-        setLoading(true);
-        try {
-            await deleteAllBots();
-            alert('✅ All bots deleted!');
-            await loadAnalytics();
-            setBotLeaderboard([]);
-        } catch (error) {
-            alert('❌ Error deleting bots');
-        }
-        setLoading(false);
-    };
-
-    const handleRefresh = () => {
-        loadConfig();
-        loadAnalytics();
-        loadRealUserStats();
-        if (showBotList) {
-            loadBotLeaderboard();
-        }
-    };
-
-    if (!config) {
-        return <div style={styles.loading}>Loading bot configuration...</div>;
-    }
 
     return (
         <div style={styles.container}>
             <div style={styles.header}>
-                <h2 style={styles.title}>🤖 Bot Management System</h2>
-                <button onClick={handleRefresh} style={styles.refreshBtn}>
+                <h2 style={styles.title}>🤖 Smart Bot System (Phase 1)</h2>
+                <button onClick={() => { loadAnalytics(); if (showBotList) loadBotList(); }} style={styles.refreshBtn}>
                     🔄 Refresh
-                </button>
-            </div>
-
-            {/* System Status */}
-            <div style={styles.statusCard}>
-                <div style={styles.statusHeader}>
-                    <h3>System Status</h3>
-                    <div style={styles.statusIndicator}>
-                        <span style={{
-                            ...styles.statusDot,
-                            backgroundColor: config.enabled ? '#4CAF50' : '#f44336'
-                        }} />
-                        {config.enabled ? 'ACTIVE' : 'DISABLED'}
-                    </div>
-                </div>
-                <button
-                    onClick={handleToggleSystem}
-                    disabled={loading}
-                    style={{
-                        ...styles.btn,
-                        backgroundColor: config.enabled ? '#f44336' : '#4CAF50'
-                    }}
-                >
-                    {config.enabled ? '⏸️ Disable Bot System' : '▶️ Enable Bot System'}
                 </button>
             </div>
 
@@ -206,118 +128,36 @@ export const BotManagementPanel: React.FC = () => {
                         </div>
                         <div style={styles.statBox}>
                             <div style={styles.statValue}>{analytics.bots}</div>
-                            <div style={styles.statLabel}>Bots</div>
-                        </div>
-                        <div style={styles.statBox}>
-                            <div style={styles.statValue}>{analytics.realUsersTop100}</div>
-                            <div style={styles.statLabel}>Real Users (Top 100)</div>
-                        </div>
-                        <div style={styles.statBox}>
-                            <div style={styles.statValue}>{analytics.botsTop100}</div>
-                            <div style={styles.statLabel}>Bots (Top 100)</div>
-                        </div>
-                        <div style={styles.statBox}>
-                            <div style={styles.statValue}>
-                                {analytics.realUserPercentageTop100.toFixed(1)}%
-                            </div>
-                            <div style={styles.statLabel}>Real User %</div>
+                            <div style={styles.statLabel}>Bots (Target: 3)</div>
                         </div>
                     </div>
                 </div>
             )}
-
-            {/* Real User Stats */}
-            {realUserStats && (
-                <div style={styles.analyticsCard}>
-                    <h3>👥 Real User Statistics</h3>
-                    <div style={styles.statsGrid}>
-                        <div style={styles.statBox}>
-                            <div style={styles.statValue}>{realUserStats.count}</div>
-                            <div style={styles.statLabel}>Real Users in Top 100</div>
-                        </div>
-                        <div style={styles.statBox}>
-                            <div style={styles.statValue}>{Math.round(realUserStats.averageCoins)}</div>
-                            <div style={styles.statLabel}>Average Coins</div>
-                        </div>
-                        <div style={styles.statBox}>
-                            <div style={styles.statValue}>{realUserStats.maxCoins}</div>
-                            <div style={styles.statLabel}>Max Coins</div>
-                        </div>
-                        <div style={styles.statBox}>
-                            <div style={styles.statValue}>{realUserStats.top10MaxCoins}</div>
-                            <div style={styles.statLabel}>Top 10 Max</div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Bot Configuration */}
-            <div style={styles.configCard}>
-                <h3>⚙️ Bot Configuration</h3>
-                <div style={styles.configGrid}>
-                    <div style={styles.configItem}>
-                        <span>Total Bots:</span>
-                        <strong>{config.totalBots}</strong>
-                    </div>
-                    <div style={styles.configItem}>
-                        <span>Elite Bots:</span>
-                        <strong>{config.eliteBots}</strong>
-                    </div>
-                    <div style={styles.configItem}>
-                        <span>Competitive Bots:</span>
-                        <strong>{config.competitiveBots}</strong>
-                    </div>
-                    <div style={styles.configItem}>
-                        <span>Active Bots:</span>
-                        <strong>{config.activeBots}</strong>
-                    </div>
-                    <div style={styles.configItem}>
-                        <span>Casual Bots:</span>
-                        <strong>{config.casualBots}</strong>
-                    </div>
-                    <div style={styles.configItem}>
-                        <span>Priority Threshold:</span>
-                        <strong>{(config.realUserPriorityThreshold * 100).toFixed(0)}%</strong>
-                    </div>
-                </div>
-            </div>
 
             {/* Control Buttons */}
             <div style={styles.controlsCard}>
                 <h3>🎮 Bot Controls</h3>
                 <div style={styles.btnGrid}>
                     <button
-                        onClick={handleGenerateBots}
+                        onClick={handleGenerateSmartBots}
                         disabled={loading}
-                        style={{ ...styles.btn, backgroundColor: '#9C27B0' }} // Purple for Magic Fix
+                        style={{ ...styles.btn, backgroundColor: '#9C27B0' }}
                     >
-                        🛠️ Fix & Reset Bots
+                        🛠️ Initialize 3 Smart Bots
                     </button>
+
                     <button
-                        onClick={handleActivateBots}
+                        onClick={() => handleSimulateActivity()}
                         disabled={loading}
                         style={styles.btn}
                     >
-                        ▶️ Activate Bots
+                        🎲 Simulate Activity (Auto)
                     </button>
-                    <button
-                        onClick={handleSimulateBotActivity}
-                        disabled={loading}
-                        style={styles.btn}
-                    >
-                        🎲 Simulate Activity
-                    </button>
-                    <button
-                        onClick={handleDeactivateBots}
-                        disabled={loading}
-                        style={{ ...styles.btn, backgroundColor: '#ff9800' }}
-                    >
-                        ⏸️ Deactivate All Bots
-                    </button>
+
                     <button
                         onClick={() => {
                             setShowBotList(!showBotList);
-                            if (!showBotList) loadBotLeaderboard();
+                            if (!showBotList) loadBotList();
                         }}
                         disabled={loading}
                         style={styles.btn}
@@ -325,75 +165,94 @@ export const BotManagementPanel: React.FC = () => {
                         {showBotList ? '👁️ Hide' : '👁️ View'} Bot List
                     </button>
                     <button
-                        onClick={handleDeleteAllBots}
+                        onClick={handleCleanup}
                         disabled={loading}
                         style={{ ...styles.btn, backgroundColor: '#f44336' }}
                     >
                         🗑️ Delete All Bots
                     </button>
+
+
+                    <button
+                        onClick={handleSyncMyScore}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: '#4CAF50' }}
+                    >
+                        🔄 Sync MY Score to Leaderboard
+                    </button>
+                </div>
+
+                {/* SIMULATION TOOLS */}
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#aaa' }}>🕹️ Force Simulation (Testing)</h4>
+                <div style={styles.btnGrid}>
+                    <button
+                        onClick={() => { setLoading(true); simulateSmartBotActivity(1).then(() => { alert('Simulated MONDAY (Rank 50+)'); setLoading(false); }); }}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: '#607D8B' }}
+                    >
+                        Force Mon (Low)
+                    </button>
+                    <button
+                        onClick={() => { setLoading(true); simulateSmartBotActivity(5).then(() => { alert('Simulated FRIDAY (Rank 5+)'); setLoading(false); }); }}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: '#009688' }}
+                    >
+                        Force Fri (High)
+                    </button>
+                    <button
+                        onClick={() => { setLoading(true); simulateSmartBotActivity(0).then(() => { alert('Simulated SUNDAY (Rank 3+)'); setLoading(false); }); }}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: '#FF9800' }}
+                    >
+                        Force Sun (Top 3)
+                    </button>
+                    <button
+                        onClick={() => { setLoading(true); simulateSmartBotActivity(0, true).then(() => { alert('Simulated RUSH HOUR (Rank 1!)'); setLoading(false); }); }}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: '#E91E63' }}
+                    >
+                        🔥 Force RUSH HOUR
+                    </button>
                 </div>
             </div>
 
-            {/* Bot Leaderboard */}
-            {showBotList && botLeaderboard.length > 0 && (
-                <div style={styles.botListCard}>
-                    <h3>🤖 Bot Leaderboard ({botLeaderboard.length} bots)</h3>
-                    <div style={styles.botList}>
-                        {botLeaderboard.slice(0, 50).map((bot, index) => (
-                            <div key={bot.id} style={styles.botItem}>
-                                <div style={styles.botRank}>#{index + 1}</div>
-                                <div style={styles.botInfo}>
-                                    <div style={styles.botName}>{bot.username}</div>
-                                    <div style={styles.botMeta}>
-                                        <span style={getTierColor(bot.botTier)}>
-                                            {bot.botTier}
-                                        </span>
-                                        {' • '}
-                                        <span>{bot.spinPattern}</span>
+            {/* Bot List */}
+            {
+                showBotList && (
+                    <div style={styles.botListCard}>
+                        <h3>🤖 Active Bots ({botList.length})</h3>
+                        <div style={styles.botList}>
+                            {botList.map((bot, index) => (
+                                <div key={bot.id} style={styles.botItem}>
+                                    <div style={styles.botRank}>#{index + 1}</div>
+                                    <div style={styles.botInfo}>
+                                        <div style={styles.botName}>{bot.username}</div>
+                                        <div style={styles.botMeta}>
+                                            <span style={{ color: '#aaa' }}>
+                                                {bot.botTier}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div style={styles.botCoins}>
+                                        {bot.coins} Coins
                                     </div>
                                 </div>
-                                <div style={styles.botCoins}>
-                                    {bot.coins} / {bot.targetCoins}
-                                    <div style={styles.progressBar}>
-                                        <div
-                                            style={{
-                                                ...styles.progressFill,
-                                                width: `${bot.progress}%`
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                                <div style={styles.botStatus}>
-                                    {bot.isActivated ? '🟢 Active' : '🔴 Inactive'}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    {botLeaderboard.length > 50 && (
-                        <div style={styles.showMoreText}>
-                            Showing top 50 of {botLeaderboard.length} bots
+                            ))}
+                            {botList.length === 0 && <p style={{ color: '#888', textAlign: 'center' }}>No bots found.</p>}
                         </div>
-                    )}
-                </div>
-            )}
+                    </div>
+                )
+            }
 
-            {loading && (
-                <div style={styles.loadingOverlay}>
-                    <div style={styles.spinner}>⏳ Processing...</div>
-                </div>
-            )}
-        </div>
+            {
+                loading && (
+                    <div style={styles.loadingOverlay}>
+                        <div style={styles.spinner}>⏳ Processing...</div>
+                    </div>
+                )
+            }
+        </div >
     );
-};
-
-const getTierColor = (tier: BotTier) => {
-    const colors = {
-        [BotTier.ELITE]: { color: '#FFD700', fontWeight: 'bold' },
-        [BotTier.COMPETITIVE]: { color: '#C0C0C0', fontWeight: 'bold' },
-        [BotTier.ACTIVE]: { color: '#CD7F32', fontWeight: 'bold' },
-        [BotTier.CASUAL]: { color: '#888', fontWeight: 'normal' }
-    };
-    return colors[tier] || {};
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
@@ -421,36 +280,6 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '6px',
         color: '#fff',
         cursor: 'pointer'
-    },
-    loading: {
-        textAlign: 'center',
-        padding: '40px',
-        color: '#fff'
-    },
-    statusCard: {
-        background: 'rgba(0,0,0,0.3)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: '12px',
-        padding: '20px',
-        marginBottom: '20px'
-    },
-    statusHeader: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '15px'
-    },
-    statusIndicator: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        fontSize: '14px',
-        fontWeight: 'bold'
-    },
-    statusDot: {
-        width: '12px',
-        height: '12px',
-        borderRadius: '50%'
     },
     analyticsCard: {
         background: 'rgba(0,0,0,0.3)',
@@ -487,19 +316,6 @@ const styles: { [key: string]: React.CSSProperties } = {
         borderRadius: '12px',
         padding: '20px',
         marginBottom: '20px'
-    },
-    configGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '10px',
-        marginTop: '15px'
-    },
-    configItem: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        padding: '10px',
-        background: 'rgba(255,255,255,0.05)',
-        borderRadius: '6px'
     },
     controlsCard: {
         background: 'rgba(0,0,0,0.3)',
@@ -568,30 +384,6 @@ const styles: { [key: string]: React.CSSProperties } = {
         textAlign: 'right',
         minWidth: '120px',
         fontSize: '13px'
-    },
-    progressBar: {
-        width: '100%',
-        height: '4px',
-        background: 'rgba(255,255,255,0.1)',
-        borderRadius: '2px',
-        marginTop: '4px',
-        overflow: 'hidden'
-    },
-    progressFill: {
-        height: '100%',
-        background: 'linear-gradient(90deg, #4CAF50, #8BC34A)',
-        borderRadius: '2px'
-    },
-    botStatus: {
-        fontSize: '12px',
-        minWidth: '80px',
-        textAlign: 'center'
-    },
-    showMoreText: {
-        textAlign: 'center',
-        color: '#aaa',
-        fontSize: '12px',
-        marginTop: '10px'
     },
     loadingOverlay: {
         position: 'fixed',

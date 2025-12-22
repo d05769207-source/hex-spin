@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Loader2, Plus, X, UserPlus, User as UserIcon, Bell, Search, Check, UserMinus, Copy, Send } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
-import { LeaderboardEntry, User } from '../../types';
+import { LeaderboardEntry, User, FriendRequest, Friend } from '../../types';
 import EToken from '../EToken';
 import PrizeImage from '../PrizeImage';
 import {
@@ -22,23 +22,7 @@ import {
 } from 'firebase/firestore';
 import { getLevelProgress } from '../../utils/levelUtils';
 
-// Define FriendRequest type
-interface FriendRequest {
-  id: string; // senderId
-  username: string;
-  photoURL?: string;
-  timestamp: any;
-}
-
-// Define Friend type
-interface Friend {
-  id: string;
-  username: string;
-  photoURL?: string;
-  score?: number; // Optional, fetched from leaderboard or user doc
-  rank?: number;  // Optional
-  isOnline?: boolean;
-}
+// Local interfaces removed in favor of global types
 
 const Leaderboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'PRIZE' | 'WEEKLY' | 'FRIENDS'>('WEEKLY');
