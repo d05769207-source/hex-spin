@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, doc, setDoc, getDoc, updateDoc, query, where, getDocs, Timestamp, writeBatch, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, updateDoc, query, where, getDocs, Timestamp, writeBatch, orderBy, limit, increment } from 'firebase/firestore';
 import { BotUser, User, BotTier } from '../types';
 import { getCurrentWeekId, getTimeRemaining, getCurrentTime } from '../utils/weekUtils';
 
@@ -7,6 +7,8 @@ import { getCurrentWeekId, getTimeRemaining, getCurrentTime } from '../utils/wee
 const TOTAL_BOTS = 3;
 const BOT_COLLECTION = 'botUsers';
 const USER_COLLECTION = 'users';
+const LOCK_COLLECTION = 'system';
+const LOCK_DOC_ID = 'botLock';
 
 // CONFIG
 const NAME_POOL = [
@@ -21,6 +23,34 @@ const AVATAR_SEEDS = [
     'Felix', 'Aneka', 'Zack', 'Ryker', 'Jude', 'Brooklynn', 'Cream', 'Snowball', 'Trouble', 'Mistypoo'
 ];
 
+// --- PERSISTENT SIMULATION STATE ---
+const SIM_DAY_KEY = 'BOT_SIM_DAY';
+const SIM_RUSH_KEY = 'BOT_SIM_RUSH';
+
+export const getSimulationState = () => {
+    const day = localStorage.getItem(SIM_DAY_KEY);
+    const rush = localStorage.getItem(SIM_RUSH_KEY);
+    return {
+        forceDay: day ? parseInt(day) : undefined,
+        forceRushHour: rush === 'true'
+    };
+};
+
+export const setSimulationState = (day?: number, rush?: boolean) => {
+    if (day !== undefined) {
+        localStorage.setItem(SIM_DAY_KEY, day.toString());
+    } else {
+        localStorage.removeItem(SIM_DAY_KEY);
+    }
+
+    if (rush !== undefined) {
+        localStorage.setItem(SIM_RUSH_KEY, rush.toString());
+    } else {
+        localStorage.removeItem(SIM_RUSH_KEY);
+    }
+    console.log(`🕹️ Simulation State Updated: Day=${day}, Rush=${rush}`);
+};
+
 // --- HELPER: GET SCORE FOR TARGET RANK ---
 // Returns the coins needed to beat the user at 'rank'
 const getScoreForRank = async (targetRank: number): Promise<number> => {
@@ -34,22 +64,24 @@ const getScoreForRank = async (targetRank: number): Promise<number> => {
         );
         const snapshot = await getDocs(q);
 
-        // If leaderboard is empty or small
+        // If leaderboard is empty or small, return a base target based on day
         if (snapshot.empty || snapshot.docs.length < targetRank) {
-            return 100; // Default base score
+            // Monday: 50, Sunday: 5000 (Simulated Base)
+            const day = getCurrentTime().getDay();
+            const baseMap: { [key: number]: number } = { 1: 50, 2: 100, 3: 500, 4: 1000, 5: 2500, 6: 4000, 0: 6000 };
+            return baseMap[day] || 100;
         }
 
         // Get the user at the specific rank (0-indexed)
         const targetDoc = snapshot.docs[targetRank - 1];
         if (targetDoc) {
             const data = targetDoc.data();
-            console.log(`🎯 Target Rank #${targetRank} Holder: ${data.username} (${data.coins} coins)`);
+            // console.log(`🎯 Target Rank #${targetRank} Holder: ${data.username} (${data.coins} coins)`);
             return data.coins || 0;
         }
-        console.log(`⚠️ No one found at Rank #${targetRank}`);
         return 0;
     } catch (error) {
-        // console.error('Error fetching score for rank:', error);
+        console.warn('Error fetching score for rank, using fallback.', error);
         return 0;
     }
 };
@@ -171,140 +203,267 @@ export const generateSmartBots = async () => {
     }
 };
 
+const SPIN_REWARDS = [50, 100, 150, 200, 250, 300, 400, 500, 1000, 2000, 5000];
+const REWARD_WEIGHTS = [0.3, 0.25, 0.15, 0.1, 0.05, 0.05, 0.03, 0.03, 0.02, 0.01, 0.01]; // Probabilities
+
+const getRandomSpinReward = () => {
+    let random = Math.random();
+    for (let i = 0; i < REWARD_WEIGHTS.length; i++) {
+        if (random < REWARD_WEIGHTS[i]) {
+            return SPIN_REWARDS[i];
+        }
+        random -= REWARD_WEIGHTS[i];
+    }
+    return 50; // Default fallback
+};
+
+const getCatchUpReward = () => {
+    // Return only BIG rewards (1000+) to catch up fast
+    const bigRewards = [1000, 2000, 3000, 4000, 5000];
+    return bigRewards[Math.floor(Math.random() * bigRewards.length)];
+};
+
+/**
+ * Get the highest score of a REAL (non-bot) user from the leaderboard
+ */
+const getTopRealUserScore = async (weekId: string): Promise<number> => {
+    try {
+        const leaderboardRef = collection(db, 'weeklyLeaderboard');
+        const q = query(
+            leaderboardRef,
+            where('weekId', '==', weekId),
+            orderBy('coins', 'desc'),
+            limit(10) // Check top 10
+        );
+        const snapshot = await getDocs(q);
+
+        for (const doc of snapshot.docs) {
+            const data = doc.data();
+            // Check if this ID belongs to a bot (Bots have specific ID pattern or we check botUsers)
+            // Fast check: startWith 'bot_' is our convention in generateSmartBots
+            if (!data.userId.startsWith('bot_')) {
+                // console.log(`👤 Top Real User Found: ${data.username} (${data.coins})`);
+                return data.coins;
+            }
+        }
+        return 0; // No real users found or they have 0 coins
+    } catch (error) {
+        // console.error("Error finding top real user:", error);
+        return 0;
+    }
+};
+
+const getMediumReward = () => {
+    // Return medium rewards to maintain pace (400 - 1000)
+    const mediumRewards = [400, 500, 600, 800, 1000];
+    return mediumRewards[Math.floor(Math.random() * mediumRewards.length)];
+};
+
+/**
+ * 🔒 ATTEMPT TO ACQUIRE LOCK
+ * Ensures only ONE client runs the bot simulation.
+ * Lock duration: 60 seconds (Runs every ~60s)
+ */
+const acquireBotLock = async (): Promise<boolean> => {
+    try {
+        const lockRef = doc(db, LOCK_COLLECTION, LOCK_DOC_ID);
+        const lockSnap = await getDoc(lockRef);
+        const now = Timestamp.now();
+
+        if (lockSnap.exists()) {
+            const data = lockSnap.data();
+            const lastRun = data.lastRun as Timestamp;
+
+            // Check if lock is stale (older than 45 seconds)
+            // Giving 15s buffer before next expected run
+            const diffSeconds = now.seconds - lastRun.seconds;
+
+            if (diffSeconds < 45) {
+                console.log(`🔒 Bot Simulation Locked. Last run: ${diffSeconds}s ago. Skipping...`);
+                return false; // Lock is active, skip
+            }
+        }
+
+        // Acquire Lock
+        await setDoc(lockRef, {
+            lastRun: now,
+            lockedBy: 'client_' + Math.floor(Math.random() * 10000)
+        });
+        return true;
+
+    } catch (error) {
+        console.warn('⚠️ Error acquiring bot lock:', error);
+        return false; // Fail safe
+    }
+};
+
 /**
  * Engine: Simulate Smart Activity based on Day of Week
- * Called frequently (e.g. every 2-10 mins)
- * @param forceDay Optional: Override day of week (0-6) for testing
- * @param forceRushHour Optional: Override rush hour status for testing
+ * Runs for approximately 55 seconds to cover the 1-minute interval
  */
 export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?: boolean) => {
+    // 1. Try to Acquire Lock FIRST
+    // If we're forcing simulation (manual button), we override the lock check
+    const isManualRun = forceDay !== undefined || forceRushHour === true;
+    if (!isManualRun) {
+        const hasLock = await acquireBotLock();
+        if (!hasLock) return;
+    }
+
+    const startTime = Date.now();
+    const DURATION = 55 * 1000; // Run for 55 seconds
+
+    console.log('🤖 Starting Smart Bot Simulation Loop...');
+
     try {
         const bots = await getSmartBots();
         if (bots.length === 0) return;
 
-        const now = getCurrentTime(); // Use simulated time if active
-        // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-        const dayOfWeek = forceDay !== undefined ? forceDay : now.getDay();
+        const now = getCurrentTime();
+        const overrides = getSimulationState();
+
+        const effectiveDay = forceDay !== undefined ? forceDay : (overrides.forceDay !== undefined ? overrides.forceDay : now.getDay());
         const weekId = getCurrentWeekId();
 
-        // Check if it's "Rush Hour" (Sunday < 5 hours remaining)
+        // Check Rush Hour
         const timeRemainingMs = getTimeRemaining();
         const hoursRemaining = timeRemainingMs / (1000 * 60 * 60);
 
-        // Use forced rush hour if provided, otherwise calc real logic (only if Sunday)
         const isRushHour = forceRushHour !== undefined
             ? forceRushHour
-            : (dayOfWeek === 0 && hoursRemaining <= 5);
+            : (overrides.forceRushHour || (effectiveDay === 0 && hoursRemaining <= 5));
 
-        console.log(`🤖 Simulating Smart Activity. Day: ${dayOfWeek}, RushHour: ${isRushHour}, Bots: ${bots.length}`);
-
-        // Define Target Rank based on Schedule
-        let targetRank = 50; // Default: Stay low
+        // --- PRE-LOOP SETUP ---
+        const botLeads: Record<string, number> = {};
 
         if (isRushHour) {
-            targetRank = 1; // AIM FOR THE TOP!
-        } else {
-            // Monday (1) & Tuesday (2): Rank 50+
-            if (dayOfWeek === 1 || dayOfWeek === 2) targetRank = 50;
-            // Wednesday (3): Top 30
-            else if (dayOfWeek === 3) targetRank = 30;
-            // Thursday (4): Top 20
-            else if (dayOfWeek === 4) targetRank = 20;
-            // Friday (5) & Saturday (6): Top 5-10
-            else if (dayOfWeek === 5 || dayOfWeek === 6) targetRank = 5;
-            // Sunday (0) (Before Rush): Top 3-5
-            else if (dayOfWeek === 0) targetRank = 3;
+            // RUSH MODE: Assign Lead Bands
+            const leaderBots = bots.filter((b: any) => b.botTier !== BotTier.SMART_LOTTERY);
+            const shuffledLeaders = [...leaderBots].sort(() => 0.5 - Math.random());
+
+            // Leader A: 15k - 20k Lead
+            if (shuffledLeaders[0]) botLeads[shuffledLeaders[0].id] = 15000 + Math.floor(Math.random() * 5000);
+            // Leader B: 10k - 15k Lead
+            if (shuffledLeaders[1]) botLeads[shuffledLeaders[1].id] = 10000 + Math.floor(Math.random() * 5000);
         }
 
-        // Get Score needed to beat that rank
-        const scoreToBeat = await getScoreForRank(targetRank);
-        // Add random buffer (so they don't just match, they beat or stay close)
-        const targetScore = isRushHour
-            ? scoreToBeat + Math.floor(Math.random() * 500) + 100 // Aggressive Beat
-            : scoreToBeat > 0 ? scoreToBeat + Math.floor(Math.random() * 50) : 50; // Gentle Beat 
+        while (Date.now() - startTime < DURATION) {
+            // 1. Wait 5 seconds (Spin Delay to avoid spamming DB too hard)
+            await new Promise(r => setTimeout(r, 6000));
 
-        // Update Bots
-        for (const bot of bots as any[]) {
-            // LOTTERY Bot doesn't need to dominate leaderboard (keep it mid-range)
-            // Use correct Enum Check
-            if (bot.botTier === BotTier.SMART_LOTTERY) {
-                // Keep Lottery bot around Rank 20-30 always
-                if (Math.random() > 0.7) { // 30% chance to update
-                    await updateSingleBot(bot, Math.floor(Math.random() * 20), weekId);
-                }
-                continue;
-            }
-
-            // LEADERBOARD Bots (The Smart Ones)
-            // They check if they are BEHIND the target score
-            if (bot.coins < targetScore) {
-                // Determine how much to specific add
-                // If Rush Hour, add BIG chunks. If normal, add small chunks.
-                const gap = targetScore - bot.coins;
-                let addAmount = 0;
-
-                if (isRushHour) {
-                    // Close the gap fast! (80% catch up per tick)
-                    addAmount = Math.ceil(gap * 0.8) + Math.floor(Math.random() * 100);
-                } else {
-                    // Slow steady climb
-                    addAmount = Math.floor(5 + Math.random() * 25);
-                }
-
-                // Apply Update
-                if (addAmount > 0) {
-                    await updateSingleBot(bot, addAmount, weekId);
-                }
+            // 2. Refresh Targets (Every Spin)
+            let currentBaseScore = 0;
+            if (isRushHour) {
+                currentBaseScore = await getTopRealUserScore(weekId);
             } else {
-                // If already ahead of target, maybe just add tiny bit to look active
-                if (Math.random() > 0.8) {
-                    await updateSingleBot(bot, Math.floor(1 + Math.random() * 5), weekId);
+                let baseTargetRank = 50;
+                if (effectiveDay === 1 || effectiveDay === 2) baseTargetRank = 45;
+                else if (effectiveDay === 3) baseTargetRank = 30;
+                else if (effectiveDay === 4) baseTargetRank = 20;
+                else if (effectiveDay === 5 || effectiveDay === 6) baseTargetRank = 5;
+                else if (effectiveDay === 0) baseTargetRank = 3;
+
+                currentBaseScore = await getScoreForRank(baseTargetRank);
+            }
+
+            for (const bot of bots as any[]) {
+                // Determine if we should act (Randomness + Time verification)
+                // Don't update ALL bots every loop to reduce writes
+                if (Math.random() > 0.4) continue;
+
+                if (bot.botTier === BotTier.SMART_LOTTERY) {
+                    // Lottery bot just chills and collects small amounts
+                    if (Math.random() > 0.8) await updateSingleBot(bot, getRandomSpinReward(), weekId);
+                    continue;
+                }
+
+                // Calculate Target
+                let myTarget = 0;
+                if (isRushHour) {
+                    const myLead = botLeads[bot.id] || 10000;
+                    myTarget = currentBaseScore + myLead;
+                } else {
+                    const isBotZero = bot.id.endsWith('_0');
+                    if (isBotZero) myTarget = currentBaseScore + 500;
+                    else myTarget = Math.max(100, currentBaseScore - 500);
+                }
+
+                // We need the latest bot score (Local variable might be stale, but good enough for delta)
+                // Ideally, we trust the bot.coins we fetched at start + what we added locally.
+                // But since we use Atomic Increments now, 'bot.coins' is just for decision making.
+
+                // Check STATUS
+                if (bot.coins < myTarget) {
+                    const deficit = myTarget - bot.coins;
+                    let reward = 0;
+
+                    // TIERED REWARDS Logic
+                    if (deficit > 5000) {
+                        reward = getCatchUpReward();
+                    } else if (deficit > 1000) {
+                        reward = getMediumReward();
+                    } else {
+                        reward = getRandomSpinReward();
+                    }
+
+                    await updateSingleBot(bot, reward, weekId);
+                    bot.coins += reward; // Update local state for next loop logic
+
+                } else {
+                    // AHEAD -> Chill
+                    if (Math.random() > 0.8) { // Occasional small spin
+                        const smallReward = 50;
+                        await updateSingleBot(bot, smallReward, weekId);
+                        bot.coins += smallReward;
+                    }
                 }
             }
         }
-
+        console.log('🤖 Bot Simulation Loop Finished.');
     } catch (error) {
-        console.error('❌ Error simulating smart activity:', error);
+        console.error('❌ Bot Simulation Loop Error:', error);
     }
 };
 
+/**
+ * ATOMIC UPDATE
+ * Uses `increment` to avoid race conditions (overwrite glitches).
+ */
 const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
-    const newCoins = (bot.coins || 0) + amount;
-    const newTotalSpins = (bot.totalSpins || 0) + Math.ceil(amount / 5); // Rough spin calc
-
     // 1. Update botUsers
     const botRef = doc(db, BOT_COLLECTION, bot.id);
     await updateDoc(botRef, {
-        coins: newCoins,
-        weeklyCoins: newCoins,
-        totalSpins: newTotalSpins,
+        coins: increment(amount),
+        weeklyCoins: increment(amount),
+        totalSpins: increment(Math.ceil(amount / 5)),
         lastActive: Timestamp.now()
     });
 
     // 2. Update users (Public Profile)
     const userRef = doc(db, USER_COLLECTION, bot.id);
     await updateDoc(userRef, {
-        coins: newCoins,
-        weeklyCoins: newCoins,
-        totalSpins: newTotalSpins,
+        coins: increment(amount),
+        weeklyCoins: increment(amount),
+        totalSpins: increment(Math.ceil(amount / 5)),
         lastActive: Timestamp.now()
     });
 
     // 3. Update Leaderboard
     const leaderboardRef = doc(db, 'weeklyLeaderboard', `${bot.id}_${weekId}`);
-    // Use Set with Merge to be safe
+    // Use Set with Merge because sometimes leaderboard doc might be missing (rare)
+    // Note: 'increment' works with set({ merge: true })
     await setDoc(leaderboardRef, {
         userId: bot.id,
         username: bot.username,
-        coins: newCoins,
         photoURL: bot.photoURL,
-        totalSpins: newTotalSpins,
-        level: bot.level, // Level doesn't change much for now
+        level: bot.level, // Level doesn't change much
         weekId: weekId,
-        lastUpdated: Timestamp.now()
+        lastUpdated: Timestamp.now(),
+        coins: increment(amount),
+        totalSpins: increment(Math.ceil(amount / 5))
     }, { merge: true });
 
-    // console.log(`🤖 Updated Bot ${bot.username}: +${amount} coins`);
+    // console.log(`🤖 Updated Bot ${bot.username}: +${amount}`);
 };
 
 /**
@@ -312,8 +471,10 @@ const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
  */
 export const getSmartBots = async () => {
     try {
+        const weekId = getCurrentWeekId();
         const botsRef = collection(db, BOT_COLLECTION);
-        const snapshot = await getDocs(botsRef);
+        const q = query(botsRef, where('weekId', '==', weekId));
+        const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     } catch (error) {
         return [];

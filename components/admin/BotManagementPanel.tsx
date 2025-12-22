@@ -3,7 +3,9 @@ import {
     generateSmartBots,
     cleanupLegacyBots,
     getSmartBots,
-    simulateSmartBotActivity
+    simulateSmartBotActivity,
+    getSimulationState,
+    setSimulationState
 } from '../../services/smartBotService';
 import { getLeaderboardAnalytics, syncUserToLeaderboard } from '../../services/leaderboardService';
 import { auth, db } from '../../firebase';
@@ -17,8 +19,13 @@ export const BotManagementPanel: React.FC = () => {
     const [botList, setBotList] = useState<any[]>([]);
     const [showBotList, setShowBotList] = useState(false);
 
+    // Simulation Toggle State
+    const [simState, setSimState] = useState<{ forceDay: number | undefined, forceRushHour: boolean }>({ forceDay: undefined, forceRushHour: false });
+
     useEffect(() => {
         loadAnalytics();
+        const savedState = getSimulationState();
+        setSimState(savedState);
     }, []);
 
     const loadAnalytics = async () => {
@@ -182,38 +189,74 @@ export const BotManagementPanel: React.FC = () => {
                     </button>
                 </div>
 
-                {/* SIMULATION TOOLS */}
-                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#aaa' }}>🕹️ Force Simulation (Testing)</h4>
+                {/* SIMULATION TOOLS (PERSISTENT TOGGLES) */}
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#aaa' }}>🕹️ Force Simulation (Persistent)</h4>
                 <div style={styles.btnGrid}>
                     <button
-                        onClick={() => { setLoading(true); simulateSmartBotActivity(1).then(() => { alert('Simulated MONDAY (Rank 50+)'); setLoading(false); }); }}
-                        disabled={loading}
-                        style={{ ...styles.btn, backgroundColor: '#607D8B' }}
+                        onClick={() => {
+                            const newValue = simState.forceDay === 1 ? undefined : 1;
+                            setSimulationState(newValue, undefined); // Turn off Rush if changing day
+                            setSimState(getSimulationState());
+                            simulateSmartBotActivity();
+                        }}
+                        style={{ ...styles.btn, backgroundColor: simState.forceDay === 1 ? '#607D8B' : '#333', border: simState.forceDay === 1 ? '2px solid #fff' : '1px solid #555' }}
                     >
-                        Force Mon (Low)
+                        {simState.forceDay === 1 ? '🟢 ON: Mon (Low)' : '⚪ OFF: Mon (Low)'}
                     </button>
+
                     <button
-                        onClick={() => { setLoading(true); simulateSmartBotActivity(5).then(() => { alert('Simulated FRIDAY (Rank 5+)'); setLoading(false); }); }}
-                        disabled={loading}
-                        style={{ ...styles.btn, backgroundColor: '#009688' }}
+                        onClick={() => {
+                            const newValue = simState.forceDay === 5 ? undefined : 5;
+                            setSimulationState(newValue, undefined);
+                            setSimState(getSimulationState());
+                            simulateSmartBotActivity();
+                        }}
+                        style={{ ...styles.btn, backgroundColor: simState.forceDay === 5 ? '#009688' : '#333', border: simState.forceDay === 5 ? '2px solid #fff' : '1px solid #555' }}
                     >
-                        Force Fri (High)
+                        {simState.forceDay === 5 ? '🟢 ON: Fri (Rank 5+)' : '⚪ OFF: Fri (Rank 5+)'}
                     </button>
+
                     <button
-                        onClick={() => { setLoading(true); simulateSmartBotActivity(0).then(() => { alert('Simulated SUNDAY (Rank 3+)'); setLoading(false); }); }}
-                        disabled={loading}
-                        style={{ ...styles.btn, backgroundColor: '#FF9800' }}
+                        onClick={() => {
+                            const newValue = simState.forceDay === 0 ? undefined : 0;
+                            setSimulationState(newValue, undefined);
+                            setSimState(getSimulationState());
+                            simulateSmartBotActivity();
+                        }}
+                        style={{ ...styles.btn, backgroundColor: simState.forceDay === 0 ? '#FF9800' : '#333', border: simState.forceDay === 0 ? '2px solid #fff' : '1px solid #555' }}
                     >
-                        Force Sun (Top 3)
+                        {simState.forceDay === 0 ? '🟢 ON: Sun (Top 3)' : '⚪ OFF: Sun (Top 3)'}
                     </button>
+
                     <button
-                        onClick={() => { setLoading(true); simulateSmartBotActivity(0, true).then(() => { alert('Simulated RUSH HOUR (Rank 1!)'); setLoading(false); }); }}
-                        disabled={loading}
-                        style={{ ...styles.btn, backgroundColor: '#E91E63' }}
+                        onClick={() => {
+                            const newValue = !simState.forceRushHour;
+                            // If turning ON Rush Hour, force SundayDay as well? Not strictly needed but safer:
+                            setSimulationState(newValue ? 0 : simState.forceDay, newValue);
+                            setSimState(getSimulationState());
+                            simulateSmartBotActivity();
+                        }}
+                        style={{ ...styles.btn, backgroundColor: simState.forceRushHour ? '#E91E63' : '#333', border: simState.forceRushHour ? '2px solid #fff' : '1px solid #555' }}
                     >
-                        🔥 Force RUSH HOUR
+                        {simState.forceRushHour ? '🔥 RUSH HOUR: ON' : '⚪ RUSH HOUR: OFF'}
                     </button>
+
                 </div>
+                {(simState.forceDay !== undefined || simState.forceRushHour) && (
+                    <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(233, 30, 99, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#ff80ab' }}>⚠️ Simulation Mode Active! Bots will ignore real time.</p>
+                        <button
+                            onClick={() => {
+                                setSimulationState(undefined, false);
+                                setSimState(getSimulationState());
+                                alert('Simulation Reset to Real Time');
+                            }}
+                            style={{ marginTop: '5px', background: 'transparent', border: '1px solid #ff80ab', color: '#ff80ab', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
+                        >
+                            Reset to Normal
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Bot List */}
