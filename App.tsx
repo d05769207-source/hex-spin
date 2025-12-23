@@ -46,43 +46,7 @@ import { getUnreadCount, deleteExpiredMessages } from './services/mailboxService
 
 // --- AUDIO SYSTEM MOVED TO SpinWheel.tsx ---
 
-// --- GUEST DATA MANAGEMENT (localStorage) ---
-const GUEST_BALANCE_KEY = 'guest_balance';
-const GUEST_COINS_KEY = 'guest_coins';
-const GUEST_ETOKENS_KEY = 'guest_etokens';
-
-const getGuestBalance = (): number => {
-  const saved = localStorage.getItem(GUEST_BALANCE_KEY);
-  return saved ? parseInt(saved) : 5; // Default 5 free spins for guests
-};
-
-const getGuestCoins = (): number => {
-  const saved = localStorage.getItem(GUEST_COINS_KEY);
-  return saved ? parseInt(saved) : 0;
-};
-
-const getGuestETokens = (): number => {
-  const saved = localStorage.getItem(GUEST_ETOKENS_KEY);
-  return saved ? parseInt(saved) : 0;
-};
-
-const saveGuestBalance = (balance: number) => {
-  localStorage.setItem(GUEST_BALANCE_KEY, balance.toString());
-};
-
-const saveGuestCoins = (coins: number) => {
-  localStorage.setItem(GUEST_COINS_KEY, coins.toString());
-};
-
-const saveGuestETokens = (eTokens: number) => {
-  localStorage.setItem(GUEST_ETOKENS_KEY, eTokens.toString());
-};
-
-const clearGuestData = () => {
-  localStorage.removeItem(GUEST_BALANCE_KEY);
-  localStorage.removeItem(GUEST_COINS_KEY);
-  localStorage.removeItem(GUEST_ETOKENS_KEY);
-};
+// --- GUEST DATA MANAGEMENT REMOVED ---
 
 const App: React.FC = () => {
   // Navigation State
@@ -131,9 +95,9 @@ const App: React.FC = () => {
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const wheelRef = useRef<SpinWheelRef>(null);
 
-  const [balance, setBalance] = useState<number>(getGuestBalance()); // Load from localStorage for guests
-  const [coins, setCoins] = useState<number>(getGuestCoins());       // Load from localStorage for guests
-  const [eTokens, setETokens] = useState<number>(getGuestETokens()); // Load from localStorage for guests
+  const [balance, setBalance] = useState<number>(0);
+  const [coins, setCoins] = useState<number>(0);
+  const [eTokens, setETokens] = useState<number>(0);
   const [inrBalance, setInrBalance] = useState<number>(0);           // INR Balance
   const [totalSpins, setTotalSpins] = useState<number>(0);
   const totalSpinsRef = useRef<number>(0);
@@ -189,8 +153,7 @@ const App: React.FC = () => {
       if (firebaseUser) {
         // User is signed in
         if (firebaseUser.displayName) {
-          // Setup complete - Clear guest data and load user data
-          clearGuestData(); // Remove guest data from localStorage
+          // Setup complete
 
           setUser({
             id: firebaseUser.uid,
@@ -303,17 +266,18 @@ const App: React.FC = () => {
         setShowLoginModal(false);
         // setIsLoading(false); // Auth check handled by LoadingScreen
       } else {
-        // User is signed out - Load guest data from localStorage
+        // User is signed out - FORCE AUTH SCREEN
         setUser(null);
-        setIsSyncEnabled(false); // Disable Firestore sync for guests
-        setBalance(getGuestBalance()); // Load from localStorage
-        setCoins(getGuestCoins());
-        setETokens(getGuestETokens());
-        setKtmTokens(0); // Guests don't get these for now
-        setIphoneTokens(0); // Guests don't get these for now
-        setInrBalance(0); // Guests don't get real money
-        setTotalSpins(0); // Guests don't track spins for now or load from local if needed
-        totalSpinsRef.current = 0; // SYNC REF
+        setIsSyncEnabled(false);
+        setHasEnteredGame(false); // <--- CRITICAL: Resets to Auth Screen
+        setBalance(0);
+        setCoins(0);
+        setETokens(0);
+        setKtmTokens(0);
+        setIphoneTokens(0);
+        setInrBalance(0);
+        setTotalSpins(0);
+        totalSpinsRef.current = 0;
         // setIsLoading(false); // Auth check handled by LoadingScreen
       }
     });
@@ -380,7 +344,7 @@ const App: React.FC = () => {
 
   // --- DIRECT SYNC HELPER (Replaces Debounced useEffect) ---
   const saveUserProgress = async (updates: Partial<User> & { [key: string]: any }) => {
-    if (!user || user.isGuest) return;
+    if (!user) return;
 
     try {
       const userDocRef = doc(db, 'users', user.id);
@@ -442,7 +406,7 @@ const App: React.FC = () => {
 
   // REAL-TIME LISTENER FOR EXTERNAL UPDATES (e.g. Admin Actions)
   useEffect(() => {
-    if (!user || user.isGuest) return;
+    if (!user) return;
 
     const userDocRef = doc(db, 'users', user.id);
     const unsubscribe = onSnapshot(userDocRef, (docSnapshot) => {
@@ -538,23 +502,8 @@ const App: React.FC = () => {
     });
 
     return () => unsubscribe();
-  }, [user?.id, user?.isGuest]); // Stabilize dependency to PREVENT rapid re-subscription loops
+  }, [user?.id]); // Stabilize dependency to PREVENT rapid re-subscription loops
 
-  // SYNC GUEST DATA TO LOCALSTORAGE (Guest users only)
-  useEffect(() => {
-    if (user) return; // Only for guests
-    saveGuestBalance(balance);
-  }, [balance, user]);
-
-  useEffect(() => {
-    if (user) return; // Only for guests
-    saveGuestCoins(coins);
-  }, [coins, user]);
-
-  useEffect(() => {
-    if (user) return; // Only for guests
-    saveGuestETokens(eTokens);
-  }, [eTokens, user]);
 
   const handleSpin = useCallback(async (count: number) => {
 
@@ -1172,8 +1121,8 @@ const App: React.FC = () => {
     return <LoadingScreen onComplete={handleLoadingComplete} />;
   }
 
-  // 2. SHOW AUTH SCREEN (If not logged in and hasn't entered as guest)
-  // We check if user is NOT logged in AND hasn't clicked "Guest" or "Login" yet
+  // 2. SHOW AUTH SCREEN (If not logged in and hasn't entered game)
+  // We check if user is NOT logged in AND hasn't entered game
   if (!user && !hasEnteredGame) {
     return (
       <>

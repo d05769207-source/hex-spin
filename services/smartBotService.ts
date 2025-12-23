@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, doc, setDoc, getDoc, updateDoc, query, where, getDocs, Timestamp, writeBatch, orderBy, limit, increment } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, updateDoc, query, where, getDocs, Timestamp, writeBatch, orderBy, limit, increment, deleteDoc } from 'firebase/firestore';
 import { BotUser, User, BotTier } from '../types';
 import { getCurrentWeekId, getTimeRemaining, getCurrentTime } from '../utils/weekUtils';
 
@@ -88,24 +88,57 @@ const getScoreForRank = async (targetRank: number): Promise<number> => {
 
 /**
  * Clean up ALL legacy bots (safayi abhiyaan)
+ * UPDATED: Now removes from botUsers, users, AND weeklyLeaderboard
  */
 export const cleanupLegacyBots = async () => {
     try {
         console.log('🧹 Starting Safayi Abhiyaan (Cleanup)...');
-        // Delete from botUsers collection
+        // Fetch all bots from botUsers
         const botsRef = collection(db, BOT_COLLECTION);
         const snapshot = await getDocs(botsRef);
 
+        const currentWeekId = getCurrentWeekId();
         const batch = writeBatch(db);
         let count = 0;
 
-        snapshot.docs.forEach((doc) => {
-            batch.delete(doc.ref);
+        snapshot.docs.forEach((botDoc) => {
+            const botData = botDoc.data();
+            const botId = botDoc.id;
+
+            // 1. Delete from botUsers
+            batch.delete(botDoc.ref);
+
+            // 2. Delete from users (Public Profile)
+            const userRef = doc(db, USER_COLLECTION, botId);
+            batch.delete(userRef);
+
+            // 3. Delete from weeklyLeaderboard (Current Week)
+            // Note: If checking old weeks, we might need a query, but usually we care about current week
+            // We'll try to delete based on the stored weekId in bot data, or current week
+            const targetWeekId = botData.weekId || currentWeekId;
+            const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botId}_${targetWeekId}`);
+            batch.delete(leaderboardRef);
+
             count++;
         });
 
+        // Also clean up any potential "floating" leaderboard entries that start with "bot_" for this week
+        // incase botUsers was deleted but leaderboard wasn't
+        const leaderboardQ = query(
+            collection(db, 'weeklyLeaderboard'),
+            where('weekId', '==', currentWeekId)
+        );
+        const lbSnapshot = await getDocs(leaderboardQ);
+        lbSnapshot.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.userId && data.userId.startsWith('bot_')) {
+                batch.delete(doc.ref);
+            }
+        });
+
+
         await batch.commit();
-        console.log(`✅ Deleted ${count} old bots.`);
+        console.log(`✅ Deleted ${count} old bots and cleaned references.`);
         return count;
     } catch (error) {
         console.error('❌ Error cleaning bots:', error);
@@ -217,10 +250,18 @@ const getRandomSpinReward = () => {
     return 50; // Default fallback
 };
 
+/**
+ * Returns a random number between min and max (inclusive) in steps
+ */
+const getRandomBetween = (min: number, max: number, step: number = 50) => {
+    const range = (max - min) / step;
+    return min + Math.floor(Math.random() * (range + 1)) * step;
+};
+
 const getCatchUpReward = () => {
-    // Return only BIG rewards (1000+) to catch up fast
-    const bigRewards = [1000, 2000, 3000, 4000, 5000];
-    return bigRewards[Math.floor(Math.random() * bigRewards.length)];
+    // Return random BIG rewards between 1200 and 3500 to look natural
+    // e.g. 1250, 1800, 2350, 3100
+    return getRandomBetween(1200, 3500, 50);
 };
 
 /**
@@ -254,9 +295,9 @@ const getTopRealUserScore = async (weekId: string): Promise<number> => {
 };
 
 const getMediumReward = () => {
-    // Return medium rewards to maintain pace (400 - 1000)
-    const mediumRewards = [400, 500, 600, 800, 1000];
-    return mediumRewards[Math.floor(Math.random() * mediumRewards.length)];
+    // Return medium rewards to maintain pace (450 - 1100)
+    // e.g. 450, 700, 950
+    return getRandomBetween(450, 1100, 50);
 };
 
 /**
@@ -316,42 +357,52 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
     console.log('🤖 Starting Smart Bot Simulation Loop...');
 
     try {
-        const bots = await getSmartBots();
-        if (bots.length === 0) return;
+        const initialBots = await getSmartBots();
+        if (initialBots.length === 0) return;
 
-        const now = getCurrentTime();
-        const overrides = getSimulationState();
+        // Note: we fetch bots ONCE at start of loop to get their IDs.
+        // We will fetch their latest coins INSIDE the loop if needed?
+        // Actually, for performance, we keep local state and only write changes.
+        // But for SIMUALTION STATE (Admin Controls), we must check every tick.
 
-        const effectiveDay = forceDay !== undefined ? forceDay : (overrides.forceDay !== undefined ? overrides.forceDay : now.getDay());
         const weekId = getCurrentWeekId();
-
-        // Check Rush Hour
-        const timeRemainingMs = getTimeRemaining();
-        const hoursRemaining = timeRemainingMs / (1000 * 60 * 60);
-
-        const isRushHour = forceRushHour !== undefined
-            ? forceRushHour
-            : (overrides.forceRushHour || (effectiveDay === 0 && hoursRemaining <= 5));
 
         // --- PRE-LOOP SETUP ---
         const botLeads: Record<string, number> = {};
 
-        if (isRushHour) {
-            // RUSH MODE: Assign Lead Bands
-            const leaderBots = bots.filter((b: any) => b.botTier !== BotTier.SMART_LOTTERY);
-            const shuffledLeaders = [...leaderBots].sort(() => 0.5 - Math.random());
+        // Initial setup for leads (randomized per session)
+        const leaderBots = initialBots.filter((b: any) => b.botTier !== BotTier.SMART_LOTTERY);
+        const shuffledLeaders = [...leaderBots].sort(() => 0.5 - Math.random());
+        if (shuffledLeaders[0]) botLeads[shuffledLeaders[0].id] = 15000 + Math.floor(Math.random() * 5000);
+        if (shuffledLeaders[1]) botLeads[shuffledLeaders[1].id] = 10000 + Math.floor(Math.random() * 5000);
 
-            // Leader A: 15k - 20k Lead
-            if (shuffledLeaders[0]) botLeads[shuffledLeaders[0].id] = 15000 + Math.floor(Math.random() * 5000);
-            // Leader B: 10k - 15k Lead
-            if (shuffledLeaders[1]) botLeads[shuffledLeaders[1].id] = 10000 + Math.floor(Math.random() * 5000);
-        }
+        // Mutable bots array to track local state during the loop
+        let bots = [...initialBots];
 
         while (Date.now() - startTime < DURATION) {
-            // 1. Wait 5 seconds (Spin Delay to avoid spamming DB too hard)
+            // 1. Wait 6 seconds (Spin Delay)
             await new Promise(r => setTimeout(r, 6000));
 
-            // 2. Refresh Targets (Every Spin)
+            // 2. CHECK SIMULATION STATE (POLL for Admin Changes) -- NEW
+            const overrides = getSimulationState();
+            const now = getCurrentTime();
+
+            // Determine Effective Day
+            const effectiveDay = forceDay !== undefined
+                ? forceDay
+                : (overrides.forceDay !== undefined ? overrides.forceDay : now.getDay());
+
+            // Determine Rush Hour
+            const timeRemainingMs = getTimeRemaining();
+            const hoursRemaining = timeRemainingMs / (1000 * 60 * 60);
+
+            const isRushHour = forceRushHour !== undefined
+                ? forceRushHour
+                : (overrides.forceRushHour || (effectiveDay === 0 && hoursRemaining <= 5));
+
+            // console.log(`🕹️ Bot Loop Tick: Day=${effectiveDay}, Rush=${isRushHour}`);
+
+            // 3. Refresh Targets (Every Spin based on NEW state)
             let currentBaseScore = 0;
             if (isRushHour) {
                 currentBaseScore = await getTopRealUserScore(weekId);
@@ -387,10 +438,6 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                     if (isBotZero) myTarget = currentBaseScore + 500;
                     else myTarget = Math.max(100, currentBaseScore - 500);
                 }
-
-                // We need the latest bot score (Local variable might be stale, but good enough for delta)
-                // Ideally, we trust the bot.coins we fetched at start + what we added locally.
-                // But since we use Atomic Increments now, 'bot.coins' is just for decision making.
 
                 // Check STATUS
                 if (bot.coins < myTarget) {

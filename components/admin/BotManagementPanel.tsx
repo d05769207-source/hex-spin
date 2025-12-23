@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     generateSmartBots,
     cleanupLegacyBots,
@@ -22,11 +22,34 @@ export const BotManagementPanel: React.FC = () => {
     // Simulation Toggle State
     const [simState, setSimState] = useState<{ forceDay: number | undefined, forceRushHour: boolean }>({ forceDay: undefined, forceRushHour: false });
 
+    // Auto-Run State
+    const [autoRun, setAutoRun] = useState(false);
+    const autoRunInterval = useRef<NodeJS.Timeout | null>(null);
+
     useEffect(() => {
         loadAnalytics();
         const savedState = getSimulationState();
         setSimState(savedState);
+
+        return () => {
+            if (autoRunInterval.current) clearInterval(autoRunInterval.current);
+        };
     }, []);
+
+    // Auto-Run Logic
+    useEffect(() => {
+        if (autoRun) {
+            // Run immediately
+            handleSimulateActivity(true);
+
+            // Then run every 60 seconds
+            autoRunInterval.current = setInterval(() => {
+                handleSimulateActivity(true);
+            }, 60000);
+        } else {
+            if (autoRunInterval.current) clearInterval(autoRunInterval.current);
+        }
+    }, [autoRun]);
 
     const loadAnalytics = async () => {
         const stats = await getLeaderboardAnalytics();
@@ -60,23 +83,33 @@ export const BotManagementPanel: React.FC = () => {
         setLoading(false);
     };
 
-    const handleSimulateActivity = async () => {
-        setLoading(true);
+    const handleSimulateActivity = async (silent = false) => {
+        // If auto-run is on, we don't show loading spinner to avoid UI flicker
+        if (!silent) setLoading(true);
+
         try {
-            await simulateSmartBotActivity();
-            alert('✅ Activity Simulated (This feature is in Phase 2 Development)');
+            // Check state again
+            const currentState = getSimulationState();
+            await simulateSmartBotActivity(currentState.forceDay, currentState.forceRushHour);
+            if (!silent) alert('✅ Activity Simulated (This triggers one 55-second loop). \nIMPORTANT: The simulation will now auto-refresh state every 6 seconds.');
+
+            // Refresh stats silently
+            loadAnalytics();
+            if (showBotList) loadBotList();
+
         } catch (error) {
-            alert('❌ Error simulating activity');
+            console.error(error);
+            if (!silent) alert('❌ Error simulating activity');
         }
-        setLoading(false);
+        if (!silent) setLoading(false);
     };
 
     const handleCleanup = async () => {
-        if (!confirm('Delete ALL bots?')) return;
+        if (!confirm('Delete ALL bots? This removes them from Leaderboard, Users, and Bot collection.')) return;
         setLoading(true);
         try {
-            await cleanupLegacyBots();
-            alert('✅ All bots deleted.');
+            const count = await cleanupLegacyBots();
+            alert(`✅ Cleanup Complete! Deleted ${count} bots.`);
             await loadAnalytics();
             setBotList([]);
         } catch (error) {
@@ -115,9 +148,17 @@ export const BotManagementPanel: React.FC = () => {
         <div style={styles.container}>
             <div style={styles.header}>
                 <h2 style={styles.title}>🤖 Smart Bot System (Phase 1)</h2>
-                <button onClick={() => { loadAnalytics(); if (showBotList) loadBotList(); }} style={styles.refreshBtn}>
-                    🔄 Refresh
-                </button>
+                <div style={styles.headerControls}>
+                    {(simState.forceDay !== undefined || simState.forceRushHour) && (
+                        <span style={styles.simBadge}>🕹️ Simulation Active</span>
+                    )}
+                    {autoRun && (
+                        <span style={{ ...styles.simBadge, backgroundColor: '#4CAF50' }}>🔄 Auto-Run ON</span>
+                    )}
+                    <button onClick={() => { loadAnalytics(); if (showBotList) loadBotList(); }} style={styles.refreshBtn}>
+                        🔄 Refresh Stats
+                    </button>
+                </div>
             </div>
 
             {/* Analytics */}
@@ -154,11 +195,18 @@ export const BotManagementPanel: React.FC = () => {
                     </button>
 
                     <button
-                        onClick={() => handleSimulateActivity()}
-                        disabled={loading}
-                        style={styles.btn}
+                        onClick={() => setAutoRun(!autoRun)}
+                        style={{ ...styles.btn, backgroundColor: autoRun ? '#4CAF50' : '#333', border: autoRun ? '2px solid #fff' : '1px solid #555' }}
                     >
-                        🎲 Simulate Activity (Auto)
+                        {autoRun ? '🔄 Auto-Run: ON' : '🔄 Auto-Run: OFF'}
+                    </button>
+
+                    <button
+                        onClick={() => handleSimulateActivity()}
+                        disabled={loading || autoRun}
+                        style={{ ...styles.btn, opacity: autoRun ? 0.5 : 1 }}
+                    >
+                        🎲 Trigger Once (55s)
                     </button>
 
                     <button
@@ -176,28 +224,36 @@ export const BotManagementPanel: React.FC = () => {
                         disabled={loading}
                         style={{ ...styles.btn, backgroundColor: '#f44336' }}
                     >
-                        🗑️ Delete All Bots
+                        🗑️ Delete All Bots & Data
                     </button>
+                </div>
 
-
+                <div style={{ marginTop: '10px' }}>
                     <button
                         onClick={handleSyncMyScore}
                         disabled={loading}
-                        style={{ ...styles.btn, backgroundColor: '#4CAF50' }}
+                        style={{ ...styles.btn, backgroundColor: '#4CAF50', width: '100%' }}
                     >
                         🔄 Sync MY Score to Leaderboard
                     </button>
                 </div>
 
+
                 {/* SIMULATION TOOLS (PERSISTENT TOGGLES) */}
-                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#aaa' }}>🕹️ Force Simulation (Persistent)</h4>
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#aaa', borderTop: '1px solid #444', paddingTop: '10px' }}>
+                    🕹️ Force Simulation (Persistent)
+                    <span style={{ fontSize: '11px', fontWeight: 'normal', marginLeft: '10px', color: '#888' }}>
+                        (Updates effectively every 6s)
+                    </span>
+                </h4>
+
                 <div style={styles.btnGrid}>
                     <button
                         onClick={() => {
                             const newValue = simState.forceDay === 1 ? undefined : 1;
                             setSimulationState(newValue, undefined); // Turn off Rush if changing day
                             setSimState(getSimulationState());
-                            simulateSmartBotActivity();
+                            // We don't need to force run simulateSmartBotActivity here because the RUNNING loop will pick it up
                         }}
                         style={{ ...styles.btn, backgroundColor: simState.forceDay === 1 ? '#607D8B' : '#333', border: simState.forceDay === 1 ? '2px solid #fff' : '1px solid #555' }}
                     >
@@ -209,7 +265,6 @@ export const BotManagementPanel: React.FC = () => {
                             const newValue = simState.forceDay === 5 ? undefined : 5;
                             setSimulationState(newValue, undefined);
                             setSimState(getSimulationState());
-                            simulateSmartBotActivity();
                         }}
                         style={{ ...styles.btn, backgroundColor: simState.forceDay === 5 ? '#009688' : '#333', border: simState.forceDay === 5 ? '2px solid #fff' : '1px solid #555' }}
                     >
@@ -221,7 +276,6 @@ export const BotManagementPanel: React.FC = () => {
                             const newValue = simState.forceDay === 0 ? undefined : 0;
                             setSimulationState(newValue, undefined);
                             setSimState(getSimulationState());
-                            simulateSmartBotActivity();
                         }}
                         style={{ ...styles.btn, backgroundColor: simState.forceDay === 0 ? '#FF9800' : '#333', border: simState.forceDay === 0 ? '2px solid #fff' : '1px solid #555' }}
                     >
@@ -234,7 +288,6 @@ export const BotManagementPanel: React.FC = () => {
                             // If turning ON Rush Hour, force SundayDay as well? Not strictly needed but safer:
                             setSimulationState(newValue ? 0 : simState.forceDay, newValue);
                             setSimState(getSimulationState());
-                            simulateSmartBotActivity();
                         }}
                         style={{ ...styles.btn, backgroundColor: simState.forceRushHour ? '#E91E63' : '#333', border: simState.forceRushHour ? '2px solid #fff' : '1px solid #555' }}
                     >
@@ -244,12 +297,12 @@ export const BotManagementPanel: React.FC = () => {
                 </div>
                 {(simState.forceDay !== undefined || simState.forceRushHour) && (
                     <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(233, 30, 99, 0.2)', borderRadius: '8px', textAlign: 'center' }}>
-                        <p style={{ margin: 0, fontSize: '12px', color: '#ff80ab' }}>⚠️ Simulation Mode Active! Bots will ignore real time.</p>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#ff80ab' }}>⚠️ Simulation Mode Active! Bots will ignore real time and follow these settings.</p>
                         <button
                             onClick={() => {
                                 setSimulationState(undefined, false);
                                 setSimState(getSimulationState());
-                                alert('Simulation Reset to Real Time');
+                                alert('Simulation Reset to Real Time. Bots will revert to normal behavior in < 6 seconds.');
                             }}
                             style={{ marginTop: '5px', background: 'transparent', border: '1px solid #ff80ab', color: '#ff80ab', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
                         >
@@ -288,7 +341,7 @@ export const BotManagementPanel: React.FC = () => {
             }
 
             {
-                loading && (
+                loading && !autoRun && (
                     <div style={styles.loadingOverlay}>
                         <div style={styles.spinner}>⏳ Processing...</div>
                     </div>
@@ -309,12 +362,28 @@ const styles: { [key: string]: React.CSSProperties } = {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: '20px'
+        marginBottom: '20px',
+        flexWrap: 'wrap',
+        gap: '10px'
+    },
+    headerControls: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px'
     },
     title: {
         margin: 0,
         fontSize: '24px',
         color: '#FFD700'
+    },
+    simBadge: {
+        background: '#E91E63',
+        color: '#fff',
+        padding: '4px 8px',
+        borderRadius: '4px',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        animation: 'pulse 2s infinite'
     },
     refreshBtn: {
         padding: '8px 16px',
@@ -382,7 +451,11 @@ const styles: { [key: string]: React.CSSProperties } = {
         cursor: 'pointer',
         fontWeight: 'bold',
         fontSize: '14px',
-        transition: 'all 0.3s'
+        transition: 'all 0.3s',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px'
     },
     botListCard: {
         background: 'rgba(0,0,0,0.3)',

@@ -471,21 +471,13 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                 <div className="h-px bg-white/10 my-1"></div>
 
                 {/* Logout / Reset Guest Data */}
-                {user && !user.isGuest ? (
+                {user && (
                   <button
                     onClick={onLogout}
                     className="w-full flex items-center gap-3 px-3 py-3 text-red-400 hover:bg-red-900/20 rounded-lg transition-colors text-sm font-bold"
                   >
                     <LogOut size={16} />
                     Logout
-                  </button>
-                ) : (
-                  <button
-                    onClick={onLogout}
-                    className="w-full flex items-center gap-3 px-3 py-3 text-white hover:bg-white/10 rounded-lg transition-colors text-sm font-bold"
-                  >
-                    <LogOut size={16} />
-                    Reset Guest Data
                   </button>
                 )}
               </div>
