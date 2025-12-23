@@ -457,8 +457,10 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                     bot.coins += reward; // Update local state for next loop logic
 
                 } else {
-                    // AHEAD -> Chill
-                    if (Math.random() > 0.8) { // Occasional small spin
+                    // AHEAD -> Strict Chill due to "Rank Inflation" issue
+                    // Previously 20% chance caused them to climb #17 on Tuesday.
+                    // Now: 1% chance just to update lastActive timestamp occasionally.
+                    if (Math.random() > 0.99) {
                         const smallReward = 50;
                         await updateSingleBot(bot, smallReward, weekId);
                         bot.coins += smallReward;
@@ -525,5 +527,84 @@ export const getSmartBots = async () => {
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     } catch (error) {
         return [];
+    }
+};
+
+/**
+ * 🧪 TEST ONLY: Generate Demo Leaderboard
+ * Creates 80 fake entries in weeklyLeaderboard to test ranking logic.
+ * These are lightweight entries (no user profile).
+ */
+export const generateDemoLeaderboard = async (count: number = 80) => {
+    try {
+        console.log(`🧪 Generating ${count} Demo Bots...`);
+        const weekId = getCurrentWeekId();
+        const batch = writeBatch(db);
+
+        // Random names for variety
+        const ADJECTIVES = ['Super', 'Fast', 'Crazy', 'Lucky', 'Master', 'Pro', 'Epic', 'Shadow', 'Neon', 'Hyper'];
+        const NOUNS = ['Spinner', 'Winner', 'King', 'Queen', 'Ninja', 'Rider', 'Gamer', 'Star', 'Wolf', 'Eagle'];
+
+        for (let i = 0; i < count; i++) {
+            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+            const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+            const name = `${adj}${noun}_${Math.floor(Math.random() * 999)}`;
+
+            const botId = `demo_bot_${i}`;
+            const ref = doc(db, 'weeklyLeaderboard', `${botId}_${weekId}`);
+
+            // Random coins distribution (some high, most low/mid)
+            let coins = 0;
+            const r = Math.random();
+            if (r > 0.95) coins = 10000 + Math.floor(Math.random() * 20000); // 5% Top tier (10k-30k)
+            else if (r > 0.8) coins = 5000 + Math.floor(Math.random() * 5000); // 15% High tier (5k-10k)
+            else if (r > 0.5) coins = 1000 + Math.floor(Math.random() * 4000); // 30% Mid tier (1k-5k)
+            else coins = 100 + Math.floor(Math.random() * 900); // 50% Low tier (100-1k)
+
+            batch.set(ref, {
+                userId: botId,
+                username: name,
+                photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${name}`,
+                level: Math.floor(1 + Math.random() * 50),
+                weekId: weekId,
+                lastUpdated: Timestamp.now(),
+                coins: coins,
+                totalSpins: Math.floor(coins / 100),
+                isDemo: true // Flag to identify them easily
+            });
+        }
+
+        await batch.commit();
+        console.log('✅ Demo Leaderboard Populated!');
+        return count;
+    } catch (error) {
+        console.error('❌ Error generating demo leaderboard:', error);
+        throw error;
+    }
+};
+
+/**
+ * 🧪 TEST ONLY: Clear Demo Bots
+ */
+export const clearDemoLeaderboard = async () => {
+    try {
+        console.log('🧹 Cleaning Demo Bots...');
+        const weekId = getCurrentWeekId();
+
+        // Approach: Batch delete known ID range
+        const batch = writeBatch(db);
+        let deleted = 0;
+
+        for (let i = 0; i < 200; i++) { // Cover up to 200 potential demo bots
+            const botId = `demo_bot_${i}`;
+            const ref = doc(db, 'weeklyLeaderboard', `${botId}_${weekId}`);
+            batch.delete(ref);
+            deleted++;
+        }
+
+        await batch.commit();
+        console.log('✅ Demo Bots Cleared.');
+    } catch (error) {
+        console.error('❌ Error clearing demo bots:', error);
     }
 };

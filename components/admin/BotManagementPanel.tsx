@@ -5,7 +5,9 @@ import {
     getSmartBots,
     simulateSmartBotActivity,
     getSimulationState,
-    setSimulationState
+    setSimulationState,
+    generateDemoLeaderboard,
+    clearDemoLeaderboard
 } from '../../services/smartBotService';
 import { getLeaderboardAnalytics, syncUserToLeaderboard } from '../../services/leaderboardService';
 import { auth, db } from '../../firebase';
@@ -235,6 +237,46 @@ export const BotManagementPanel: React.FC = () => {
                         style={{ ...styles.btn, backgroundColor: '#4CAF50', width: '100%' }}
                     >
                         🔄 Sync MY Score to Leaderboard
+                    </button>
+                </div>
+
+                {/* TESTING ZONE (NEW) */}
+                <h4 style={{ marginTop: '20px', marginBottom: '10px', color: '#aaa', borderTop: '1px solid #444', paddingTop: '10px' }}>
+                    🧪 Testing Zone (Safe to use)
+                </h4>
+                <div style={styles.btnGrid}>
+                    <button
+                        onClick={async () => {
+                            if (!confirm('Create 80 fake demo bots in Leaderboard for testing?')) return;
+                            setLoading(true);
+                            try {
+                                await generateDemoLeaderboard(80);
+                                alert('✅ 80 Demo Bots Added!');
+                                loadAnalytics();
+                            } catch (e) { alert('Error: ' + e); }
+                            setLoading(false);
+                        }}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: '#673AB7', border: '1px dashed #B39DDB' }}
+                    >
+                        🧪 Fill Leaderboard (80 Bots)
+                    </button>
+
+                    <button
+                        onClick={async () => {
+                            if (!confirm('Clear all demo bots?')) return;
+                            setLoading(true);
+                            try {
+                                await clearDemoLeaderboard();
+                                alert('✅ Demo Bots Cleared!');
+                                loadAnalytics();
+                            } catch (e) { alert('Error: ' + e); }
+                            setLoading(false);
+                        }}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: 'transparent', border: '1px dashed #f44336', color: '#f44336' }}
+                    >
+                        ❌ Clear Demo Bots
                     </button>
                 </div>
 
