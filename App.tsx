@@ -33,6 +33,7 @@ import { onAuthStateChanged, updateProfile, signOut, GoogleAuthProvider, signInW
 import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot, increment } from 'firebase/firestore';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
+import { fetchUserWithRetry, recreateUserProfile, clearAllStorage } from './services/authHelpers'; // NEW: Auth Helper Functions
 import { simulateSmartBotActivity } from './services/smartBotService'; // NEW: Smart Bot Logic
 import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
@@ -155,6 +156,9 @@ const App: React.FC = () => {
         if (firebaseUser.displayName) {
           // Setup complete
 
+          // ✅ CRITICAL: Don't show username modal yet - wait for data fetch
+          setShowUsernameModal(false);
+
           setUser({
             id: firebaseUser.uid,
             uid: firebaseUser.uid,
@@ -164,15 +168,17 @@ const App: React.FC = () => {
             photoURL: firebaseUser.photoURL || undefined
           });
 
-          // Load user data from Firestore
+          // Load user data from Firestore with RETRY LOGIC
           try {
-            const userDocRef = doc(db, 'users', firebaseUser.uid);
+            console.log('🔍 Loading user data for:', firebaseUser.uid);
 
-            const userDoc = await getDoc(userDocRef);
+            // LAYER 1: Fetch user data with retry (3 attempts)
+            const userData = await fetchUserWithRetry(firebaseUser.uid, 3);
 
-            if (userDoc.exists()) {
-              const userData = userDoc.data();
-
+            // LAYER 2: Decision Logic - 3 Scenarios
+            if (userData && userData.displayId) {
+              // ✅ SCENARIO 1: EXISTING USER - Data found in Firestore
+              console.log('✅ Existing user detected, loading data...');
 
               setBalance(userData.tokens !== undefined ? userData.tokens : 10);
               setCoins(userData.coins || 0);
@@ -194,9 +200,9 @@ const App: React.FC = () => {
 
               const loadedSpins = userData.totalSpins || 0;
               setTotalSpins(loadedSpins);
-              totalSpinsRef.current = loadedSpins; // SYNC REF WITH LOADED DATA
+              totalSpinsRef.current = loadedSpins;
 
-              // Update user object with photoURL and displayId from Firestore
+              // Update user object with all data from Firestore
               setUser(prev => prev ? {
                 ...prev,
                 photoURL: userData.photoURL || prev.photoURL,
@@ -205,20 +211,16 @@ const App: React.FC = () => {
                 referralCount: userData.referralCount,
                 referredBy: userData.referredBy,
                 referralDismissed: userData.referralDismissed,
-                lastWeekId: userData.lastWeekId // CRITICAL: Populate lastWeekId so useWeeklyReset knows the state
+                lastWeekId: userData.lastWeekId,
+                coins: userData.coins || 0,
+                totalSpins: loadedSpins
               } : null);
 
-
-
-              // Check if we should show the referral modal
-
-
-              // Referral modal logic removed as it is now handled in UsernameModal
-
+              // ✅ CRITICAL: Force close username modal for existing users
+              setShowUsernameModal(false);
 
               // BACKFILL: Ensure user has a numeric ID and Referral Code
               if (!userData.displayId || !userData.referralCode) {
-                // Pass both id and uid to be safe
                 ensureUserHasDisplayId({ ...userData, uid: firebaseUser.uid, id: firebaseUser.uid } as any).then(updatedUser => {
                   if (updatedUser.displayId || updatedUser.referralCode) {
                     setUser(prev => prev ? {
@@ -229,20 +231,62 @@ const App: React.FC = () => {
                   }
                 });
               }
-            } else {
 
-              // New User Flow: Show Username Modal to collect username & referral code
-              // We DO NOT create the user document here anymore. It happens in handleUsernameSet.
+            } else if (firebaseUser.displayName && !userData) {
+              // ⚠️ SCENARIO 2: CACHE CLEAR - Auth has name but Firestore missing
+              console.log('⚠️ Cache clear scenario detected - recreating profile from Auth...');
+
+              // Recreate profile from Firebase Auth data
+              const recreatedData = await recreateUserProfile(firebaseUser);
+
+              if (recreatedData) {
+                console.log('✅ Profile recreated successfully');
+
+                // Load the recreated data
+                setBalance(recreatedData.tokens !== undefined ? recreatedData.tokens : 10);
+                setCoins(recreatedData.coins || 0);
+                setETokens(recreatedData.eTokens || 0);
+                setKtmTokens(recreatedData.ktmTokens || 0);
+                setIphoneTokens(recreatedData.iphoneTokens || 0);
+                setInrBalance(recreatedData.inrBalance || 0);
+
+                const loadedSpins = recreatedData.totalSpins || 0;
+                setTotalSpins(loadedSpins);
+                totalSpinsRef.current = loadedSpins;
+
+                setUser(prev => prev ? {
+                  ...prev,
+                  photoURL: recreatedData.photoURL || prev.photoURL,
+                  displayId: recreatedData.displayId,
+                  referralCode: recreatedData.referralCode,
+                  referralCount: recreatedData.referralCount,
+                  lastWeekId: recreatedData.lastWeekId,
+                  coins: recreatedData.coins || 0,
+                  totalSpins: loadedSpins
+                } : null);
+
+                // ✅ CRITICAL: Don't show username modal - profile was recreated
+                setShowUsernameModal(false);
+              } else {
+                // Recreation failed - show username modal as fallback
+                console.log('❌ Profile recreation failed, showing username modal');
+                setShowUsernameModal(true);
+              }
+
+            } else {
+              // ❌ SCENARIO 3: TRULY NEW USER - No displayName and no Firestore data
+              console.log('❌ New user detected, showing username modal...');
               setShowUsernameModal(true);
             }
 
             // Enable sync AFTER data is loaded with a small delay
             setTimeout(() => {
               setIsSyncEnabled(true);
-
             }, 1000);
+
           } catch (error) {
-            // Error handled silently
+            // Error handled with fallback
+            console.error('🚨 Auth listener error:', error);
 
             // Fallback to defaults on error
             setBalance(10);
@@ -252,7 +296,12 @@ const App: React.FC = () => {
             setIphoneTokens(0);
             setInrBalance(0);
             setTotalSpins(0);
-            totalSpinsRef.current = 0; // SYNC REF
+            totalSpinsRef.current = 0;
+
+            // If user has displayName, don't show username modal (assume existing user)
+            if (!firebaseUser.displayName) {
+              setShowUsernameModal(true);
+            }
 
             // Still enable sync after delay
             setTimeout(() => {
@@ -299,10 +348,23 @@ const App: React.FC = () => {
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
+      // Force account selection every time (fixes logout issue)
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
       await signInWithPopup(auth, provider);
       // Success will be handled by the onAuthStateChanged listener
       enterGame();
-    } catch (error) {
+    } catch (error: any) {
+      // Suppress CORS warnings (harmless in development)
+      if (error.code === 'auth/popup-closed-by-user') {
+        console.log('Login cancelled by user');
+        return;
+      }
+      if (error.code === 'auth/cancelled-popup-request') {
+        console.log('Popup request cancelled');
+        return;
+      }
       console.error("Google Login Error:", error);
       // Optional: Show error toast
     }
@@ -478,7 +540,12 @@ const App: React.FC = () => {
           setUser(prev => {
             if (prev && prev.photoURL !== data.photoURL) {
               // console.log('🔄 Photo URL updated from Firestore:', data.photoURL);
-              return { ...prev, photoURL: data.photoURL };
+              return {
+                ...prev,
+                photoURL: data.photoURL,
+                coins: data.coins || prev.coins || 0, // Sync coins too
+                totalSpins: data.totalSpins || prev.totalSpins || 0 // Sync totalSpins too
+              };
             }
             return prev;
           });
@@ -639,6 +706,13 @@ const App: React.FC = () => {
     setKtmTokens(earnedKtm);
     setIphoneTokens(earnedIphone);
 
+    // Update user object with latest coins and totalSpins
+    setUser(prev => prev ? {
+      ...prev,
+      coins: earnedCoins,
+      totalSpins: newTotalSpins
+    } : null);
+
     // Prepare Final Object for Firestore
     finalWinningsUpdates.coins = earnedCoins;
     finalWinningsUpdates.ktmTokens = earnedKtm;
@@ -692,6 +766,9 @@ const App: React.FC = () => {
 
       setCoins(newCoins);
       setETokens(newETokens);
+
+      // Update user object
+      setUser(prev => prev ? { ...prev, coins: newCoins } : null);
 
       saveUserProgress({
         coins: newCoins,
@@ -899,16 +976,25 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      // Disable sync before logout
+      console.log('🚪 Logging out user...');
+
+      // 1. Disable sync before logout
       setIsSyncEnabled(false);
 
+      // 2. Sign out from Firebase Auth
       await signOut(auth);
+      console.log('✅ Firebase Auth signed out');
 
-      // Auth listener will handle loading guest data from localStorage
-      // Just reset page to HOME
+      // 3. Clear ALL browser storage (fixes account switch bug)
+      clearAllStorage();
+
+      // 4. Reset UI state
       setCurrentPage('HOME');
+      setHasEnteredGame(false); // Force back to auth screen
+
+      console.log('✅ Logout complete - all sessions cleared');
     } catch (error) {
-      // Error silently handled
+      console.error('❌ Logout error:', error);
     }
   };
 

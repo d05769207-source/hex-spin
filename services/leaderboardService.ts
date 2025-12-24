@@ -300,6 +300,47 @@ export const resetWeeklyLeaderboard = async (): Promise<void> => {
     }
 };
 
+// FORCE RESYNC: Manually sync a user's actual data to leaderboard
+export const forceResyncUserToLeaderboard = async (userId: string): Promise<void> => {
+    try {
+        console.log(`🔄 Force resyncing user ${userId} to leaderboard...`);
+
+        // Fetch user's actual data from their profile
+        const userDocRef = doc(db, 'users', userId);
+        const userDoc = await getDoc(userDocRef);
+
+        if (!userDoc.exists()) {
+            console.error(`❌ User ${userId} not found in database`);
+            return;
+        }
+
+        const userData = userDoc.data();
+        const actualCoins = userData.coins || 0;
+        const actualSpins = userData.totalSpins || 0;
+        const actualLevel = userData.level || 0;
+        const username = userData.username || 'Player';
+        const photoURL = userData.photoURL || null;
+
+        console.log(`📊 User Data: ${username}, Coins: ${actualCoins}, Spins: ${actualSpins}, Level: ${actualLevel}`);
+
+        // Force sync to leaderboard
+        await syncUserToLeaderboard(
+            userId,
+            username,
+            actualCoins,
+            photoURL,
+            actualSpins,
+            actualLevel
+        );
+
+        console.log(`✅ Successfully resynced ${username} to leaderboard!`);
+
+    } catch (error) {
+        console.error('❌ Force resync failed:', error);
+        throw error;
+    }
+};
+
 // ONE-TIME REPAIR FUNCTION: Backfill missing fields
 export const repairLeaderboardData = async () => {
     try {

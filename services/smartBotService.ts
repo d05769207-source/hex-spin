@@ -87,65 +87,100 @@ const getScoreForRank = async (targetRank: number): Promise<number> => {
 };
 
 /**
- * Clean up ALL legacy bots (safayi abhiyaan)
- * UPDATED: Now removes from botUsers, users, AND weeklyLeaderboard
+ * PERMANENT DELETE (Hard Reset)
+ * Deletes bots from botUsers, users, and leaderboard.
+ * Use this only for debugging or full reset.
  */
-export const cleanupLegacyBots = async () => {
+export const hardDeleteAllBots = async () => {
     try {
-        console.log('🧹 Starting Safayi Abhiyaan (Cleanup)...');
-        // Fetch all bots from botUsers
+        console.log('🔥 Starting Hard Delete (Full Reset)...');
         const botsRef = collection(db, BOT_COLLECTION);
         const snapshot = await getDocs(botsRef);
-
-        const currentWeekId = getCurrentWeekId();
         const batch = writeBatch(db);
         let count = 0;
 
         snapshot.docs.forEach((botDoc) => {
-            const botData = botDoc.data();
             const botId = botDoc.id;
+            batch.delete(botDoc.ref); // Delete from botUsers
+            batch.delete(doc(db, USER_COLLECTION, botId)); // Delete from users
 
-            // 1. Delete from botUsers
-            batch.delete(botDoc.ref);
-
-            // 2. Delete from users (Public Profile)
-            const userRef = doc(db, USER_COLLECTION, botId);
-            batch.delete(userRef);
-
-            // 3. Delete from weeklyLeaderboard (Current Week)
-            // Note: If checking old weeks, we might need a query, but usually we care about current week
-            // We'll try to delete based on the stored weekId in bot data, or current week
-            const targetWeekId = botData.weekId || currentWeekId;
-            const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botId}_${targetWeekId}`);
-            batch.delete(leaderboardRef);
-
+            // Try to delete from leaderboard (Current & Old)
+            // We'll guess the weekid or rely on query
+            batch.delete(doc(db, 'weeklyLeaderboard', `${botId}_${botDoc.data().weekId}`));
             count++;
         });
 
-        // Also clean up any potential "floating" leaderboard entries that start with "bot_" for this week
-        // incase botUsers was deleted but leaderboard wasn't
+        // Also clean floating leaderboard entries
+        const currentWeekId = getCurrentWeekId();
         const leaderboardQ = query(
             collection(db, 'weeklyLeaderboard'),
-            where('weekId', '==', currentWeekId)
+            where('userId', '>=', 'bot_'),
+            where('userId', '<=', 'bot_\uf8ff')
         );
         const lbSnapshot = await getDocs(leaderboardQ);
         lbSnapshot.docs.forEach(doc => {
-            const data = doc.data();
-            if (data.userId && data.userId.startsWith('bot_')) {
-                batch.delete(doc.ref);
-            }
+            batch.delete(doc.ref);
         });
 
-
         await batch.commit();
-        console.log(`✅ Deleted ${count} old bots and cleaned references.`);
+        console.log(`✅ Hard Deleted ${count} bots.`);
         return count;
     } catch (error) {
-        console.error('❌ Error cleaning bots:', error);
+        console.error('❌ Error in hard delete:', error);
         throw error;
     }
 };
 
+/**
+ * RETIRE OLD BOTS (Persistent Mode)
+ * Moves existing bots to 'RETIRED' state.
+ * Removes them from Leaderboard but KEEPS them in 'users' (Hall of Fame).
+ */
+export const retireOldBots = async () => {
+    try {
+        console.log('👴 Retiring Old Bots...');
+        const botsRef = collection(db, BOT_COLLECTION);
+        // Get all bots that are NOT retired
+        // Note: Firestore != query is limited, so we fetch all and filter or use status check
+        const snapshot = await getDocs(botsRef);
+
+        const batch = writeBatch(db);
+        let count = 0;
+
+        for (const botDoc of snapshot.docs) {
+            const botData = botDoc.data();
+
+            // Skip if already retired
+            if (botData.botTier === 'RETIRED') continue;
+
+            // 1. Mark as RETIRED in botUsers
+            batch.update(botDoc.ref, {
+                botTier: 'RETIRED',
+                lastActive: Timestamp.now()
+            });
+
+            // 2. Remove from Weekly Leaderboard (So they don't compete)
+            const weekId = botData.weekId;
+            const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botDoc.id}_${weekId}`);
+            batch.delete(leaderboardRef);
+
+            // 3. DO NOT delete from 'users' (This keeps them searchable)
+
+            count++;
+        }
+
+        await batch.commit();
+        console.log(`✅ Retired ${count} bots. They are now in Hall of Fame.`);
+        return count;
+    } catch (error) {
+        console.error('❌ Error retiring bots:', error);
+        throw error;
+    }
+};
+
+/**
+ * Generate 3 Smart Bots for the week
+ */
 /**
  * Generate 3 Smart Bots for the week
  */
@@ -164,23 +199,59 @@ export const generateSmartBots = async () => {
         }
 
         console.log('🤖 Generating 3 New Smart Bots...');
+
+        // 1. Get Reserved IDs (Smart Pool)
+        const reservedRef = doc(db, 'system', 'reserved_bot_ids');
+        const reservedSnap = await getDoc(reservedRef);
+        let reservedIds: number[] = [];
+        if (reservedSnap.exists()) {
+            reservedIds = reservedSnap.data().ids || [];
+        }
+
         const batch = writeBatch(db);
 
         // Shuffle Arrays to get random identity
         const shuffledNames = [...NAME_POOL].sort(() => 0.5 - Math.random());
         const shuffledAvatars = [...AVATAR_SEEDS].sort(() => 0.5 - Math.random());
 
+        // Track used IDs to remove them from pool later
+        let usedReservedCount = 0;
+
         for (let i = 0; i < TOTAL_BOTS; i++) {
             const name = shuffledNames[i] || `Player_${Math.floor(Math.random() * 1000)}`;
             const avatarSeed = shuffledAvatars[i] || 'default';
             const photoURL = `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
 
-            const level = Math.floor(5 + Math.random() * 45);
-            const totalSpins = Math.floor(500 + Math.random() * 4500);
+            // NEW: Distinct Level Ranges to create gap
+            let level;
+            if (i === 0) {
+                // Top Player: Level 34-45
+                level = Math.floor(34 + Math.random() * 12);
+            } else if (i === 1) {
+                // Challenger: Level 20-32
+                level = Math.floor(20 + Math.random() * 13);
+            } else {
+                // Random/Newbie: Level 15-25
+                level = Math.floor(15 + Math.random() * 11);
+            }
+
+            // Spins Formula: 10 * Level^2 (Plus some random noise 0-50 for realism)
+            const totalSpins = (10 * (level * level)) + Math.floor(Math.random() * 50);
             const joinDate = new Date();
             joinDate.setDate(joinDate.getDate() - Math.floor(Math.random() * 60));
 
             const botUid = `bot_${weekId}_${i}`;
+
+            // SMART ID LOGIC
+            let displayId = 900000 + i; // Default fallback
+            if (reservedIds.length > 0) {
+                const realId = reservedIds.shift(); // Remove from local array
+                if (realId) {
+                    displayId = realId;
+                    usedReservedCount++;
+                    // console.log(`🎯 Assigned Reserved ID ${realId} to Bot ${name}`);
+                }
+            }
 
             // Bot 0 & 1 = Leaderboard, Bot 2 = Lottery
             let rankType = BotTier.SMART_LEADER;
@@ -211,8 +282,8 @@ export const generateSmartBots = async () => {
             const userRef = doc(db, USER_COLLECTION, botUid);
             batch.set(userRef, {
                 ...botData,
-                displayId: 900000 + i,
-                referralCode: `BOT${i}${Math.floor(Math.random() * 999)}`
+                displayId: displayId, // USE SMART ID
+                referralCode: `HEX${displayId}` // USE SMART ID CODE
             });
 
             const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botUid}_${weekId}`);
@@ -226,6 +297,12 @@ export const generateSmartBots = async () => {
                 weekId,
                 lastUpdated: Timestamp.now()
             });
+        }
+
+        // UPDATE RESERVED POOL
+        if (usedReservedCount > 0) {
+            batch.set(reservedRef, { ids: reservedIds }, { merge: true });
+            console.log(`🔒 Consumed ${usedReservedCount} IDs from pool. Remaining: ${reservedIds.length}`);
         }
 
         await batch.commit();
@@ -298,6 +375,12 @@ const getMediumReward = () => {
     // Return medium rewards to maintain pace (450 - 1100)
     // e.g. 450, 700, 950
     return getRandomBetween(450, 1100, 50);
+};
+
+const getSmallRandomReward = () => {
+    // Return small rewards for natural look (50 - 150)
+    // e.g. 50, 60, ... 150
+    return getRandomBetween(50, 150, 10);
 };
 
 /**
@@ -450,7 +533,7 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                     } else if (deficit > 1000) {
                         reward = getMediumReward();
                     } else {
-                        reward = getRandomSpinReward();
+                        reward = getSmallRandomReward();
                     }
 
                     await updateSingleBot(bot, reward, weekId);
@@ -461,9 +544,41 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                     // Previously 20% chance caused them to climb #17 on Tuesday.
                     // Now: 1% chance just to update lastActive timestamp occasionally.
                     if (Math.random() > 0.99) {
-                        const smallReward = 50;
+                        const smallReward = getSmallRandomReward();
                         await updateSingleBot(bot, smallReward, weekId);
                         bot.coins += smallReward;
+                    }
+                }
+            }
+
+            // 4. ZOMBIE MODE (Retired Bots Logic)
+            // Wake up old bots occasionally to update their "Last Active"
+            if (Math.random() > 0.7) { // 30% chance per 6s tick to wake up zombies
+                const retiredRef = collection(db, BOT_COLLECTION);
+                // Find the 3 most dormant retired bots
+                const qRetired = query(
+                    retiredRef,
+                    where('botTier', '==', 'RETIRED'),
+                    orderBy('lastActive', 'asc'),
+                    limit(3)
+                );
+
+                const zombieSnap = await getDocs(qRetired);
+                if (!zombieSnap.empty) {
+                    for (const zombieDoc of zombieSnap.docs) {
+                        // Wake them up!
+                        const zombieRef = doc(db, BOT_COLLECTION, zombieDoc.id);
+                        const userRef = doc(db, USER_COLLECTION, zombieDoc.id);
+
+                        // Just update timestamp and maybe 1 spin
+                        const updates = {
+                            lastActive: Timestamp.now(),
+                            totalSpins: increment(1)
+                        };
+
+                        await updateDoc(zombieRef, updates);
+                        await updateDoc(userRef, updates);
+                        // console.log(`🧟 Zombie Woke Up: ${zombieDoc.data().username}`);
                     }
                 }
             }
@@ -479,12 +594,21 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
  * Uses `increment` to avoid race conditions (overwrite glitches).
  */
 const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
+    // NEW: Action Based Spin Calculation
+    let spinsToAdd = 1; // Default for small wins
+    if (amount >= 1200) {
+        spinsToAdd = 5; // Jackpot/Big Win
+    } else if (amount >= 450) {
+        spinsToAdd = 3; // Medium Win
+    }
+    // Else 1 spin for small wins (50-150)
+
     // 1. Update botUsers
     const botRef = doc(db, BOT_COLLECTION, bot.id);
     await updateDoc(botRef, {
         coins: increment(amount),
         weeklyCoins: increment(amount),
-        totalSpins: increment(Math.ceil(amount / 5)),
+        totalSpins: increment(spinsToAdd),
         lastActive: Timestamp.now()
     });
 
@@ -493,7 +617,7 @@ const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
     await updateDoc(userRef, {
         coins: increment(amount),
         weeklyCoins: increment(amount),
-        totalSpins: increment(Math.ceil(amount / 5)),
+        totalSpins: increment(spinsToAdd),
         lastActive: Timestamp.now()
     });
 
@@ -509,7 +633,7 @@ const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
         weekId: weekId,
         lastUpdated: Timestamp.now(),
         coins: increment(amount),
-        totalSpins: increment(Math.ceil(amount / 5))
+        totalSpins: increment(spinsToAdd)
     }, { merge: true });
 
     // console.log(`🤖 Updated Bot ${bot.username}: +${amount}`);

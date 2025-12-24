@@ -4,22 +4,56 @@ import { User } from '../types';
 import { createLevelUpRewardMessage } from './mailboxService';
 
 // Generate the next numeric User ID using a transaction
+// Generate the next numeric User ID using a transaction
+// MODIFIED: Now checks if we need to reserve an ID for bots (Smart ID Pool)
 export const getNextUserId = async (): Promise<number> => {
     const counterRef = doc(db, 'counters', 'userStats');
+    const reservedRef = doc(db, 'system', 'reserved_bot_ids');
+    const MAX_RESERVED = 5;
 
     try {
         return await runTransaction(db, async (transaction) => {
             const counterDoc = await transaction.get(counterRef);
+            const reservedDoc = await transaction.get(reservedRef);
 
-            let newId = 100000; // Default start ID
-
+            let lastId = 100000; // Default start ID
             if (counterDoc.exists()) {
-                const currentId = counterDoc.data().lastUserId;
-                newId = currentId + 1;
+                lastId = counterDoc.data().lastUserId;
             }
 
-            transaction.set(counterRef, { lastUserId: newId }, { merge: true });
-            return newId;
+            // Get current reserved IDs
+            let reservedIds: number[] = [];
+            if (reservedDoc.exists()) {
+                reservedIds = reservedDoc.data().ids || [];
+            }
+
+            // DECISION: Do we reserve an ID?
+            // Reserve if we have fewer than MAX and we are not in a weird state
+            const shouldReserve = reservedIds.length < MAX_RESERVED;
+
+            let idToGiveUser = lastId + 1;
+            let newLastId = lastId + 1;
+
+            if (shouldReserve) {
+                // Reserve logic:
+                // User gets: lastId + 1
+                // Bot gets: lastId + 2 (Reserved)
+                // New lastId: lastId + 2
+                idToGiveUser = lastId + 1;
+                const idToReserve = lastId + 2;
+                newLastId = lastId + 2;
+
+                reservedIds.push(idToReserve);
+
+                // Update reserved list
+                transaction.set(reservedRef, { ids: reservedIds }, { merge: true });
+                // console.log(`🔒 Reserved Bot ID: ${idToReserve}. Pool Size: ${reservedIds.length}`);
+            }
+
+            // Update Counter
+            transaction.set(counterRef, { lastUserId: newLastId }, { merge: true });
+
+            return idToGiveUser;
         });
     } catch (error) {
         console.error("Error generating User ID:", error);

@@ -270,3 +270,87 @@ export const bulkResetAndPopulate = async (
     }
 };
 
+
+// --- VERIFICATION HELPERS ---
+
+export const clearTestUsers = deleteAllTestData; // Alias for AdminDashboard
+
+/**
+ * Verify Tie-Breaker Logic (Time-based)
+ */
+export const verifyTieBreaker = async (): Promise<string> => {
+    try {
+        console.log('🧪 Starting Tie-Breaker Verification...');
+        const weekId = getCurrentWeekId();
+        const batch = writeBatch(db);
+
+        // 1. Create User A (Early Scorer)
+        const userA_ID = 'test_A_' + Date.now();
+        const timeA = new Date(Date.now() - 1000 * 60 * 10); // 10 mins ago
+
+        const refA = doc(db, 'weeklyLeaderboard', `${userA_ID}_${weekId}`);
+        batch.set(refA, {
+            userId: userA_ID,
+            username: 'User A (Early)',
+            coins: 5000,
+            weekId,
+            lastUpdated: timeA
+        });
+
+        // 2. Create User B (Late Scorer)
+        const userB_ID = 'test_B_' + Date.now();
+        const timeB = new Date(); // Now
+
+        const refB = doc(db, 'weeklyLeaderboard', `${userB_ID}_${weekId}`);
+        batch.set(refB, {
+            userId: userB_ID,
+            username: 'User B (Late)',
+            coins: 5000, // SAME SCORE
+            weekId,
+            lastUpdated: timeB
+        });
+
+        await batch.commit();
+        console.log('✅ Created test users A and B with same score (5000). Fetching ranks...');
+
+        // 3. Fetch Leaderboard to check Ranks
+        // Wait 2 seconds for indexing/propagation (though usually instant for simple query)
+        await new Promise(r => setTimeout(r, 2000));
+
+        const lbRef = collection(db, 'weeklyLeaderboard');
+        const q = query(
+            lbRef,
+            where('weekId', '==', weekId),
+            orderBy('coins', 'desc'),
+            orderBy('lastUpdated', 'asc'), // Tie-breaker: Earlier time is better
+            limit(50)
+        );
+
+        const snap = await getDocs(q);
+        let rankA = -1;
+        let rankB = -1;
+
+        snap.docs.forEach((d, index) => {
+            if (d.data().userId === userA_ID) rankA = index + 1;
+            if (d.data().userId === userB_ID) rankB = index + 1;
+        });
+
+        // Cleanup
+        await deleteDoc(refA);
+        await deleteDoc(refB);
+
+        if (rankA === -1 || rankB === -1) return "❌ Failed: Could not find test users in top 50.";
+
+        let result = `📊 Result:\nUser A (Early): Rank ${rankA}\nUser B (Late): Rank ${rankB}\n`;
+        if (rankA < rankB) {
+            result += "✅ PASS: Early user ranked higher!";
+        } else {
+            result += "❌ FAIL: Late user ranked higher (or same).";
+        }
+        return result;
+
+    } catch (error) {
+        console.error(error);
+        return "Error running test: " + error;
+    }
+};

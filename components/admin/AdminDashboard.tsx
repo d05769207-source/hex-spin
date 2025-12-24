@@ -6,7 +6,7 @@ import {
     LogOut,
     Search,
     Bell,
-    Shield,
+    ShieldCheck as Shield,
     Power,
     RefreshCw,
     AlertTriangle,
@@ -305,7 +305,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     <h2 className="text-2xl font-black text-white uppercase tracking-wide">
                         {activeTab === 'dashboard' && 'Mission Control'}
                         {activeTab === 'users' && 'User Database'}
-                        {activeTab === 'bots' && 'Bot Management System'}
+                        {activeTab === 'bots' && 'Bot Management System V2 (Global Check)'}
                         {activeTab === 'events' && 'Event Management'}
                         {activeTab === 'bulkdata' && 'Bulk Data Management'}
                         {activeTab === 'maintenance' && 'Weekly Reset Control'}
@@ -1181,8 +1181,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                                 setIsBulkProcessing(true);
                                                 try {
                                                     const { clearTestUsers } = await import('../../services/bulkDataService');
-                                                    const result = await clearTestUsers();
-                                                    alert(result);
+                                                    await clearTestUsers((c, t) => console.log(`Deleting: ${c}/${t}`));
+                                                    alert('✅ Test data cleared!');
                                                 } catch (error) {
                                                     alert('Error: ' + error);
                                                 } finally {

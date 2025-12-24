@@ -330,12 +330,12 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
             await syncUserToLeaderboard(
               userId,
               user.username || 'Player',
-              user.coins || 0,
+              coins, // Use coins from props, not user.coins
               photoURL, // New Photo
               user.totalSpins || 0,
               getLevelProgress(user.totalSpins || 0).currentLevel
             );
-            console.log('Photo URL synced to Leaderboard');
+            console.log('Photo URL synced to Leaderboard with coins:', coins);
           }
         } catch (firestoreError) {
           console.error('Firestore save error:', firestoreError);

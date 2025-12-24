@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     generateSmartBots,
-    cleanupLegacyBots,
+    retireOldBots,
+    hardDeleteAllBots,
     getSmartBots,
     simulateSmartBotActivity,
     getSimulationState,
@@ -18,6 +19,7 @@ export const BotManagementPanel: React.FC = () => {
     // const [config, setConfig] = useState<BotSystemConfig | null>(null);
     const [loading, setLoading] = useState(false);
     const [analytics, setAnalytics] = useState<any>(null);
+    const [reservedCount, setReservedCount] = useState<number>(0); // NEW
     const [botList, setBotList] = useState<any[]>([]);
     const [showBotList, setShowBotList] = useState(false);
 
@@ -56,6 +58,17 @@ export const BotManagementPanel: React.FC = () => {
     const loadAnalytics = async () => {
         const stats = await getLeaderboardAnalytics();
         setAnalytics(stats);
+
+        // Fetch Reserved IDs Count
+        try {
+            const reservedRef = doc(db, 'system', 'reserved_bot_ids');
+            const snap = await getDoc(reservedRef);
+            if (snap.exists()) {
+                setReservedCount(snap.data().ids?.length || 0);
+            }
+        } catch (e) {
+            console.error('Error fetching reserved IDs', e);
+        }
     };
 
     const loadBotList = async () => {
@@ -68,8 +81,8 @@ export const BotManagementPanel: React.FC = () => {
 
         setLoading(true);
         try {
-            console.log('🗑️ Cleaning legacy bots...');
-            await cleanupLegacyBots();
+            console.log('🗑️ Retiring old bots...');
+            await retireOldBots();
 
             console.log('🤖 Generating 3 Smart Bots...');
             await generateSmartBots();
@@ -106,16 +119,30 @@ export const BotManagementPanel: React.FC = () => {
         if (!silent) setLoading(false);
     };
 
-    const handleCleanup = async () => {
-        if (!confirm('Delete ALL bots? This removes them from Leaderboard, Users, and Bot collection.')) return;
+    const handleRetire = async () => {
+        if (!confirm('👴 Retire all ACTIVE bots? They will be removed from Leaderboard and moved to Hall of Fame.')) return;
         setLoading(true);
         try {
-            const count = await cleanupLegacyBots();
-            alert(`✅ Cleanup Complete! Deleted ${count} bots.`);
+            const count = await retireOldBots();
+            alert(`✅ Retired ${count} bots.`);
             await loadAnalytics();
             setBotList([]);
         } catch (error) {
-            alert('❌ Error cleaning up.');
+            alert('❌ Error retiring bots.');
+        }
+        setLoading(false);
+    };
+
+    const handleHardDelete = async () => {
+        if (!confirm('🔥 DANGER: This will PERMANENTLY DELETE all bots. Use only if system is broken.')) return;
+        setLoading(true);
+        try {
+            const count = await hardDeleteAllBots();
+            alert(`✅ Deleted ${count} bots.`);
+            await loadAnalytics();
+            setBotList([]);
+        } catch (error) {
+            alert('❌ Error deleting bots.');
         }
         setLoading(false);
     };
@@ -149,7 +176,7 @@ export const BotManagementPanel: React.FC = () => {
     return (
         <div style={styles.container}>
             <div style={styles.header}>
-                <h2 style={styles.title}>🤖 Smart Bot System (Phase 1)</h2>
+                <h2 style={styles.title}>🤖 ADMIN BOT CONTROL v2 (UPDATED)</h2>
                 <div style={styles.headerControls}>
                     {(simState.forceDay !== undefined || simState.forceRushHour) && (
                         <span style={styles.simBadge}>🕹️ Simulation Active</span>
@@ -178,7 +205,11 @@ export const BotManagementPanel: React.FC = () => {
                         </div>
                         <div style={styles.statBox}>
                             <div style={styles.statValue}>{analytics.bots}</div>
-                            <div style={styles.statLabel}>Bots (Target: 3)</div>
+                            <div style={styles.statLabel}>Active Bots</div>
+                        </div>
+                        <div style={styles.statBox}>
+                            <div style={{ ...styles.statValue, color: '#00bcd4' }}>{reservedCount}/5</div>
+                            <div style={styles.statLabel}>Reserved IDs</div>
                         </div>
                     </div>
                 </div>
@@ -222,11 +253,18 @@ export const BotManagementPanel: React.FC = () => {
                         {showBotList ? '👁️ Hide' : '👁️ View'} Bot List
                     </button>
                     <button
-                        onClick={handleCleanup}
+                        onClick={handleRetire}
+                        disabled={loading}
+                        style={{ ...styles.btn, backgroundColor: '#FF9800' }}
+                    >
+                        👴 Retire Old Bots (Persistent)
+                    </button>
+                    <button
+                        onClick={handleHardDelete}
                         disabled={loading}
                         style={{ ...styles.btn, backgroundColor: '#f44336' }}
                     >
-                        🗑️ Delete All Bots & Data
+                        🔥 Hard Reset (Delete All)
                     </button>
                 </div>
 

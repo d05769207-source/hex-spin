@@ -28,6 +28,12 @@ const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onClose }) => {
     setLoading(true);
     setError('');
     const provider = new GoogleAuthProvider();
+
+    // ✅ CRITICAL FIX: Force account selection screen to enable account switching
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
+
     try {
       await signInWithPopup(auth, provider);
       // User creation is now handled in App.tsx via UsernameModal
