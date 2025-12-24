@@ -133,8 +133,14 @@ const App: React.FC = () => {
   useDailyReset(user, setSpinsToday, setSuperModeSpinsLeft, setSuperModeEndTime);
 
   // --- AUTO BOT SYSTEM TRIGGER ---
+  // Only run bot simulation when user is authenticated
   useEffect(() => {
-    // Check immediately on load
+    // Don't run if user is not logged in
+    if (!user) {
+      return;
+    }
+
+    // Check immediately after login
     simulateSmartBotActivity();
 
     // Then check every 2 minutes
@@ -144,7 +150,7 @@ const App: React.FC = () => {
     }, 1 * 60 * 1000);
 
     return () => clearInterval(botInterval);
-  }, []);
+  }, [user]); // Re-run when user changes (login/logout)
 
 
 
@@ -309,7 +315,23 @@ const App: React.FC = () => {
             }, 1000);
           }
         } else {
-          // Signed in but no username -> Show Username Modal
+          // Signed in but no username (email signup) -> Show Username Modal
+          console.log('📧 Email signup detected - showing username modal...');
+
+          // Set user object even without displayName
+          setUser({
+            id: firebaseUser.uid,
+            uid: firebaseUser.uid,
+            username: '', // Will be set in UsernameModal
+            email: firebaseUser.email || undefined,
+            isGuest: false,
+            photoURL: firebaseUser.photoURL || undefined
+          });
+
+          // Enter game to exit AuthScreen
+          enterGame();
+
+          // Show username modal
           setShowUsernameModal(true);
         }
         setShowLoginModal(false);
@@ -898,8 +920,13 @@ const App: React.FC = () => {
 
   // --- AUTH HANDLERS ---
   const handleLoginSuccess = () => {
-    // Logic handled in useEffect via onAuthStateChanged
-    // If user has no username, useEffect will trigger UsernameModal
+    // Close the login modal
+    setShowLoginModal(false);
+
+    // Auth state listener will handle the rest:
+    // - If user has displayName: load data
+    // - If user has NO displayName (email signup): show UsernameModal
+    console.log('✅ Login successful, auth listener will handle next steps');
   };
 
   const handleUsernameSet = async (username: string, referralCode?: string) => {
