@@ -20,9 +20,8 @@ type Area = {
   height: number;
 };
 
-// Cloudinary configuration
-const CLOUDINARY_CLOUD_NAME = 'dbynnzumd';
-const CLOUDINARY_UPLOAD_PRESET = 'profile_photos';
+// Supabase Configuration
+import { supabase } from '../../supabaseClient';
 
 // File validation constants
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
@@ -75,7 +74,7 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [showCropModal, setShowCropModal] = useState(false);
 
-  const MAX_EXCHANGE = Math.floor(coins / 1000);
+  const MAX_EXCHANGE = Math.min(Math.floor(coins / 1000), 20); // Cap at 20 E-Tokens
 
 
 
@@ -271,30 +270,72 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
     }
   };
 
-  const uploadPhotoToCloudinary = async (file: File, userId: string): Promise<string> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-    formData.append('folder', `users/${userId}`);
 
+
+
+  // Supabase Storage Logic (Replacing Cloudinary)
+  const uploadPhotoToSupabase = async (file: File, userId: string): Promise<string> => {
     try {
-      const response = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      );
+      // 1. Delete old photo if exists in Supabase
+      // Check if current photo is from Supabase to avoid deleting external URLs (like Google/Dicebear)
+      if (user?.photoURL && user.photoURL.includes('supabase.co')) {
+        try {
+          // Extract path: "folder/filename.jpg" from URL
+          const urlObj = new URL(user.photoURL);
+          // Current URL structure: https://[project].supabase.co/storage/v1/object/public/[bucket]/[folder]/[file]
+          // We need just "[folder]/[file]" for deletion
+          const pathParts = urlObj.pathname.split('/public/profile-photos/');
 
-      if (!response.ok) {
-        throw new Error('Upload failed');
+          if (pathParts.length > 1) {
+            const oldFilePath = pathParts[1]; // Should clear encoded characters if any
+            const decodedPath = decodeURIComponent(oldFilePath);
+
+            console.log('🗑️ Attempting to delete old photo:', decodedPath);
+            const { error: deleteError } = await supabase.storage
+              .from('profile-photos')
+              .remove([decodedPath]);
+
+            if (deleteError) {
+              console.warn('⚠️ Could not delete old photo (might not exist):', deleteError.message);
+            } else {
+              console.log('✅ Old photo deleted successfully');
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ Error parsing old URL for deletion:', e);
+        }
       }
 
-      const data = await response.json();
-      return data.secure_url;
-    } catch (error) {
-      console.error('Upload error:', error);
-      throw error;
+      // 2. Upload new photo
+      // Use timestamp to force cache refresh on client side, even though we overwrite
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${userId}/profile_${Date.now()}.${fileExt}`;
+
+      // Note: We are using a new filename each time (timestamp) to ensure
+      // the browser fetches the new image immediately.
+      // Since we derived the delete path from the OLD URL above, 
+      // the previous file will be cleaned up before this new one is saved.
+
+      const { data, error } = await supabase.storage
+        .from('profile-photos')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false // We are using unique names now, so no need to overwrite
+        });
+
+      if (error) throw error;
+
+      // 3. Get Public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('profile-photos')
+        .getPublicUrl(fileName);
+
+      console.log('✅ New photo uploaded to Supabase:', publicUrl);
+      return publicUrl;
+
+    } catch (error: any) {
+      console.error('Supabase Upload Error:', error);
+      throw new Error(error.message || 'Supabase upload failed');
     }
   };
 
@@ -308,10 +349,10 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
     setUploadError('');
 
     try {
-      // Upload to Cloudinary
-      const photoURL = await uploadPhotoToCloudinary(selectedFile, user?.uid || user?.id || 'guest');
+      // Upload to Supabase Storage (auto-deletes old photo)
+      const photoURL = await uploadPhotoToSupabase(selectedFile, user?.uid || user?.id || 'guest');
 
-      console.log('Photo uploaded to Cloudinary:', photoURL);
+      console.log('Photo uploaded to Supabase:', photoURL);
       console.log('User object:', user);
 
       // Save to Firestore if user is logged in

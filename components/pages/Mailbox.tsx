@@ -268,7 +268,7 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMess
                                                 <div className="flex items-center gap-1.5 text-xs text-gray-400">
                                                     {message.sourceCoins && (
                                                         <>
-                                                            <span>{(message.sourceCoins / 1000).toFixed(0)}k Coins</span>
+                                                            <span>{Math.floor(message.sourceCoins / 1000)}k Coins</span>
                                                             <ArrowLeft size={10} className="text-gray-600 rotate-180" />
                                                         </>
                                                     )}

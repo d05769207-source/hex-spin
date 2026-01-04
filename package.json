@@ -13,6 +13,7 @@
     "@capacitor/cli": "^7.4.4",
     "@capacitor/core": "^7.4.4",
     "@gsap/react": "^2.1.2",
+    "@supabase/supabase-js": "^2.89.0",
     "@types/react-virtualized-auto-sizer": "^1.0.4",
     "@types/react-window": "^1.8.8",
     "firebase": "^12.6.0",

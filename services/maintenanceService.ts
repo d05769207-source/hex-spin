@@ -289,7 +289,7 @@ export const resetAllUsersData = async (
                 // Skip guest users
                 if (user.isGuest) return;
 
-                const eTokens = Math.floor((user.coins || 0) / 1000);
+                const eTokens = Math.min(Math.floor((user.coins || 0) / 1000), 20); // Cap at 20 E-Tokens
 
                 try {
                     await runTransaction(db, async (transaction) => {

@@ -50,9 +50,9 @@ export const useWeeklyReset = (
 
                 console.log("🔄 Detecting New Week! Performing Weekly Reset...");
 
-                // 1. Calculate Conversion using LIVE coins
+                // 1. Calculate Conversion using LIVE coins (MAX 20 E-TOKENS CAP)
                 const currentCoins = liveCoins; // Use the passed live state logic
-                const eTokensToEarn = Math.floor(currentCoins / 1000);
+                const eTokensToEarn = Math.min(Math.floor(currentCoins / 1000), 20); // Cap at 20 E-Tokens
 
                 try {
                     const userRef = doc(db, 'users', user.id);

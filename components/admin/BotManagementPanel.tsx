@@ -77,7 +77,7 @@ export const BotManagementPanel: React.FC = () => {
     };
 
     const handleGenerateSmartBots = async () => {
-        if (!confirm('🛠️ This will DELETE all old bots and create 3 NEW Smart Bots. Continue?')) return;
+        if (!confirm('🛠️ This will RETIRE all old bots and INITIALIZE 3 Smart Bots.\n\n⚠️ If bots exist for THIS WEEK:\n- UIDs will remain SAME\n- Coins will RESET to 0\n- Name, Avatar, Level will be NEW\n\nContinue?')) return;
 
         setLoading(true);
         try {
@@ -87,7 +87,7 @@ export const BotManagementPanel: React.FC = () => {
             console.log('🤖 Generating 3 Smart Bots...');
             await generateSmartBots();
 
-            alert('✅ Success! 3 Smart Bots Created & Synced to Users collection.');
+            alert('✅ Success! 3 Smart Bots Initialized.\n\n✔ Same Week = UIDs Preserved, Coins Reset\n✔ New Week = Fresh Bots Created');
             await loadAnalytics();
             if (showBotList) loadBotList();
 

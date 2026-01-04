@@ -10,17 +10,94 @@ const USER_COLLECTION = 'users';
 const LOCK_COLLECTION = 'system';
 const LOCK_DOC_ID = 'botLock';
 
-// CONFIG
-const NAME_POOL = [
-    'Aarav_Kings', 'Vivaan_Pro', 'Aditya_Gamer', 'Vihaan_Lucky', 'Arjun_Warrior',
-    'Sai_Spinner', 'Reyansh_07', 'Ayaan_Win', 'Krishna_Gold', 'Ishaan_Royal',
-    'Shaurya_X', 'Atharv_Hero', 'Rohan_Master', 'Dhruv_Player', 'Kabir_Boss',
-    'Rahul_Champ', 'Amit_Legend', 'Sneha_Queen', 'Priya_Star', 'Anjali_Rose',
-    'Riya_Diamond', 'Kavya_Ace', 'Sita_Luck', 'Gita_Win', 'Pooja_777'
+// CONFIG - Realistic Indian Names
+const MALE_NAMES = [
+    'Aarav', 'Vivaan', 'Aditya', 'Vihaan', 'Arjun', 'Sai', 'Reyansh', 'Ayaan', 'Krishna', 'Ishaan',
+    'Shaurya', 'Atharv', 'Rohan', 'Dhruv', 'Kabir', 'Rahul', 'Amit', 'Ravi', 'Karan', 'Yash',
+    'Dev', 'Om', 'Arnav', 'Harsh', 'Ved', 'Tej', 'Rudra', 'Advait', 'Aryan', 'Laksh',
+    'Veer', 'Shiv', 'Aakash', 'Ansh', 'Pranav', 'Ritesh', 'Sagar', 'Tushar', 'Varun', 'Akshay',
+    'Nikhil', 'Rajat', 'Sahil', 'Vishal', 'Ankur', 'Deepak', 'Gaurav', 'Mohit', 'Pankaj', 'Sumit',
+    // Bihar & Jharkhand specific names
+    'Manish', 'Santosh', 'Ajay', 'Manoj', 'Sunil', 'Ashok', 'Vinod', 'Dilip', 'Prakash', 'Shyam',
+    'Mukesh', 'Ramesh', 'Suresh', 'Rajesh', 'Dinesh', 'Chandan', 'Ranjan', 'Birendra', 'Nagendra', 'Awadhesh',
+    'Upendra', 'Jitendra', 'Surendra', 'Rupesh', 'Nitish', 'Lalu', 'Kundan', 'Raushan', 'Sudhir', 'Anil',
+    // West Bengal specific names
+    'Soumya', 'Sourav', 'Sanjay', 'Debashis', 'Abhijit', 'Debanjan', 'Subham', 'Ayan', 'Aritra', 'Soham',
+    'Prosenjit', 'Partha', 'Ratul', 'Supratim', 'Biswajit', 'Koushik', 'Tapas', 'Amitabha', 'Aniruddha', 'Kaushik',
+    'Samir', 'Sayan', 'Tarun', 'Tanmoy', 'Indranil', 'Dipankar', 'Siddhartha', 'Joydeep', 'Sujit', 'Somnath'
+];
+
+const FEMALE_NAMES = [
+    'Sneha', 'Priya', 'Anjali', 'Riya', 'Kavya', 'Sita', 'Gita', 'Pooja', 'Ananya', 'Diya',
+    'Ishita', 'Khushi', 'Navya', 'Tanvi', 'Anika', 'Kiara', 'Myra', 'Sara', 'Zara',
+    'Aditi', 'Divya', 'Isha', 'Kriti', 'Nisha', 'Radhika', 'Shreya', 'Tanya', 'Vidya', 'Meera',
+    'Simran', 'Neha', 'Swati', 'Jyoti', 'Sapna', 'Megha', 'Preeti', 'Ritu', 'Sonal', 'Komal',
+    // Bihar & Jharkhand specific names
+    'Rani', 'Rekha', 'Sunita', 'Anita', 'Sangeeta', 'Rita', 'Savita', 'Manju', 'Asha', 'Usha',
+    'Pushpa', 'Mamta', 'Kiran', 'Suman', 'Geeta', 'Poonam', 'Renu', 'Babita', 'Sushma', 'Vandana',
+    // West Bengal specific names
+    'Sohini', 'Shreya', 'Anuradha', 'Moumita', 'Payel', 'Rima', 'Soma', 'Debjani', 'Ankita', 'Ananya',
+    'Madhurima', 'Tithi', 'Ritika', 'Susmita', 'Payal', 'Tumpa', 'Dipti', 'Chandana', 'Sreya', 'Soumita',
+    'Barnali', 'Tanusree', 'Rupali', 'Shampa', 'Sutapa', 'Arpita', 'Sumana', 'Poulomi', 'Rina', 'Srabani'
+];
+
+const LAST_NAMES = [
+    'Sharma', 'Verma', 'Singh', 'Kumar', 'Patel', 'Gupta', 'Reddy', 'Rao', 'Iyer', 'Nair',
+    'Chopra', 'Kapoor', 'Malhotra', 'Khanna', 'Bhatia', 'Sethi', 'Arora', 'Mehta', 'Shah', 'Desai',
+    'Joshi', 'Kulkarni', 'Patil', 'Jain', 'Agarwal', 'Bansal', 'Goel', 'Mittal', 'Singhal', 'Goyal',
+    'Srivastava', 'Dubey', 'Pandey', 'Mishra', 'Tiwari', 'Chaturvedi', 'Saxena', 'Shukla', 'Yadav', 'Chauhan',
+    'Rajput', 'Thakur', 'Rathore', 'Bisht', 'Rawat', 'Bhatt', 'Negi', 'Garg', 'Aggarwal', 'Wadhwa',
+    'Kohli', 'Suri', 'Anand', 'Bajaj', 'Bose', 'Das', 'Dutta', 'Ghosh', 'Mukherjee', 'Sen',
+    'Pillai', 'Menon', 'Krishnan', 'Naidu', 'Raju', 'Varma', 'Murthy', 'Rao', 'Reddy', 'Gowda',
+    // Bihar & Jharkhand specific surnames
+    'Prasad', 'Rai', 'Singh', 'Mahto', 'Sahu', 'Mandal', 'Sinha', 'Jha', 'Thakur', 'Mukhiya',
+    'Paswan', 'Ram', 'Chaudhary', 'Sahani', 'Kisku', 'Murmu', 'Soren', 'Hembrom', 'Hansda', 'Marandi',
+    'Tudu', 'Besra', 'Munda', 'Oraon', 'Kerketta', 'Tirkey', 'Topno', 'Lakra', 'Kujur', 'Minz',
+    // West Bengal specific surnames
+    'Banerjee', 'Chatterjee', 'Mukherjee', 'Ganguly', 'Chakraborty', 'Bhattacharya', 'Roy', 'Sengupta', 'Biswas', 'Sarkar',
+    'Basu', 'Dey', 'Paul', 'Chowdhury', 'Majumdar', 'Dasgupta', 'Mitra', 'Saha', 'Kundu', 'Mondal',
+    'Pal', 'Halder', 'Nandi', 'Bhowmik', 'Sanyal', 'Dutta', 'Guha', 'Nath', 'Khan', 'Ahmed'
 ];
 
 const AVATAR_SEEDS = [
-    'Felix', 'Aneka', 'Zack', 'Ryker', 'Jude', 'Brooklynn', 'Cream', 'Snowball', 'Trouble', 'Mistypoo'
+    'Felix', 'Aneka', 'Zack', 'Ryker', 'Jude', 'Brooklynn', 'Cream', 'Snowball', 'Trouble', 'Mistypoo',
+    'Milo', 'Luna', 'Oliver', 'Bella', 'Leo', 'Lucy', 'Max', 'Daisy', 'Charlie', 'Zoe',
+    'Jack', 'Sophie', 'Oscar', 'Lily', 'Toby', 'Chloe', 'Rocky', 'Ruby', 'Bailey', 'Molly'
+];
+
+// Gaming Usernames (Free Fire, PUBG, Online Games Style)
+const GAMING_USERNAMES = [
+    // Classic gaming names
+    'Assassin', 'Phantom', 'Shadow', 'Ghost', 'Reaper', 'Ninja', 'Sniper', 'Hunter', 'Warrior', 'Legend',
+    'Destroyer', 'Killer', 'Slayer', 'Beast', 'Monster', 'Demon', 'Viper', 'Dragon', 'Tiger', 'Wolf',
+    'Predator', 'Savage', 'Immortal', 'Invincible', 'Unstoppable', 'Thunder', 'Lightning', 'Storm', 'Blaze', 'Inferno',
+    // Indian gaming culture names
+    'BadMash', 'Daku', 'Raja', 'Baadshah', 'Sultan', 'Champion', 'Hero', 'Sher', 'Gabbar', 'Thakur',
+    'Nawab', 'Sarkar', 'Boss', 'King', 'Emperor', 'Master', 'Guru', 'Maestro', 'Ace', 'Pro',
+    // Stylish with X prefix/suffix
+    'xXSniperXx', 'xXKillerXx', 'xXPhantomXx', 'xXGhostXx', 'xXLegendXx', 'xXBeastXx', 'xXDemonXx', 'xXDragonXx',
+    // With Pro/Noob suffix
+    'ProGamer', 'ProPlayer', 'ProKiller', 'ProSniper', 'NoobMaster', 'EliteGamer', 'MasterChief', 'CaptainCool',
+    // Numbers style (will be combined with names)
+    'Legend47', 'Killer69', 'Sniper007', 'Ghost420', 'Beast99', 'King786', 'Ace143', 'Pro101',
+    // Underscored style
+    'Pro_Gamer', 'Beast_Mode', 'God_Mode', 'Kill_Shot', 'Head_Hunter', 'Silent_Killer', 'Death_Angel', 'Dark_Lord',
+    // Cool single words
+    'Venom', 'Joker', 'Psycho', 'Mad', 'Evil', 'Death', 'Skull', 'Blood', 'Fire', 'Ice',
+    'Titan', 'Zeus', 'Thor', 'Loki', 'Hulk', 'Stark', 'Fury', 'Viper', 'Cobra', 'Falcon',
+    // Indian slang gaming names
+    'GundaGiri', 'Tapori', 'Desi_Gamer', 'Hindustani', 'Jawan', 'Fauji', 'Commando', 'Soldier', 'Sipahi', 'Yodha',
+    // Chhapri Style Names (Attitude + Royal + Broken Heart)
+    'Attitude_Boy', 'Attitude_King', 'Royal_King', 'Single_Boy', 'Broken_Heart', 'Lonely_Boy', 'Sad_Boy', 'Alone_Boy',
+    'Desi_Boy', 'Desi_King', 'Indian_Boy', 'Hindustani_Boy', 'Bindaas_Boy', 'Mast_Boy', 'Pagal_Boy', 'Deewana',
+    'Royal_Entry', 'Royal_Boy', 'Royal_Rider', 'Royal_Nawab', 'Royal_Sarkar', 'Prince_Boy', 'Royal_Prince', 'Shehzada',
+    'Heart_Breaker', 'Heart_Hacker', 'Love_Killer', 'Love_Guru', 'King_Of_Hearts', 'Pyaar_Ka_Pujari', 'Ishq_Wala',
+    'Badtameez', 'Badmash_Boy', 'Shaitan', 'Lafanga', 'Kamina', 'Harami', 'Gunda_Raj', 'Rowdy_Boy', 'Roadside_Romeo',
+    'Stylish_Boy', 'Stylish_Star', 'Attitude_Star', 'Swag_Boy', 'Swag_King', 'Chill_Boy', 'Cool_Dude', 'Smart_Boy',
+    'Mr_Perfect', 'Mr_Handsome', 'Mr_Cool', 'Mr_Attitude', 'Mr_Bindaas', 'Mr_Dangerous', 'Mr_Devil', 'Mr_Killer',
+    'Born_To_Win', 'Born_To_Rule', 'Killer_Smile', 'Devil_Eyes', 'Innocent_Face', 'Cute_Boy', 'Handsome_Hunk',
+    'Emotional_Boy', 'Silent_Lover', 'True_Lover', 'One_Side_Lover', 'Bewafa', 'Dhoka_Diya', 'Dard_Bhari', 'Judaai',
+    'Mastikhor', 'Haryanvi_Jaat', 'UP_Wala', 'Bihar_Ka_Launda', 'Dehati_Boy', 'Gaon_Ka_Chhora', 'Desi_Gabru'
 ];
 
 // --- PERSISTENT SIMULATION STATE ---
@@ -49,6 +126,100 @@ export const setSimulationState = (day?: number, rush?: boolean) => {
         localStorage.removeItem(SIM_RUSH_KEY);
     }
     console.log(`🕹️ Simulation State Updated: Day=${day}, Rush=${rush}`);
+};
+
+// --- HELPER: GENERATE REALISTIC BOT NAME ---
+/**
+ * Generates a realistic Indian username with variations
+ * Formats: "FirstLast", "First.Last", "first_last99", "LastFirst47", or Gaming usernames
+ * @param preferredFormat - Preferred format style (0-6), or undefined for random
+ * @param gender - 'male' or 'female', determines which name pool to use
+ */
+const generateRealisticBotName = async (preferredFormat?: number, gender: 'male' | 'female' = 'male'): Promise<string> => {
+    const maxAttempts = 20;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        let username = '';
+
+        // 25% chance to generate a gaming username (Free Fire/PUBG style)
+        const useGamingName = Math.random() < 0.25;
+
+        if (useGamingName) {
+            // Pick a random gaming username
+            const gamingName = GAMING_USERNAMES[Math.floor(Math.random() * GAMING_USERNAMES.length)];
+
+            // 40% chance to add numbers/modifiers to gaming name
+            if (Math.random() < 0.4) {
+                const modifier = Math.floor(Math.random() * 100);
+                username = `${gamingName}${modifier}`;
+            } else {
+                username = gamingName;
+            }
+        } else {
+            // Pick random name from gender-specific array
+            const nameArray = gender === 'male' ? MALE_NAMES : FEMALE_NAMES;
+            const firstName = nameArray[Math.floor(Math.random() * nameArray.length)];
+            const lastName = LAST_NAMES[Math.floor(Math.random() * LAST_NAMES.length)];
+
+            // Use preferred format if provided, otherwise random (0-6)
+            const formatStyle = preferredFormat !== undefined ? preferredFormat : Math.floor(Math.random() * 7);
+
+            switch (formatStyle) {
+                case 0:
+                    // "RohanSharma"
+                    username = `${firstName}${lastName}`;
+                    break;
+                case 1:
+                    // "Rohan.Sharma"
+                    username = `${firstName}.${lastName}`;
+                    break;
+                case 2:
+                    // "rohan_sharma"
+                    username = `${firstName.toLowerCase()}_${lastName.toLowerCase()}`;
+                    break;
+                case 3:
+                    // "rohan.sharma23"
+                    const num1 = Math.floor(Math.random() * 100);
+                    username = `${firstName.toLowerCase()}.${lastName.toLowerCase()}${num1}`;
+                    break;
+                case 4:
+                    // "RohanS47"
+                    const num2 = Math.floor(Math.random() * 100);
+                    username = `${firstName}${lastName.charAt(0)}${num2}`;
+                    break;
+                case 5:
+                    // "sharma.rohan"
+                    username = `${lastName.toLowerCase()}.${firstName.toLowerCase()}`;
+                    break;
+                case 6:
+                    // "SharmaRohan99"
+                    const num3 = Math.floor(Math.random() * 100);
+                    username = `${lastName}${firstName}${num3}`;
+                    break;
+            }
+        }
+
+        // Check if username already exists in users collection
+        try {
+            const usersRef = collection(db, USER_COLLECTION);
+            const q = query(usersRef, where('username', '==', username));
+            const snapshot = await getDocs(q);
+
+            if (snapshot.empty) {
+                // Username is unique!
+                return username;
+            }
+            // If exists, loop will try again with different name
+        } catch (error) {
+            console.warn('Error checking username uniqueness:', error);
+            // On error, just return it (unlikely collision)
+            return username;
+        }
+    }
+
+    // Fallback: If all attempts fail, add timestamp
+    const fallback = `User${Date.now().toString().slice(-6)}`;
+    return fallback;
 };
 
 // --- HELPER: GET SCORE FOR TARGET RANK ---
@@ -180,9 +351,10 @@ export const retireOldBots = async () => {
 
 /**
  * Generate 3 Smart Bots for the week
- */
-/**
- * Generate 3 Smart Bots for the week
+ * If bots already exist for this week, they will be RE-INITIALIZED:
+ * - Same UID is kept
+ * - Coins reset to 0
+ * - New random name, avatar, level, etc.
  */
 export const generateSmartBots = async () => {
     try {
@@ -193,12 +365,14 @@ export const generateSmartBots = async () => {
         const q = query(botsRef, where('weekId', '==', weekId));
         const snapshot = await getDocs(q);
 
-        if (!snapshot.empty && snapshot.size >= TOTAL_BOTS) {
-            console.log('🤖 Smart Bots already exist for this week.');
-            return;
-        }
+        const existingBots = snapshot.docs.map(doc => doc.id);
+        const isReinitializing = existingBots.length > 0;
 
-        console.log('🤖 Generating 3 New Smart Bots...');
+        if (isReinitializing) {
+            console.log('🔄 Bots already exist for this week. RE-INITIALIZING with same UIDs...');
+        } else {
+            console.log('🤖 Generating 3 New Smart Bots...');
+        }
 
         // 1. Get Reserved IDs (Smart Pool)
         const reservedRef = doc(db, 'system', 'reserved_bot_ids');
@@ -210,15 +384,38 @@ export const generateSmartBots = async () => {
 
         const batch = writeBatch(db);
 
-        // Shuffle Arrays to get random identity
-        const shuffledNames = [...NAME_POOL].sort(() => 0.5 - Math.random());
+        // Shuffle Avatars to get random identity
         const shuffledAvatars = [...AVATAR_SEEDS].sort(() => 0.5 - Math.random());
 
         // Track used IDs to remove them from pool later
         let usedReservedCount = 0;
 
+        // Assign DIFFERENT formats to each bot to avoid pattern detection
+        // Bot 0: formats 0-1, Bot 1: formats 2-3, Bot 2: formats 4-6
+        const formatRanges = [
+            [0, 1],     // Bot 0: "RohanSharma" or "Rohan.Sharma"
+            [2, 3],     // Bot 1: "rohan_sharma" or "rohan.sharma23"
+            [4, 5, 6]   // Bot 2: "RohanS47", "sharma.rohan", "SharmaRohan99"
+        ];
+
         for (let i = 0; i < TOTAL_BOTS; i++) {
-            const name = shuffledNames[i] || `Player_${Math.floor(Math.random() * 1000)}`;
+            // Pick a random format from this bot's assigned range
+            const availableFormats = formatRanges[i];
+            const formatIndex = availableFormats[Math.floor(Math.random() * availableFormats.length)];
+
+            // Assign gender for diversity: Mostly male (80%), few female (20%) as girls play less
+            // Bot 0 & Bot 2 = male (always), Bot 1 = 80% chance male, 20% female
+            let gender: 'male' | 'female' = 'male';
+            if (i === 0 || i === 2) {
+                // Bot 0 and Bot 2: Always male
+                gender = 'male';
+            } else if (i === 1) {
+                // Bot 1: 80% male, 20% female (realistic gaming distribution)
+                gender = Math.random() > 0.8 ? 'female' : 'male';
+            }
+
+            // Generate unique realistic name with specific format and gender
+            const name = await generateRealisticBotName(formatIndex, gender);
             const avatarSeed = shuffledAvatars[i] || 'default';
             const photoURL = `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
 
@@ -242,9 +439,23 @@ export const generateSmartBots = async () => {
 
             const botUid = `bot_${weekId}_${i}`;
 
-            // SMART ID LOGIC
+            // SMART ID LOGIC - If re-initializing, preserve existing displayId
             let displayId = 900000 + i; // Default fallback
-            if (reservedIds.length > 0) {
+
+            if (isReinitializing) {
+                // Try to get existing displayId from users collection
+                try {
+                    const existingUserRef = doc(db, USER_COLLECTION, botUid);
+                    const existingUserSnap = await getDoc(existingUserRef);
+                    if (existingUserSnap.exists()) {
+                        displayId = existingUserSnap.data().displayId || displayId;
+                        console.log(`♻️ Preserving displayId ${displayId} for bot ${botUid}`);
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch existing displayId, using new one');
+                }
+            } else if (reservedIds.length > 0) {
+                // Only consume reserved IDs for NEW bots
                 const realId = reservedIds.shift(); // Remove from local array
                 if (realId) {
                     displayId = realId;
@@ -264,10 +475,10 @@ export const generateSmartBots = async () => {
                 email: `${name.toLowerCase()}@nomail.com`,
                 level: level,
                 totalSpins: totalSpins,
-                coins: 0,
-                weeklyCoins: 0,
+                coins: 0, // RESET to 0
+                weeklyCoins: 0, // RESET to 0
                 isBot: true,
-                botTier: rankType, // FIXED: Using botTier enum
+                botTier: rankType,
                 weekId: weekId,
                 createdAt: Timestamp.fromDate(joinDate),
                 lastActive: Timestamp.now(),
@@ -277,36 +488,41 @@ export const generateSmartBots = async () => {
             };
 
             const botRef = doc(db, BOT_COLLECTION, botUid);
-            batch.set(botRef, botData);
+            batch.set(botRef, botData); // Overwrites existing doc
 
             const userRef = doc(db, USER_COLLECTION, botUid);
             batch.set(userRef, {
                 ...botData,
-                displayId: displayId, // USE SMART ID
+                displayId: displayId, // PRESERVE or USE SMART ID
                 referralCode: `HEX${displayId}` // USE SMART ID CODE
-            });
+            }); // Overwrites existing doc
 
             const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botUid}_${weekId}`);
             batch.set(leaderboardRef, {
                 userId: botUid,
                 username: name,
-                coins: 0,
+                coins: 0, // RESET to 0
                 photoURL: photoURL,
                 totalSpins: totalSpins,
                 level: level,
                 weekId,
                 lastUpdated: Timestamp.now()
-            });
+            }); // Overwrites existing doc
         }
 
-        // UPDATE RESERVED POOL
+        // UPDATE RESERVED POOL (only if we consumed new IDs)
         if (usedReservedCount > 0) {
             batch.set(reservedRef, { ids: reservedIds }, { merge: true });
             console.log(`🔒 Consumed ${usedReservedCount} IDs from pool. Remaining: ${reservedIds.length}`);
         }
 
         await batch.commit();
-        console.log('✅ Generated 3 Smart Bots successfully!');
+
+        if (isReinitializing) {
+            console.log('✅ RE-INITIALIZED 3 Smart Bots! (Same UIDs, Fresh Data, Coins = 0)');
+        } else {
+            console.log('✅ Generated 3 Smart Bots successfully!');
+        }
 
     } catch (error) {
         console.error('❌ Error generating smart bots:', error);
@@ -337,8 +553,8 @@ const getRandomBetween = (min: number, max: number, step: number = 50) => {
 
 const getCatchUpReward = () => {
     // Return random BIG rewards between 1200 and 3500 to look natural
-    // e.g. 1250, 1800, 2350, 3100
-    return getRandomBetween(1200, 3500, 50);
+    // e.g. 1234, 1891, 2567, 3102 (koi bhi number!)
+    return getRandomBetween(1200, 3500, 1);
 };
 
 /**
@@ -373,14 +589,14 @@ const getTopRealUserScore = async (weekId: string): Promise<number> => {
 
 const getMediumReward = () => {
     // Return medium rewards to maintain pace (450 - 1100)
-    // e.g. 450, 700, 950
-    return getRandomBetween(450, 1100, 50);
+    // e.g. 487, 763, 1024 (koi bhi number!)
+    return getRandomBetween(450, 1100, 1);
 };
 
 const getSmallRandomReward = () => {
     // Return small rewards for natural look (50 - 150)
-    // e.g. 50, 60, ... 150
-    return getRandomBetween(50, 150, 10);
+    // e.g. 57, 89, 123, 142 (koi bhi number!)
+    return getRandomBetween(50, 150, 1);
 };
 
 /**
@@ -475,13 +691,17 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                 ? forceDay
                 : (overrides.forceDay !== undefined ? overrides.forceDay : now.getDay());
 
-            // Determine Rush Hour
+            // Determine Rush Hour & Super Aggressive Mode
             const timeRemainingMs = getTimeRemaining();
             const hoursRemaining = timeRemainingMs / (1000 * 60 * 60);
+            const minutesRemaining = timeRemainingMs / (1000 * 60);
 
             const isRushHour = forceRushHour !== undefined
                 ? forceRushHour
                 : (overrides.forceRushHour || (effectiveDay === 0 && hoursRemaining <= 5));
+
+            // SUPER AGGRESSIVE MODE: Last 15 minutes before reset
+            const isSuperAggressive = effectiveDay === 0 && minutesRemaining <= 15;
 
             // console.log(`🕹️ Bot Loop Tick: Day=${effectiveDay}, Rush=${isRushHour}`);
 
@@ -527,13 +747,29 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                     const deficit = myTarget - bot.coins;
                     let reward = 0;
 
-                    // TIERED REWARDS Logic
-                    if (deficit > 5000) {
-                        reward = getCatchUpReward();
-                    } else if (deficit > 1000) {
-                        reward = getMediumReward();
+                    // SUPER AGGRESSIVE MODE (Last 15 Minutes)
+                    if (isSuperAggressive) {
+                        // 3x-5x faster catch up with realistic randomization
+                        if (deficit > 5000) {
+                            // Big deficit: 5k-12k per update (koi bhi number!)
+                            reward = getRandomBetween(5000, 12000, 1);
+                        } else if (deficit > 1000) {
+                            // Medium deficit: 2k-5k per update
+                            reward = getRandomBetween(2000, 5000, 1);
+                        } else {
+                            // Small deficit: 800-2k per update
+                            reward = getRandomBetween(800, 2000, 1);
+                        }
+                        // console.log(`🔥 SUPER AGGRESSIVE: Bot ${bot.username} catching up with ${reward} coins`);
                     } else {
-                        reward = getSmallRandomReward();
+                        // NORMAL TIERED REWARDS Logic
+                        if (deficit > 5000) {
+                            reward = getCatchUpReward();
+                        } else if (deficit > 1000) {
+                            reward = getMediumReward();
+                        } else {
+                            reward = getSmallRandomReward();
+                        }
                     }
 
                     await updateSingleBot(bot, reward, weekId);
