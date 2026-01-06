@@ -11,15 +11,18 @@ import {
     clearDemoLeaderboard
 } from '../../services/smartBotService';
 import { getLeaderboardAnalytics, syncUserToLeaderboard } from '../../services/leaderboardService';
+import { getCurrentWeekId } from '../../utils/weekUtils';
 import { auth, db } from '../../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 
 export const BotManagementPanel: React.FC = () => {
     // Config state is removed as we hardcoded 3 bots for now.
     // const [config, setConfig] = useState<BotSystemConfig | null>(null);
     const [loading, setLoading] = useState(false);
     const [analytics, setAnalytics] = useState<any>(null);
-    const [reservedCount, setReservedCount] = useState<number>(0); // NEW
+    const [reservedCount, setReservedCount] = useState<number>(0);
+    const [levelConfig, setLevelConfig] = useState<any>(null); // NEW: Level config
+    const [levelPools, setLevelPools] = useState<any>(null); // NEW: Level pools
     const [botList, setBotList] = useState<any[]>([]);
     const [showBotList, setShowBotList] = useState(false);
 
@@ -35,8 +38,40 @@ export const BotManagementPanel: React.FC = () => {
         const savedState = getSimulationState();
         setSimState(savedState);
 
+        // REAL-TIME LISTENERS for Reserved IDs System
+        const reservedRef = doc(db, 'system', 'reserved_bot_ids');
+        const configRef = doc(db, 'system', 'reserved_ids_config');
+
+        const unsubReserved = onSnapshot(reservedRef, (doc) => {
+            if (doc.exists()) {
+                const data = doc.data();
+                setReservedCount(data.ids?.length || 0);
+                setLevelPools(data.levelPools || {});
+            }
+        });
+
+        const unsubConfig = onSnapshot(configRef, (doc) => {
+            if (doc.exists()) {
+                setLevelConfig(doc.data());
+            } else {
+                // Fallback config if not initialized
+                setLevelConfig({
+                    currentLevel: 1,
+                    levels: {
+                        1: { maxIds: 6, gapSize: 2, filled: 0 },
+                        2: { maxIds: 10, gapSize: 5, filled: 0 },
+                        3: { maxIds: 20, gapSize: 10, filled: 0 },
+                        4: { maxIds: 50, gapSize: 20, filled: 0 },
+                        5: { maxIds: 100, gapSize: 50, filled: 0 }
+                    }
+                });
+            }
+        });
+
         return () => {
             if (autoRunInterval.current) clearInterval(autoRunInterval.current);
+            unsubReserved();
+            unsubConfig();
         };
     }, []);
 
@@ -58,17 +93,7 @@ export const BotManagementPanel: React.FC = () => {
     const loadAnalytics = async () => {
         const stats = await getLeaderboardAnalytics();
         setAnalytics(stats);
-
-        // Fetch Reserved IDs Count
-        try {
-            const reservedRef = doc(db, 'system', 'reserved_bot_ids');
-            const snap = await getDoc(reservedRef);
-            if (snap.exists()) {
-                setReservedCount(snap.data().ids?.length || 0);
-            }
-        } catch (e) {
-            console.error('Error fetching reserved IDs', e);
-        }
+        // Note: Reserved IDs are now handled by real-time listeners above
     };
 
     const loadBotList = async () => {
@@ -176,7 +201,10 @@ export const BotManagementPanel: React.FC = () => {
     return (
         <div style={styles.container}>
             <div style={styles.header}>
-                <h2 style={styles.title}>🤖 ADMIN BOT CONTROL v2 (UPDATED)</h2>
+                <h2 style={styles.title}>🤖 ADMIN BOT CONTROL v2</h2>
+                <span style={{ fontSize: '14px', color: '#aaa', marginLeft: '10px' }}>
+                    (Week: {getCurrentWeekId()})
+                </span>
                 <div style={styles.headerControls}>
                     {(simState.forceDay !== undefined || simState.forceRushHour) && (
                         <span style={styles.simBadge}>🕹️ Simulation Active</span>
@@ -208,10 +236,71 @@ export const BotManagementPanel: React.FC = () => {
                             <div style={styles.statLabel}>Active Bots</div>
                         </div>
                         <div style={styles.statBox}>
-                            <div style={{ ...styles.statValue, color: '#00bcd4' }}>{reservedCount}/5</div>
-                            <div style={styles.statLabel}>Reserved IDs</div>
+                            <div style={{ ...styles.statValue, color: '#00bcd4' }}>Level {levelConfig?.currentLevel || 1}</div>
+                            <div style={styles.statLabel}>Current Level</div>
+                        </div>
+                        <div style={styles.statBox}>
+                            <div style={{ ...styles.statValue, color: '#4CAF50' }}>
+                                {reservedCount}/{levelConfig?.levels?.[levelConfig?.currentLevel || 1]?.maxIds || 6}
+                            </div>
+                            <div style={styles.statLabel}>Reserved IDs Pool</div>
                         </div>
                     </div>
+
+                    {/* Level Progress Bar */}
+                    {levelConfig && (
+                        <div style={{ marginTop: '20px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', padding: '15px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#00bcd4' }}>
+                                    Level {levelConfig.currentLevel} Progress
+                                </span>
+                                <span style={{ fontSize: '12px', color: '#aaa' }}>
+                                    {reservedCount}/{levelConfig.levels[levelConfig.currentLevel].maxIds} IDs
+                                </span>
+                            </div>
+                            <div style={{ width: '100%', height: '10px', background: '#222', borderRadius: '5px', overflow: 'hidden' }}>
+                                <div style={{
+                                    width: `${(reservedCount / levelConfig.levels[levelConfig.currentLevel].maxIds) * 100}%`,
+                                    height: '100%',
+                                    background: 'linear-gradient(90deg, #00bcd4, #4CAF50)',
+                                    transition: 'width 0.3s ease',
+                                    borderRadius: '5px'
+                                }} />
+                            </div>
+
+                            {/* Level Breakdown */}
+                            <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #444' }}>
+                                <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '10px', color: '#aaa' }}>Level Breakdown:</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+                                    {[1, 2, 3, 4, 5].map(level => {
+                                        const poolSize = levelPools?.[level]?.length || 0;
+                                        const maxIds = levelConfig.levels[level].maxIds;
+                                        const isCurrent = level === levelConfig.currentLevel;
+                                        const isUnlocked = level <= levelConfig.currentLevel;
+
+                                        return (
+                                            <div key={level} style={{
+                                                background: isCurrent ? 'rgba(0, 188, 212, 0.2)' : 'rgba(255,255,255,0.05)',
+                                                border: isCurrent ? '2px solid #00bcd4' : '1px solid #444',
+                                                borderRadius: '8px',
+                                                padding: '8px',
+                                                textAlign: 'center',
+                                                opacity: isUnlocked ? 1 : 0.5
+                                            }}>
+                                                <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '4px' }}>L{level}</div>
+                                                <div style={{ fontSize: '13px', fontWeight: 'bold', color: isUnlocked ? '#4CAF50' : '#666' }}>
+                                                    {poolSize}/{maxIds}
+                                                </div>
+                                                <div style={{ fontSize: '9px', color: '#888', marginTop: '2px' }}>
+                                                    Gap: {levelConfig.levels[level].gapSize}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

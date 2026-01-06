@@ -86,7 +86,8 @@ export enum BotTier {
 
   // NEW SMART TIERS
   SMART_LEADER = 'SMART_LEADER', // Bots that chase top ranks
-  SMART_LOTTERY = 'SMART_LOTTERY' // Bot rigged to win lottery
+  SMART_LOTTERY = 'SMART_LOTTERY', // Bot rigged to win lottery (iPhone)
+  SMART_LOTTERY_KTM = 'SMART_LOTTERY_KTM' // Bot rigged to win lottery (KTM)
 }
 
 export interface BotConfig {

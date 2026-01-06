@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Users,
     Activity,
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { auth, db } from '../../firebase';
 import { doc, updateDoc, Timestamp, collection, getDocs, orderBy, query, limit, onSnapshot } from 'firebase/firestore';
-import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate, getCurrentTime } from '../../utils/weekUtils';
+import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate, getCurrentTime, getCurrentWeekId } from '../../utils/weekUtils';
 import {
     startMaintenanceMode,
     endMaintenanceMode,
@@ -153,6 +153,60 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
         });
         return () => unsubscribe();
     }, []);
+
+    // 🤖 AUTO-PILOT: Handle Weekly Reset Automation
+    const autoPilotFailedRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (!gameStatus) return;
+
+        const checkAutoPilot = async () => {
+            const currentWeekId = getCurrentWeekId();
+
+            // Check if we need to run a reset for this week
+            // (i.e. Week has changed, but we haven't recorded a batch reset for it yet)
+            // Safety: Don't retry if we already failed for THIS week (prevents infinite loops)
+            if (
+                gameStatus.lastBatchResetWeekId !== currentWeekId &&
+                !isResetting &&
+                autoPilotFailedRef.current !== currentWeekId
+            ) {
+                console.log(`🤖 AUTO-PILOT: New Week Detect (${currentWeekId}). Maintenance Required.`);
+
+                // Step 1: Start Maintenance if not active
+                if (!gameStatus.maintenanceMode && !gameStatus.warningActive) {
+                    console.log("🤖 AUTO-PILOT: Activating Maintenance Mode...");
+                    await startMaintenanceMode();
+                    return;
+                }
+
+                // Step 2: Once Maintenance is Fully Active (Warning Done), Run Reset
+                if (gameStatus.maintenanceMode && !gameStatus.warningActive) {
+                    console.log("🤖 AUTO-PILOT: Maintenance Active. Starting Safe Batch Reset...");
+
+                    setIsResetting(true);
+                    try {
+                        await resetAllUsersData((current, total) => {
+                            setResetProgress({ current, total });
+                        });
+                        console.log("🤖 AUTO-PILOT: Reset Function Completed.");
+                        // Note: resetAllUsersData updates lastBatchResetWeekId internally,
+                        // so this loop will stop naturally on next check.
+                    } catch (error) {
+                        console.error("🤖 AUTO-PILOT ERROR - Stopping Retries:", error);
+                        // Mark this week as FAILED so we don't loop infinitely
+                        autoPilotFailedRef.current = currentWeekId;
+                        alert("⚠️ Auto-Reset Failed. Check Console. Loop Stopped.");
+                    } finally {
+                        setIsResetting(false);
+                    }
+                }
+            }
+        };
+
+        const interval = setInterval(checkAutoPilot, 5000); // Check every 5s
+        return () => clearInterval(interval);
+    }, [gameStatus, isResetting]);
 
     const handleBroadcast = (e: React.FormEvent) => {
         e.preventDefault();
@@ -528,121 +582,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                 </button>
                             </div>
 
-                            {/* Step 2: Process Data */}
+                            {/* Step 2: Safe User Reset */}
                             <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
                                 <div className="flex items-center gap-2 mb-4">
-                                    <div className="w-8 h-8 rounded-full bg-yellow-600 text-white flex items-center justify-center font-bold">2</div>
-                                    <h3 className="text-lg font-bold text-white">Process Weekly Data</h3>
+                                    <div className="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold">2</div>
+                                    <h3 className="text-lg font-bold text-white">Reset Weekly Data (Safe Mode)</h3>
                                 </div>
+                                <p className="text-sm text-gray-400 mb-6">
+                                    Resets coins to 0 and converts to E-Tokens for all offline users. Auto-skips online users.
+                                </p>
 
-                                {/* View Winners */}
-                                <div className="mb-6 space-y-4">
-                                    <button
-                                        onClick={async () => {
-                                            setIsLoadingWinners(true);
-                                            const topWinners = await getTopWinners(100);
-                                            setWinners(topWinners);
-                                            setIsLoadingWinners(false);
-                                        }}
-                                        disabled={!gameStatus?.maintenanceMode || isLoadingWinners}
-                                        className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <Trophy size={20} />
-                                        {isLoadingWinners ? 'Loading...' : `📊 VIEW TOP 100 WINNERS`}
-                                    </button>
-
-                                    {winners.length > 0 && (
-                                        <div className="bg-black/50 rounded-lg p-4 max-h-96 overflow-y-auto">
-                                            <div className="flex justify-between items-center mb-4">
-                                                <h4 className="font-bold text-white">Top {winners.length} Winners</h4>
-                                                <button className="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded flex items-center gap-1">
-                                                    <Download size={14} /> Export CSV
-                                                </button>
-                                            </div>
-                                            <table className="w-full text-sm">
-                                                <thead className="text-gray-400 text-xs uppercase">
-                                                    <tr className="border-b border-gray-800">
-                                                        <th className="text-left py-2">Rank</th>
-                                                        <th className="text-left py-2">Username</th>
-                                                        <th className="text-right py-2">Coins</th>
-                                                        <th className="text-right py-2">Reward (₹)</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="text-white">
-                                                    {winners.slice(0, 100).map((winner) => (
-                                                        <tr key={winner.userId} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                                                            <td className="py-2">
-                                                                <span className={`font-bold ${winner.rank === 1 ? 'text-yellow-400' :
-                                                                    winner.rank === 2 ? 'text-gray-400' :
-                                                                        winner.rank === 3 ? 'text-orange-400' :
-                                                                            'text-gray-500'
-                                                                    }`}>
-                                                                    #{winner.rank}
-                                                                </span>
-                                                            </td>
-                                                            <td className="py-2">{winner.username}</td>
-                                                            <td className="py-2 text-right font-mono text-yellow-400">{winner.coins}</td>
-                                                            <td className="py-2 text-right font-mono text-green-400">₹{winner.rewardAmount.toLocaleString()}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Distribute Rewards */}
-                                <div className="mb-6">
-                                    <button
-                                        onClick={async () => {
-                                            if (!winners.length) {
-                                                alert('Please load winners first!');
-                                                return;
-                                            }
-                                            if (confirm(`Distribute rewards to ${winners.length} winners?`)) {
-                                                setIsDistributing(true);
-                                                await distributeRewards(winners, (current, total) => {
-                                                    setRewardProgress({ current, total });
-                                                });
-                                                setIsDistributing(false);
-                                                alert('✅ All rewards distributed!');
-                                            }
-                                        }}
-                                        disabled={!gameStatus?.maintenanceMode || isDistributing || winners.length === 0}
-                                        className="w-full px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <Gift size={20} />
-                                        {isDistributing ? `DISTRIBUTING... (${rewardProgress.current}/${rewardProgress.total})` : '💰 DISTRIBUTE REWARDS'}
-                                    </button>
-                                    {isDistributing && (
-                                        <div className="mt-2 bg-gray-800 rounded-full h-2 overflow-hidden">
-                                            <div
-                                                className="h-full bg-green-500 transition-all duration-300"
-                                                style={{ width: `${(rewardProgress.current / rewardProgress.total) * 100}%` }}
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Reset All Data */}
                                 <div>
                                     <button
                                         onClick={async () => {
-                                            if (confirm('Reset ALL user data? This will:\n- Set coins to 0\n- Convert coins to E-tokens\n- Update leaderboard\n\nThis cannot be undone!')) {
+                                            if (confirm('Start Safe Batch Reset?\n\n- Targets OFFLINE users\n- Skips users who already reset (Online)\n- Converts coins to E-Tokens\n\nProceed?')) {
                                                 setIsResetting(true);
                                                 await resetAllUsersData((current, total) => {
                                                     setResetProgress({ current, total });
                                                 });
                                                 setIsResetting(false);
-                                                alert('✅ All data reset complete!');
+                                                alert('✅ Safe Reset Complete! All offline users processed.');
                                             }
                                         }}
                                         disabled={!gameStatus?.maintenanceMode || isResetting}
                                         className="w-full px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
                                     >
                                         <RefreshCw size={20} className={isResetting ? 'animate-spin' : ''} />
-                                        {isResetting ? `RESETTING... (${resetProgress.current}/${resetProgress.total})` : '🔄 RESET ALL USER DATA'}
+                                        {isResetting ? `PROCESSING BATCH... (${resetProgress.current}/${resetProgress.total})` : '🚀 START SAFE BATCH RESET'}
                                     </button>
+                                    <p className="text-xs text-center text-gray-500 mt-2">
+                                        Safe Mode: Auto-skips users who have already been processed via Lazy Reset.
+                                    </p>
                                     {isResetting && (
                                         <div className="mt-2 bg-gray-800 rounded-full h-2 overflow-hidden">
                                             <div
@@ -681,6 +651,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                 >
                                     {gameStatus?.readyCountdown > 0 ? `COUNTDOWN (${gameStatus.readyCountdown}s)` : '🟢 END MAINTENANCE MODE'}
                                 </button>
+                            </div>
+
+                            {/* 🧪 MAINTENANCE TEST LAB */}
+                            <div className="bg-gray-900/50 border border-yellow-500/30 rounded-xl p-6 mt-8">
+                                <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2">
+                                    <span>🧪</span> Testing Zone
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <button
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const daysUntilSunday = (7 - now.getDay()) % 7;
+                                            const target = new Date(now);
+                                            target.setDate(now.getDate() + daysUntilSunday);
+                                            target.setHours(23, 59, 45, 0); // 15 seconds before midnight
+                                            const offset = target.getTime() - Date.now();
+                                            setSimulatedTimeOffset(offset);
+                                            alert("⚡ TEST MODE: Time jumped to Sunday 11:59:45 PM.\n\nWatch Auto-Pilot trigger Maintenance & Reset!");
+                                            window.location.reload();
+                                        }}
+                                        className="p-4 bg-red-900/30 hover:bg-red-900/50 border border-red-500/40 rounded-lg text-red-200 font-bold hover:scale-[1.02] transition-all text-left"
+                                    >
+                                        ⚡ Simulate Reset Trigger
+                                        <div className="text-xs font-normal opacity-60 mt-1">Jumps to Sun 11:59:45 PM (Auto-Pilot Test)</div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            clearSimulatedTime();
+                                            alert("✅ Back to Real Time.");
+                                            window.location.reload();
+                                        }}
+                                        className="p-4 bg-green-900/30 hover:bg-green-900/50 border border-green-500/40 rounded-lg text-green-200 font-bold hover:scale-[1.02] transition-all text-left"
+                                    >
+                                        🔁 Reset to Real Time
+                                        <div className="text-xs font-normal opacity-60 mt-1">Disables simulation mode</div>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -861,6 +869,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     >
                                         1. Pre-Event (6:30 PM)
                                         <div className="text-[10px] opacity-60 font-normal mt-1">Entry Allowed</div>
+                                    </button>
+
+                                    <button
+                                        onClick={() => {
+                                            const now = new Date();
+                                            const daysUntilSunday = (7 - now.getDay()) % 7;
+                                            const target = new Date(now);
+                                            target.setDate(now.getDate() + daysUntilSunday);
+                                            target.setHours(23, 59, 45, 0); // 15 seconds before midnight
+                                            const offset = target.getTime() - Date.now();
+                                            setSimulatedTimeOffset(offset);
+                                            alert("⚡ TEST MODE: Time jumps to Sunday 11:59:45 PM.\n\nWatch the console/status!\n1. Time hits 12:00 -> Week Changes.\n2. Auto-Pilot detects change.\n3. Maintenance starts automatically.\n4. Reset runs automatically.");
+                                            window.location.reload();
+                                        }}
+                                        className="p-3 bg-red-900/40 hover:bg-red-900/60 border border-red-500/30 rounded-lg text-red-200 text-xs font-bold text-left hover:scale-[1.02] transition-transform"
+                                    >
+                                        3. ⚡ Simulate Reset Event
+                                        <div className="text-[10px] opacity-60 font-normal mt-1">Jumps to Sun 11:59:45 PM</div>
                                     </button>
 
                                     <button

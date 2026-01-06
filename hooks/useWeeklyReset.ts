@@ -1,125 +1,208 @@
-import { useEffect, useRef } from 'react';
-import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { doc, updateDoc, Timestamp, runTransaction, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { User } from '../types';
 import { getCurrentWeekId } from '../utils/weekUtils';
 import { createWeeklyRewardMessage } from '../services/mailboxService';
 import { generateSmartBots } from '../services/smartBotService';
 
-// Add state setters to the hook for immediate UI feedback
+// Return type now includes isProcessing
 export const useWeeklyReset = (
     user: User | null,
     liveCoins: number,
     setCoins: (n: number) => void,
     setETokens: (n: number | ((prev: number) => number)) => void
 ) => {
+    // Determine if we are actively checking/resetting
+    const [isProcessing, setIsProcessing] = useState<boolean>(true);
     const processedWeekId = useRef<string | null>(null);
 
     useEffect(() => {
-        if (!user || user.isGuest) return;
+        // If no user, we are strictly NOT processing (or waiting for auth)
+        // usage in App.tsx should handle the "waiting for user" part via its own loading state
+        if (!user || user.isGuest) {
+            setIsProcessing(false);
+            return;
+        }
 
         const checkAndReset = async () => {
             const currentWeekId = getCurrentWeekId();
+            const userWeekId = user.lastWeekId;
 
-            console.log(`🔍 [WeeklyReset] Checking... Current: ${currentWeekId}, Last: ${user.lastWeekId}, Processed: ${processedWeekId.current}`);
+            console.log(`🔍 [WeeklyReset] Checking... Current: ${currentWeekId}, UserLast: ${userWeekId}`);
 
-            // Prevent double processing in same session if week hasn't changed
-            // TRUST LOCAL STATE: If we already processed this weekId in this session, DO NOT proceed.
-            // Relying on user.lastWeekId (prop) is dangerous because it might be stale (App.tsx doesn't update it in real-time listeners).
+            // 1. Check if already processed locally in this session
             if (processedWeekId.current === currentWeekId) {
-                console.log("Skipping reset check - already processed this week locally.");
+                // Already done, release lock (ensure it's false)
+                setIsProcessing(false);
                 return;
             }
 
-            let shouldReset = false;
+            // Start processing lock
+            setIsProcessing(true);
 
-            // CRITICAL FIX: If we detected a change locally in this session (e.g. via interval), 
-            // we MUST reset, even if the user DB is missing 'lastWeekId'.
-            const isSessionWeekChange = processedWeekId.current && processedWeekId.current !== currentWeekId;
+            // 2. Logic to determine if reset IS needed
+            // Needs reset if:
+            // a) Week IDs don't match (Normal case)
+            // b) User has NO week ID but HAS coins (Legacy/Error case repair) -> FORCE RESET
+            // c) User has NO week ID and NO coins -> Just init ID (No reset needed)
 
-            if (isSessionWeekChange) {
-                shouldReset = true;
-                console.log("⚡ [WeeklyReset] Session-based week change detected. Forcing reset.");
-            } else if (user.lastWeekId && user.lastWeekId !== currentWeekId) {
-                shouldReset = true;
+            let needsReset = false;
+            let isFirstInit = false;
+
+            if (userWeekId && userWeekId !== currentWeekId) {
+                needsReset = true;
+            } else if (!userWeekId) {
+                if (liveCoins > 0) {
+                    console.log("⚠️ [WeeklyReset] User has coins but missing Week ID. Forcing security reset.");
+                    needsReset = true;
+                } else {
+                    isFirstInit = true;
+                }
             }
 
-            if (shouldReset) {
-                // LOCK IMMEDIATELY to prevent double-firing due to race conditions (e.g. if dependencies change while awaiting)
-                processedWeekId.current = currentWeekId;
-
+            if (needsReset) {
                 console.log("🔄 Detecting New Week! Performing Weekly Reset...");
 
-                // 1. Calculate Conversion using LIVE coins (MAX 20 E-TOKENS CAP)
-                const currentCoins = liveCoins; // Use the passed live state logic
-                const eTokensToEarn = Math.min(Math.floor(currentCoins / 1000), 20); // Cap at 20 E-Tokens
+                // Immediately update local ref to prevent double-firing
+                processedWeekId.current = currentWeekId;
+
+                // Calculate Rewards
+                const currentCoins = liveCoins;
+                const eTokensToEarn = Math.min(Math.floor(currentCoins / 1000), 20); // Cap at 20
 
                 try {
                     const userRef = doc(db, 'users', user.id);
 
-                    // 2. Reset coins and update week ID
-                    await updateDoc(userRef, {
-                        coins: 0, // Reset coins
-                        lastWeekId: currentWeekId, // Mark this week as processed
-                        weeklyResetTime: Timestamp.now() // Audit trail
+                    // Use Transaction for safety to ensure we don't double-reward if race condition
+                    await runTransaction(db, async (transaction) => {
+                        const userDoc = await transaction.get(userRef);
+                        if (!userDoc.exists()) throw "User does not exist!";
+
+                        const userData = userDoc.data();
+
+                        // Double check server state in transaction
+                        if (userData.lastWeekId === currentWeekId) {
+                            return; // Already happened on another device/tab
+                        }
+
+                        transaction.update(userRef, {
+                            coins: 0,
+                            lastWeekId: currentWeekId,
+                            weeklyResetTime: Timestamp.now()
+                        });
                     });
 
-                    // 2.5 Trigger Smart Bot Generation for the new week (Safe to call multiple times)
-                    // This ensures bots are ready for the new week immediately.
-                    generateSmartBots().catch(e => console.error("Auto-gen bots failed:", e));
-
-                    // 3. Create inbox message for E-Token reward (if earned any)
-                    if (eTokensToEarn > 0) {
-                        await createWeeklyRewardMessage(user.id, eTokensToEarn, currentCoins);
-                        console.log(`✅ Created inbox message for ${eTokensToEarn} E-Tokens`);
-                    }
-
-                    // 4. Notify User
-                    console.log(`✅ Weekly Reset Complete. Converted ${currentCoins} coins to ${eTokensToEarn} E-Tokens.`);
-
-                    // IMMEDIATE UI UPDATE
+                    // Update Local State UI
                     setCoins(0);
-                    // NOTE: E-Tokens are NOT added here anymore - user must claim from mailbox
 
-                    if (currentCoins > 0) {
-                        console.log(`Silent Reset: User has claimable rewards in mailbox.`);
+                    // Inbox Message (Fire-and-forget - Non-blocking optimization)
+                    if (eTokensToEarn > 0) {
+                        // Don't await - let it run in background to reduce blocking time
+                        createWeeklyRewardMessage(user.id, eTokensToEarn, currentCoins)
+                            .then(() => console.log(`✅ Weekly Reset: Sent ${eTokensToEarn} E-Tokens to inbox.`))
+                            .catch(e => console.error("❌ Mailbox creation failed:", e));
                     }
+
+                    // Random Reserved ID Consumption for Weekly Reset
+                    try {
+                        const reservedRef = doc(db, 'system', 'reserved_bot_ids');
+                        const reservedSnap = await getDoc(reservedRef);
+
+                        if (reservedSnap.exists()) {
+                            const reservedData = reservedSnap.data();
+                            const allIds = reservedData.ids || [];
+                            const levelPools = reservedData.levelPools || { 1: [], 2: [], 3: [], 4: [], 5: [] };
+
+                            if (allIds.length > 0) {
+                                // Pick random IDs for this week's usage (max 3 IDs)
+                                const maxConsume = Math.min(3, allIds.length);
+                                const selectedIds: number[] = [];
+
+                                for (let i = 0; i < maxConsume; i++) {
+                                    const randomIndex = Math.floor(Math.random() * allIds.length);
+                                    const selectedId = allIds.splice(randomIndex, 1)[0];
+                                    selectedIds.push(selectedId);
+
+                                    // Also remove from level pools
+                                    for (let level = 1; level <= 5; level++) {
+                                        const poolIndex = levelPools[level]?.indexOf(selectedId);
+                                        if (poolIndex !== undefined && poolIndex > -1) {
+                                            levelPools[level].splice(poolIndex, 1);
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                // Update Reserved IDs pool
+                                await updateDoc(reservedRef, {
+                                    ids: allIds,
+                                    levelPools: levelPools,
+                                    lastUpdated: Timestamp.now()
+                                });
+
+                                console.log(`🎲 Weekly Reset: Consumed ${maxConsume} random Reserved IDs:`, selectedIds);
+                            }
+                        }
+                    } catch (error) {
+                        console.error("⚠️ Reserved ID consumption failed (non-critical):", error);
+                        // Non-blocking - don't throw
+                    }
+
+                    // Smart Bots - Only generate once per week (not on every user login)
+                    // Check if this is the first reset of the week
+                    const botsKey = `bots_generated_${currentWeekId}`;
+                    const botsGenerated = localStorage.getItem(botsKey);
+                    if (!botsGenerated) {
+                        localStorage.setItem(botsKey, 'true');
+                        generateSmartBots().catch(e => console.error("Auto-gen bots failed:", e));
+                        console.log("🤖 Smart bots generation triggered for new week");
+                    }
+
+                    console.log(`✅ Weekly Reset Complete.`);
 
                 } catch (error) {
                     console.error("❌ Error performing weekly reset:", error);
-                    // If failed, maybe release lock? But safer to just fail for this session to avoid infinite loops.
+                    // Safe to release lock, might retry next interval if failed
                 }
-            } else if (!user.lastWeekId) {
-                // Initialize for first time run on existing users
+            } else if (isFirstInit) {
+                // First time user init (No coins, just stamp the week)
+                console.log("🆕 Initializing Week ID for fresh/empty user.");
                 processedWeekId.current = currentWeekId;
                 try {
-                    const userRef = doc(db, 'users', user.id);
-                    await updateDoc(userRef, {
+                    await updateDoc(doc(db, 'users', user.id), {
                         lastWeekId: currentWeekId
                     });
                 } catch (e) {
                     console.error("Error init week id", e);
                 }
             } else {
-                // Nothing to do, but mark as processed so we don't keep checking
+                // IDs match, nothing to do
                 processedWeekId.current = currentWeekId;
             }
+
+            // REQUIRED: Release processing lock so App can allow entry
+            setIsProcessing(false);
         };
 
-        // Initial check
+        // Run Logic
         checkAndReset();
 
-        // POLL: Check every second to match the Timer UI
-        // We checking weekId change every second is efficient and robust.
-        // This avoids the issue where getTimeRemaining() resets to 7 days immediately after the week flips.
+        // POLL: Check every 5 seconds (1s is too aggressive for DB reads usually, but local check is cheap)
         const intervalId = setInterval(() => {
             const currentWeekId = getCurrentWeekId();
+            // If week changes while app is open, we trigger again
             if (processedWeekId.current !== currentWeekId) {
-                console.log(`⏰ [WeeklyReset] Week Changed detected! Old: ${processedWeekId.current}, New: ${currentWeekId}`);
+                console.log(`⏰ [WeeklyReset] Live Week Change detected!`);
                 checkAndReset();
             }
-        }, 1000);
+        }, 5000);
 
         return () => clearInterval(intervalId);
-    }, [user?.lastWeekId, liveCoins]); // Trigger when user metadata or coins change (to enable accurate calculation)
+
+    }, [user?.lastWeekId, user?.id, liveCoins]);
+    // ^ IMPORTANT: Dependency on user.lastWeekId ensures we re-check if user updates. 
+    // liveCoins dependency ensures we have fresh value for calculation.
+
+    return { isProcessing };
 };

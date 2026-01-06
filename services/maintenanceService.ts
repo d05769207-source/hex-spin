@@ -12,6 +12,7 @@ export interface GameStatus {
     readyCountdown: number;
     maintenanceMessage: string;
     lastResetTime: number;
+    lastBatchResetWeekId?: string;
 }
 
 export interface WinnerData {
@@ -38,7 +39,8 @@ export const initializeGameStatus = async (): Promise<void> => {
             warningCountdown: 0,
             readyCountdown: 0,
             maintenanceMessage: '',
-            lastResetTime: 0
+            lastResetTime: 0,
+            lastBatchResetWeekId: ''
         });
     }
 };
@@ -286,8 +288,8 @@ export const resetAllUsersData = async (
 
             // Process batch in parallel
             await Promise.all(batch.map(async (user: any) => {
-                // Skip guest users
-                if (user.isGuest) return;
+                // Skip guest users and bots
+                if (user.isGuest || user.userId.startsWith('bot_')) return;
 
                 const eTokens = Math.min(Math.floor((user.coins || 0) / 1000), 20); // Cap at 20 E-Tokens
 
@@ -297,23 +299,33 @@ export const resetAllUsersData = async (
                         const userDoc = await transaction.get(userRef);
 
                         if (userDoc.exists()) {
+                            const userData = userDoc.data();
+
+                            // ⚠️ CRITICAL SAFETY CHECK: 
+                            // If user already has the current week ID (e.g. they logged in and Lazy Reset ran),
+                            // DO NOT reset them again. This prevents double E-Token awards and data loss.
+                            if (userData.lastWeekId === weekId) {
+                                // console.log(`⏩ Skipping ${user.username} - Already reset.`);
+                                return;
+                            }
+
                             transaction.update(userRef, {
                                 coins: 0,
                                 eTokens: increment(eTokens),
                                 lastWeekId: weekId
                             });
-                        }
 
-                        // Reset/Create leaderboard entry
-                        const lbRef = doc(db, 'weeklyLeaderboard', `${user.userId}_${weekId}`);
-                        transaction.set(lbRef, {
-                            userId: user.userId,
-                            username: user.username || 'Player',
-                            coins: 0,
-                            photoURL: user.photoURL || null,
-                            weekId: weekId,
-                            lastUpdated: new Date()
-                        }, { merge: true });
+                            // Only Reset Leaderboard if we actually processed the user
+                            const lbRef = doc(db, 'weeklyLeaderboard', `${user.userId}_${weekId}`);
+                            transaction.set(lbRef, {
+                                userId: user.userId,
+                                username: user.username || 'Player',
+                                coins: 0,
+                                photoURL: user.photoURL || null,
+                                weekId: weekId,
+                                lastUpdated: new Date()
+                            }, { merge: true });
+                        }
                     });
                 } catch (error) {
                     console.error(`❌ Failed to reset user ${user.username}:`, error);
@@ -324,7 +336,12 @@ export const resetAllUsersData = async (
             console.log(`✅ Batch ${Math.floor(i / batchSize) + 1} complete (${Math.min(i + batchSize, total)}/${total})`);
         }
 
+        // In resetAllUsersData completion block
         console.log('✅ All users reset complete!');
+
+        await update(gameStatusRef, {
+            lastBatchResetWeekId: weekId
+        });
 
         // Deactivate all bots after user reset
         console.log('🤖 Deactivating all bots for weekly reset...');

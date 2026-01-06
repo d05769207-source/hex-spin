@@ -125,8 +125,7 @@ const App: React.FC = () => {
   // Prevent sync until data is loaded
 
   // NEW: Initialize Weekly Reset Hook with LIVE State (Coins, eTokens)
-  // Prevent running hook with partial user data (missing lastWeekId) by waiting for isLoading
-  useWeeklyReset(isLoading ? null : user, coins, setCoins, setETokens);
+  const { isProcessing: isWeeklyResetProcessing } = useWeeklyReset(user, coins, setCoins, setETokens);
 
   // --- DAILY RESET LOGIC (Hook) ---
   // Replaces the old interval-based check with a robust Day ID tracker
@@ -1232,6 +1231,21 @@ const App: React.FC = () => {
   // 1. SHOW LOADING SCREEN
   if (isLoadingScreen) {
     return <LoadingScreen onComplete={handleLoadingComplete} />;
+  }
+
+  // 1.5 WEEKLY RESET BLOCKER
+  // Prevents race conditions by blocking UI while verifying week status
+  if (user && isWeeklyResetProcessing) {
+    return (
+      <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center justify-center">
+        <div className="relative w-16 h-16 mb-4">
+          <div className="absolute inset-0 border-4 border-cyan-500/30 rounded-full"></div>
+          <div className="absolute inset-0 border-4 border-t-cyan-500 rounded-full animate-spin"></div>
+        </div>
+        <h2 className="text-xl font-bold text-white mb-2">Syncing Weekly Status</h2>
+        <p className="text-cyan-400/60 text-sm font-mono animate-pulse">Please wait...</p>
+      </div>
+    );
   }
 
   // 2. SHOW AUTH SCREEN (If not logged in and hasn't entered game)

@@ -4,6 +4,7 @@ import './MaintenancePoster.css';
 
 const MaintenancePoster: React.FC = () => {
     const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
+    const [clickCount, setClickCount] = useState(0);
 
     useEffect(() => {
         const unsubscribe = subscribeToGameStatus((status) => {
@@ -14,9 +15,30 @@ const MaintenancePoster: React.FC = () => {
     }, []);
 
     // Don't show anything if no warning or maintenance
-    if (!gameStatus || (!gameStatus.warningActive && !gameStatus.maintenanceMode && gameStatus.readyCountdown === 0)) {
+    const isAdmin = sessionStorage.getItem('isAdmin') === 'true';
+    if (isAdmin || !gameStatus || (!gameStatus.warningActive && !gameStatus.maintenanceMode && gameStatus.readyCountdown === 0)) {
         return null;
     }
+
+
+
+    const handleEmergencyLogin = () => {
+        const newCount = clickCount + 1;
+        setClickCount(newCount);
+
+        if (newCount >= 5) {
+            const password = prompt("🚨 EMERGENCY ADMIN LOGIN 🚨\nEnter Password:");
+            const correctPassword = import.meta.env.VITE_ADMIN_PASSWORD || 'pj.pj';
+
+            if (password === correctPassword) {
+                sessionStorage.setItem('isAdmin', 'true');
+                window.location.reload(); // Reload to apply Admin Bypass
+            } else if (password) {
+                alert("Wrong Password!");
+                setClickCount(0);
+            }
+        }
+    };
 
     return (
         <div className="maintenance-poster-overlay">
@@ -40,7 +62,14 @@ const MaintenancePoster: React.FC = () => {
                 {/* Maintenance Phase */}
                 {gameStatus.maintenanceMode && gameStatus.readyCountdown === 0 && (
                     <>
-                        <div className="maintenance-icon">🛠️</div>
+                        <div
+                            className="maintenance-icon"
+                            onClick={handleEmergencyLogin}
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                            title="Admin: Tap 5 times to force login"
+                        >
+                            🛠️
+                        </div>
                         <h1 className="maintenance-title">MAINTENANCE IN PROGRESS</h1>
                         <div className="maintenance-status">
                             <div className="status-item">

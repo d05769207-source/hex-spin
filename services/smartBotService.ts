@@ -4,7 +4,7 @@ import { BotUser, User, BotTier } from '../types';
 import { getCurrentWeekId, getTimeRemaining, getCurrentTime } from '../utils/weekUtils';
 
 // CONSTANTS
-const TOTAL_BOTS = 3;
+const TOTAL_BOTS = 4;
 const BOT_COLLECTION = 'botUsers';
 const USER_COLLECTION = 'users';
 const LOCK_COLLECTION = 'system';
@@ -293,8 +293,31 @@ export const hardDeleteAllBots = async () => {
             batch.delete(doc.ref);
         });
 
+        // FIX: Reset System Config to Level 1
+        const reservedIdsRef = doc(db, 'system', 'reserved_bot_ids');
+        const configRef = doc(db, 'system', 'reserved_ids_config');
+
+        batch.set(reservedIdsRef, {
+            ids: [],
+            currentLevel: 1,
+            levelPools: { 1: [], 2: [], 3: [], 4: [], 5: [] },
+            lastUpdated: Timestamp.now()
+        });
+
+        batch.set(configRef, {
+            currentLevel: 1,
+            levels: {
+                1: { maxIds: 6, gapSize: 2, filled: 0 },
+                2: { maxIds: 10, gapSize: 5, filled: 0 },
+                3: { maxIds: 20, gapSize: 10, filled: 0 },
+                4: { maxIds: 50, gapSize: 20, filled: 0 },
+                5: { maxIds: 100, gapSize: 50, filled: 0 }
+            },
+            lastUpdated: Timestamp.now()
+        });
+
         await batch.commit();
-        console.log(`✅ Hard Deleted ${count} bots.`);
+        console.log(`✅ Hard Deleted ${count} bots. System reset to Level 1.`);
         return count;
     } catch (error) {
         console.error('❌ Error in hard delete:', error);
@@ -348,14 +371,30 @@ export const retireOldBots = async () => {
         throw error;
     }
 };
+// Helper: Get the highest displayId currently in use
+const getMaxDisplayId = async (): Promise<number> => {
+    try {
+        const usersRef = collection(db, USER_COLLECTION);
+        // CRITICAL FIX: Ignore 9-series fallback IDs (900000+) so we find the REAL max ID
+        const q = query(
+            usersRef,
+            where('displayId', '<', 900000),
+            orderBy('displayId', 'desc'),
+            limit(1)
+        );
+        const snapshot = await getDocs(q);
 
-/**
- * Generate 3 Smart Bots for the week
- * If bots already exist for this week, they will be RE-INITIALIZED:
- * - Same UID is kept
- * - Coins reset to 0
- * - New random name, avatar, level, etc.
- */
+        if (!snapshot.empty) {
+            const data = snapshot.docs[0].data();
+            return data.displayId || 1000;
+        }
+        return 1000;
+    } catch (error) {
+        console.warn('Error fetching max displayId:', error);
+        return 1000;
+    }
+};
+
 export const generateSmartBots = async () => {
     try {
         const weekId = getCurrentWeekId();
@@ -374,99 +413,126 @@ export const generateSmartBots = async () => {
             console.log('🤖 Generating 3 New Smart Bots...');
         }
 
-        // 1. Get Reserved IDs (Smart Pool)
+        // 1. Get Reserved IDs with level awareness
         const reservedRef = doc(db, 'system', 'reserved_bot_ids');
         const reservedSnap = await getDoc(reservedRef);
         let reservedIds: number[] = [];
+        let currentLevel = 1;
+        let levelPools: { [key: number]: number[] } = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+
         if (reservedSnap.exists()) {
-            reservedIds = reservedSnap.data().ids || [];
+            const data = reservedSnap.data();
+            reservedIds = data.ids || [];
+            currentLevel = data.currentLevel || 1;
+            levelPools = data.levelPools || { 1: [], 2: [], 3: [], 4: [], 5: [] };
         }
 
         const batch = writeBatch(db);
-
-        // Shuffle Avatars to get random identity
         const shuffledAvatars = [...AVATAR_SEEDS].sort(() => 0.5 - Math.random());
-
-        // Track used IDs to remove them from pool later
         let usedReservedCount = 0;
 
-        // Assign DIFFERENT formats to each bot to avoid pattern detection
-        // Bot 0: formats 0-1, Bot 1: formats 2-3, Bot 2: formats 4-6
+        // Formats
         const formatRanges = [
-            [0, 1],     // Bot 0: "RohanSharma" or "Rohan.Sharma"
-            [2, 3],     // Bot 1: "rohan_sharma" or "rohan.sharma23"
-            [4, 5, 6]   // Bot 2: "RohanS47", "sharma.rohan", "SharmaRohan99"
+            [0, 1],     // Bot 0
+            [2, 3],     // Bot 1
+            [4, 5],     // Bot 2
+            [6, 3, 0]   // Bot 3
         ];
 
+        // Pre-fetch Highest Display ID for fallback
+        let currentMaxDisplayId = await getMaxDisplayId();
+        let fallbackIncrement = 1;
+
         for (let i = 0; i < TOTAL_BOTS; i++) {
-            // Pick a random format from this bot's assigned range
             const availableFormats = formatRanges[i];
             const formatIndex = availableFormats[Math.floor(Math.random() * availableFormats.length)];
 
-            // Assign gender for diversity: Mostly male (80%), few female (20%) as girls play less
-            // Bot 0 & Bot 2 = male (always), Bot 1 = 80% chance male, 20% female
             let gender: 'male' | 'female' = 'male';
             if (i === 0 || i === 2) {
-                // Bot 0 and Bot 2: Always male
                 gender = 'male';
-            } else if (i === 1) {
-                // Bot 1: 80% male, 20% female (realistic gaming distribution)
+            } else if (i === 1 || i === 3) {
                 gender = Math.random() > 0.8 ? 'female' : 'male';
             }
 
-            // Generate unique realistic name with specific format and gender
             const name = await generateRealisticBotName(formatIndex, gender);
             const avatarSeed = shuffledAvatars[i] || 'default';
             const photoURL = `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
 
-            // NEW: Distinct Level Ranges to create gap
             let level;
-            if (i === 0) {
-                // Top Player: Level 34-45
-                level = Math.floor(34 + Math.random() * 12);
-            } else if (i === 1) {
-                // Challenger: Level 20-32
-                level = Math.floor(20 + Math.random() * 13);
-            } else {
-                // Random/Newbie: Level 15-25
-                level = Math.floor(15 + Math.random() * 11);
-            }
+            if (i === 0) level = Math.floor(34 + Math.random() * 12);
+            else if (i === 1) level = Math.floor(20 + Math.random() * 13);
+            else if (i === 2) level = Math.floor(15 + Math.random() * 11);
+            else level = Math.floor(10 + Math.random() * 71);
 
-            // Spins Formula: 10 * Level^2 (Plus some random noise 0-50 for realism)
             const totalSpins = (10 * (level * level)) + Math.floor(Math.random() * 50);
             const joinDate = new Date();
             joinDate.setDate(joinDate.getDate() - Math.floor(Math.random() * 60));
 
+            // Generate UID (Reuse existing if re-init, or create new)
+            // Note: existingBots lookup relies on order, which isn't guaranteed in snapshot, 
+            // but for re-init we just need stable IDs specific to this week.
+            // Better: Construct it deterministically.
             const botUid = `bot_${weekId}_${i}`;
 
-            // SMART ID LOGIC - If re-initializing, preserve existing displayId
-            let displayId = 900000 + i; // Default fallback
+            // LEVEL-AWARE SMART ID LOGIC
+            let displayId: number = 0;
 
+            // 1. Try to REUSE existing ID if Re-initializing
             if (isReinitializing) {
-                // Try to get existing displayId from users collection
                 try {
                     const existingUserRef = doc(db, USER_COLLECTION, botUid);
                     const existingUserSnap = await getDoc(existingUserRef);
                     if (existingUserSnap.exists()) {
-                        displayId = existingUserSnap.data().displayId || displayId;
-                        console.log(`♻️ Preserving displayId ${displayId} for bot ${botUid}`);
+                        const oldId = existingUserSnap.data().displayId;
+                        // DATE: 2024-01-05 - CRITICAL FIX
+                        // Only preserve ID if it is VALID (Real ID < 900000)
+                        // This prevents 9-series IDs from persisting during re-initialization
+                        if (oldId && oldId < 900000) {
+                            displayId = oldId;
+                            console.log(`♻️ Preserving displayId ${displayId} for bot ${botUid}`);
+                        } else {
+                            console.warn(`⚠️ Discarding invalid/stale displayId ${oldId} for bot ${botUid}`);
+                        }
                     }
                 } catch (e) {
                     console.warn('Could not fetch existing displayId, using new one');
                 }
-            } else if (reservedIds.length > 0) {
-                // Only consume reserved IDs for NEW bots
-                const realId = reservedIds.shift(); // Remove from local array
-                if (realId) {
-                    displayId = realId;
-                    usedReservedCount++;
-                    // console.log(`🎯 Assigned Reserved ID ${realId} to Bot ${name}`);
+            }
+
+            // 2. If NO existing ID found (New Bot or First Run), use Level-Aware Logic
+            // 2. If NO existing ID found (New Bot or First Run), use Level-Aware Logic
+            if (!displayId) {
+                // FIX: Check ALL levels (5 down to 1) for available IDs.
+                // Priority: Consume Highest Level (Overflow) IDs first to preserve Level 1 base.
+                for (let level = 5; level >= 1; level--) {
+                    if (levelPools[level] && levelPools[level].length > 0) {
+                        const realId = levelPools[level].shift();
+                        if (realId) {
+                            displayId = realId;
+                            const globalIndex = reservedIds.indexOf(realId);
+                            if (globalIndex > -1) reservedIds.splice(globalIndex, 1);
+                            usedReservedCount++;
+                            usedReservedCount++;
+                            // console.log(`🔒 Consumed ID ${displayId} from Level ${level} pool`);
+                            break; // Found one, stop searching
+                        }
+                    }
+                }
+
+                // 3. Final Fallback to MAX ID + Increment if all Reserved pools exhausted
+                if (!displayId) {
+                    displayId = currentMaxDisplayId + fallbackIncrement;
+                    fallbackIncrement++;
+                    displayId = currentMaxDisplayId + fallbackIncrement;
+                    fallbackIncrement++;
+                    // console.log(`⚠️ All Reserved pools empty, using fallback ID: ${displayId}`);
                 }
             }
 
-            // Bot 0 & 1 = Leaderboard, Bot 2 = Lottery
+            // Rank Types
             let rankType = BotTier.SMART_LEADER;
             if (i === 2) rankType = BotTier.SMART_LOTTERY;
+            if (i === 3) rankType = BotTier.SMART_LOTTERY_KTM;
 
             const botData: any = {
                 uid: botUid,
@@ -475,8 +541,8 @@ export const generateSmartBots = async () => {
                 email: `${name.toLowerCase()}@nomail.com`,
                 level: level,
                 totalSpins: totalSpins,
-                coins: 0, // RESET to 0
-                weeklyCoins: 0, // RESET to 0
+                coins: 0,
+                weeklyCoins: 0,
                 isBot: true,
                 botTier: rankType,
                 weekId: weekId,
@@ -488,40 +554,66 @@ export const generateSmartBots = async () => {
             };
 
             const botRef = doc(db, BOT_COLLECTION, botUid);
-            batch.set(botRef, botData); // Overwrites existing doc
+            batch.set(botRef, botData);
 
             const userRef = doc(db, USER_COLLECTION, botUid);
             batch.set(userRef, {
                 ...botData,
-                displayId: displayId, // PRESERVE or USE SMART ID
-                referralCode: `HEX${displayId}` // USE SMART ID CODE
-            }); // Overwrites existing doc
+                displayId: displayId,
+                referralCode: `HEX${displayId}`
+            });
 
             const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botUid}_${weekId}`);
             batch.set(leaderboardRef, {
                 userId: botUid,
                 username: name,
-                coins: 0, // RESET to 0
+                coins: 0,
                 photoURL: photoURL,
                 totalSpins: totalSpins,
                 level: level,
                 weekId,
                 lastUpdated: Timestamp.now()
-            }); // Overwrites existing doc
+            });
         }
 
-        // UPDATE RESERVED POOL (only if we consumed new IDs)
         if (usedReservedCount > 0) {
-            batch.set(reservedRef, { ids: reservedIds }, { merge: true });
-            console.log(`🔒 Consumed ${usedReservedCount} IDs from pool. Remaining: ${reservedIds.length}`);
+            // FIX: Dynamic Level Regression
+            // Recalculate level based on remaining IDs to allow downgrading (e.g. L2 -> L1)
+            const totalRemaining = reservedIds.length;
+            let newLevel = 1;
+            if (totalRemaining >= 86) newLevel = 5;
+            else if (totalRemaining >= 36) newLevel = 4;
+            else if (totalRemaining >= 16) newLevel = 3;
+            else if (totalRemaining >= 6) newLevel = 2;
+            else newLevel = 1;
+
+            if (newLevel !== currentLevel) {
+                // console.log(`📉 Level Regression: Downgrading from Level ${currentLevel} to Level ${newLevel}`);
+                currentLevel = newLevel;
+
+                // FIX: Also update the CONFIG document so the Admin Panel reflects the change
+                const configRef = doc(db, 'system', 'reserved_ids_config');
+                batch.set(configRef, {
+                    currentLevel: newLevel,
+                    lastUpdated: Timestamp.now()
+                }, { merge: true });
+            }
+
+            batch.set(reservedRef, {
+                ids: reservedIds,
+                currentLevel: currentLevel,
+                levelPools: levelPools,
+                lastUpdated: Timestamp.now()
+            }, { merge: true });
+            // console.log(`🔒 Consumed ${usedReservedCount} IDs from Reserved pools.`);
         }
 
         await batch.commit();
 
         if (isReinitializing) {
-            console.log('✅ RE-INITIALIZED 3 Smart Bots! (Same UIDs, Fresh Data, Coins = 0)');
+            console.log('✅ RE-INITIALIZED Bots!');
         } else {
-            console.log('✅ Generated 3 Smart Bots successfully!');
+            console.log('✅ Generated Bots successfully!');
         }
 
     } catch (error) {
@@ -670,7 +762,7 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
         const botLeads: Record<string, number> = {};
 
         // Initial setup for leads (randomized per session)
-        const leaderBots = initialBots.filter((b: any) => b.botTier !== BotTier.SMART_LOTTERY);
+        const leaderBots = initialBots.filter((b: any) => b.botTier !== BotTier.SMART_LOTTERY && b.botTier !== BotTier.SMART_LOTTERY_KTM);
         const shuffledLeaders = [...leaderBots].sort(() => 0.5 - Math.random());
         if (shuffledLeaders[0]) botLeads[shuffledLeaders[0].id] = 15000 + Math.floor(Math.random() * 5000);
         if (shuffledLeaders[1]) botLeads[shuffledLeaders[1].id] = 10000 + Math.floor(Math.random() * 5000);
@@ -726,8 +818,18 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                 if (Math.random() > 0.4) continue;
 
                 if (bot.botTier === BotTier.SMART_LOTTERY) {
-                    // Lottery bot just chills and collects small amounts
+                    // Lottery bot (iPhone) just chills and collects small amounts
                     if (Math.random() > 0.8) await updateSingleBot(bot, getRandomSpinReward(), weekId);
+                    continue;
+                }
+
+                if (bot.botTier === BotTier.SMART_LOTTERY_KTM) {
+                    // Lottery bot (KTM) chills too, but earns 50% less than normal
+                    if (Math.random() > 0.8) {
+                        const reward = getRandomSpinReward();
+                        const reducedReward = Math.floor(reward * 0.5); // 50% less coins
+                        await updateSingleBot(bot, reducedReward, weekId);
+                    }
                     continue;
                 }
 
@@ -860,12 +962,12 @@ const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
     // 3. Update Leaderboard
     const leaderboardRef = doc(db, 'weeklyLeaderboard', `${bot.id}_${weekId}`);
     // Use Set with Merge because sometimes leaderboard doc might be missing (rare)
-    // Note: 'increment' works with set({ merge: true })
+    // CRITICAL: Do NOT overwrite username/photoURL. Simulation should only update stats.
     await setDoc(leaderboardRef, {
         userId: bot.id,
-        username: bot.username,
-        photoURL: bot.photoURL,
-        level: bot.level, // Level doesn't change much
+        // username: bot.username,  <-- REMOVED: Don't overwrite dynamic names with stale data
+        // photoURL: bot.photoURL,  <-- REMOVED
+        // level: bot.level,        <-- REMOVED: Static
         weekId: weekId,
         lastUpdated: Timestamp.now(),
         coins: increment(amount),
@@ -882,10 +984,17 @@ export const getSmartBots = async () => {
     try {
         const weekId = getCurrentWeekId();
         const botsRef = collection(db, BOT_COLLECTION);
+        // Query for Current Week AND Active Bots (Not Retired)
+        // Note: Firestore requires composite index for multiple fields equality/inequality
+        // We will fetch by weekId and filter in memory to be safe and avoid index errors if not deployed
         const q = query(botsRef, where('weekId', '==', weekId));
         const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        return snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter((bot: any) => bot.botTier !== 'RETIRED');
     } catch (error) {
+        console.error("Error getting smart bots:", error);
         return [];
     }
 };

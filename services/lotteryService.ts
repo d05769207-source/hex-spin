@@ -11,9 +11,15 @@ const LOTTERY_PARTICIPANTS_COLLECTION = 'sunday_lottery_participants';
  */
 export const ensureLotteryBotParticipation = async (prize: 'iPhone' | 'KTM'): Promise<{ number: number; name: string } | null> => {
     try {
-        // 1. Find the Designated Lottery Bot
+        // 1. Find the Designated Lottery Bot based on Prize
         const bots = await getSmartBots();
-        const lotteryBot = (bots as any[]).find(b => b.botTier === BotTier.SMART_LOTTERY);
+
+        let targetTier = BotTier.SMART_LOTTERY; // Default iPhone Bot
+        if (prize === 'KTM') {
+            targetTier = BotTier.SMART_LOTTERY_KTM; // KTM Bot
+        }
+
+        const lotteryBot = (bots as any[]).find(b => b.botTier === targetTier);
 
         if (!lotteryBot) {
             console.warn('⚠️ No Lottery Bot found!');

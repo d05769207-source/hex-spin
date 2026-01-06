@@ -4,32 +4,65 @@ import { User } from '../types';
 import { createLevelUpRewardMessage } from './mailboxService';
 
 // Generate the next numeric User ID using a transaction
-// Generate the next numeric User ID using a transaction
-// MODIFIED: Now checks if we need to reserve an ID for bots (Smart ID Pool)
+// LEVEL-BASED RESERVED IDS SYSTEM v2.0
+// Supports 5 progressive levels with gap-based release and automatic progression
 export const getNextUserId = async (): Promise<number> => {
     const counterRef = doc(db, 'counters', 'userStats');
     const reservedRef = doc(db, 'system', 'reserved_bot_ids');
-    const MAX_RESERVED = 5;
+    const configRef = doc(db, 'system', 'reserved_ids_config');
 
     try {
         return await runTransaction(db, async (transaction) => {
             const counterDoc = await transaction.get(counterRef);
             const reservedDoc = await transaction.get(reservedRef);
+            const configDoc = await transaction.get(configRef);
 
             let lastId = 100000; // Default start ID
             if (counterDoc.exists()) {
                 lastId = counterDoc.data().lastUserId;
             }
 
-            // Get current reserved IDs
+            // Get current Reserved IDs state
             let reservedIds: number[] = [];
+            let currentLevel = 1;
+            let levelPools: { [key: number]: number[] } = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+
             if (reservedDoc.exists()) {
-                reservedIds = reservedDoc.data().ids || [];
+                const data = reservedDoc.data();
+                reservedIds = data.ids || [];
+                currentLevel = data.currentLevel || 1;
+                levelPools = data.levelPools || { 1: [], 2: [], 3: [], 4: [], 5: [] };
             }
 
-            // DECISION: Do we reserve an ID?
-            // Reserve if we have fewer than MAX and we are not in a weird state
-            const shouldReserve = reservedIds.length < MAX_RESERVED;
+            // Get level configuration
+            let levelConfig = {
+                1: { maxIds: 6, gapSize: 2, filled: 0 },
+                2: { maxIds: 10, gapSize: 5, filled: 0 },
+                3: { maxIds: 20, gapSize: 10, filled: 0 },
+                4: { maxIds: 50, gapSize: 20, filled: 0 },
+                5: { maxIds: 100, gapSize: 50, filled: 0 }
+            };
+
+            if (configDoc.exists()) {
+                const configData = configDoc.data();
+                currentLevel = configData.currentLevel || currentLevel;
+                levelConfig = configData.levels || levelConfig;
+            }
+
+            // Get current level settings
+            const currentLevelConfig = levelConfig[currentLevel];
+            const maxIdsForLevel = currentLevelConfig.maxIds;
+            const gapSize = currentLevelConfig.gapSize;
+
+            // Calculate current level pool size
+            const currentLevelPoolSize = levelPools[currentLevel]?.length || 0;
+
+            // DECISION: Should we reserve an ID?
+            // Reserve if:
+            // 1. Current level pool is not full
+            // 2. We are at the correct gap interval
+            const shouldReserve = currentLevelPoolSize < maxIdsForLevel &&
+                (lastId % gapSize === 0 || lastId === 100000);
 
             let idToGiveUser = lastId + 1;
             let newLastId = lastId + 1;
@@ -43,11 +76,35 @@ export const getNextUserId = async (): Promise<number> => {
                 const idToReserve = lastId + 2;
                 newLastId = lastId + 2;
 
+                // Add to global pool and current level pool
                 reservedIds.push(idToReserve);
+                levelPools[currentLevel].push(idToReserve);
+
+                // Update config filled count
+                levelConfig[currentLevel].filled = levelPools[currentLevel].length;
+
+                // Check if current level is now full → Progress to next level
+                if (levelPools[currentLevel].length >= maxIdsForLevel && currentLevel < 5) {
+                    console.log(`🎉 Level ${currentLevel} FULL! Unlocking Level ${currentLevel + 1}`);
+                    currentLevel++;
+
+                    // Update config with new level
+                    transaction.set(configRef, {
+                        currentLevel: currentLevel,
+                        levels: levelConfig,
+                        lastUpdated: Timestamp.now()
+                    }, { merge: true });
+                }
 
                 // Update reserved list
-                transaction.set(reservedRef, { ids: reservedIds }, { merge: true });
-                // console.log(`🔒 Reserved Bot ID: ${idToReserve}. Pool Size: ${reservedIds.length}`);
+                transaction.set(reservedRef, {
+                    ids: reservedIds,
+                    currentLevel: currentLevel,
+                    levelPools: levelPools,
+                    lastUpdated: Timestamp.now()
+                }, { merge: true });
+
+                console.log(`🔒 Reserved Bot ID: ${idToReserve} for Level ${currentLevel}. Pool Size: ${levelPools[currentLevel].length}/${maxIdsForLevel}`);
             }
 
             // Update Counter
