@@ -25,9 +25,13 @@ A spin wheel game application with real-time leaderboard, user profiles, and eve
 
 2. Set up Supabase:
    - Create a new project at [supabase.com](https://supabase.com)
-   - Run the SQL schema from `supabase-schema.sql` in your Supabase SQL Editor
-   - Enable Google OAuth in Supabase Auth settings
-   - Create a storage bucket named `profile-photos` with public access
+   - Run the SQL scripts in your Supabase SQL Editor in the following order:
+     1. `supabase-schema.sql` (Creates base tables, indexes, and triggers)
+     2. `server_time_utils.sql` (Server-side time and reset validation logic)
+     3. `fix_bot_photos.sql` (Bot profile photo schema and update function)
+     4. `fix_missing_rpcs.sql` (Unified RPC fixes for locks, rankings, and bot stats)
+   - Enable Google OAuth and Email/Password login in Supabase Auth settings
+   - Create a storage bucket named `profile-photos` with public access (in storage dashboard)
 
 3. Set environment variables in `.env.local`:
    ```env
