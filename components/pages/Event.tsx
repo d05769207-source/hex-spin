@@ -6,20 +6,19 @@ import EToken from '../EToken';
 import KTMToken from '../KTMToken';
 import IPhoneToken from '../iPhoneToken';
 import SpinToken from '../SpinToken';
-import { db, auth } from '../../firebase';
-import { doc, onSnapshot, Timestamp, updateDoc, runTransaction, collection, addDoc, query, where, getDocs, getDoc } from 'firebase/firestore';
+import { supabase, auth } from '../../supabaseClient';
 
 type EventState = 'JOINING' | 'IPHONE_DRAW' | 'IPHONE_WINNER' | 'KTM_WAITING' | 'KTM_DRAW' | 'KTM_WINNER' | 'ENDED';
 
 interface LotteryEventData {
-    iphone_start: Timestamp;
-    iphone_end: Timestamp;
-    ktm_start: Timestamp;
-    ktm_end: Timestamp;
+    iphone_start: Date;
+    iphone_end: Date;
+    ktm_start: Date;
+    ktm_end: Date;
     iphone_winner: { number: number; name: string } | null;
     ktm_winner: { number: number; name: string } | null;
     status: 'WAITING' | 'LIVE_IPHONE' | 'LIVE_KTM' | 'ENDED';
-    last_updated?: Timestamp;
+    last_updated?: Date;
 }
 
 interface EventProps {
@@ -55,8 +54,8 @@ const JoiningView: React.FC<JoiningViewProps> = ({ ktmEntry, iphoneEntry, onJoin
             const now = getCurrentTime();
 
             // Determine which draw is next
-            const iphoneStart = eventData.iphone_start.toDate();
-            const ktmStart = eventData.ktm_start.toDate();
+            const iphoneStart = eventData.iphone_start;
+            const ktmStart = eventData.ktm_start;
 
             let targetDate = iphoneStart;
 
@@ -242,7 +241,7 @@ interface DrawViewProps {
     prize: 'iPhone' | 'KTM';
     onBack?: () => void;
     winnerData?: { number: number; name: string } | null;
-    startTime?: Timestamp;
+    startTime?: Date;
 }
 
 const DrawView: React.FC<DrawViewProps> = ({ prize, onBack, winnerData, startTime }) => {
@@ -278,7 +277,7 @@ const DrawView: React.FC<DrawViewProps> = ({ prize, onBack, winnerData, startTim
         }
 
         const now = getCurrentTime().getTime();
-        const start = startTime.toDate().getTime();
+        const start = startTime.getTime();
         const elapsed = now - start;
 
         const winnerStr = winnerData.number.toString().padStart(6, '0');
@@ -574,32 +573,38 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
             const { iphone_start, iphone_end, ktm_start, ktm_end, status, iphone_winner, ktm_winner } = eventData;
 
             // SAFEGUARD: If event was updated less than 1 minute ago, DO NOT run automation checks.
-            const lastUpdate = eventData.last_updated?.toDate().getTime() || 0;
+            const lastUpdate = eventData.last_updated?.getTime() || 0;
             if (now.getTime() - lastUpdate < 60000) {
                 // console.log("⏳ Automation Skipped: Recent Update detected");
                 return;
             }
 
-            const tIphoneStart = iphone_start.toDate();
-            const tIphoneEnd = iphone_end.toDate();
-            const tKtmStart = ktm_start.toDate();
-            const tKtmEnd = ktm_end.toDate();
+            const tIphoneStart = iphone_start;
+            const tIphoneEnd = iphone_end;
+            const tKtmStart = ktm_start;
+            const tKtmEnd = ktm_end;
 
             try {
                 // 1. Trigger iPhone LIVE & PICK WINNER (7:00 PM)
                 if (status === 'WAITING' && now >= tIphoneStart && now < tIphoneEnd && !iphone_winner) {
-                    const currentEventRef = doc(db, "events", "sunday_lottery");
-                    const snap = await getDoc(currentEventRef);
+                    const { data: currentEvent } = await supabase
+                        .from('events')
+                        .select('*')
+                        .eq('id', 'sunday_lottery')
+                        .single();
 
-                    if (snap.exists() && !snap.data().iphone_winner) {
+                    if (currentEvent && !currentEvent.iphone_winner) {
                         const { pickRiggedWinner } = await import('../../services/lotteryService');
                         const winner = await pickRiggedWinner('iPhone');
 
-                        await updateDoc(currentEventRef, {
-                            status: 'LIVE_IPHONE',
-                            iphone_winner: winner,
-                            last_updated: Timestamp.now()
-                        });
+                        await supabase
+                            .from('events')
+                            .update({
+                                status: 'LIVE_IPHONE',
+                                iphone_winner: winner,
+                                last_updated: new Date()
+                            })
+                            .eq('id', 'sunday_lottery');
                         console.log('🤖 Auto-Trigger: iPhone RIGGED WINNER:', winner);
                     }
                 }
@@ -608,25 +613,34 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
                 else if (status === 'LIVE_IPHONE' && iphone_winner) {
                     const timeSinceEnd = now.getTime() - tIphoneEnd.getTime();
                     if (now > tIphoneEnd && timeSinceEnd > 60000) {
-                        await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'WAITING' });
+                        await supabase
+                            .from('events')
+                            .update({ status: 'WAITING' })
+                            .eq('id', 'sunday_lottery');
                         console.log('🤖 Auto-Trigger: iPhone Event Ended (Transition to WAITING)');
                     }
                 }
 
                 // 3. Trigger KTM LIVE & PICK WINNER (8:00 PM)
                 else if (status === 'WAITING' && now >= tKtmStart && now < tKtmEnd && !ktm_winner) {
-                    const currentEventRef = doc(db, "events", "sunday_lottery");
-                    const snap = await getDoc(currentEventRef);
+                    const { data: currentEvent } = await supabase
+                        .from('events')
+                        .select('*')
+                        .eq('id', 'sunday_lottery')
+                        .single();
 
-                    if (snap.exists() && !snap.data().ktm_winner) {
+                    if (currentEvent && !currentEvent.ktm_winner) {
                         const { pickRiggedWinner } = await import('../../services/lotteryService');
                         const winner = await pickRiggedWinner('KTM');
 
-                        await updateDoc(currentEventRef, {
-                            status: 'LIVE_KTM',
-                            ktm_winner: winner,
-                            last_updated: Timestamp.now()
-                        });
+                        await supabase
+                            .from('events')
+                            .update({
+                                status: 'LIVE_KTM',
+                                ktm_winner: winner,
+                                last_updated: new Date()
+                            })
+                            .eq('id', 'sunday_lottery');
                         console.log('🤖 Auto-Trigger: KTM RIGGED WINNER:', winner);
                     }
                 }
@@ -635,7 +649,10 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
                 else if (status === 'LIVE_KTM' && ktm_winner) {
                     const timeSinceEnd = now.getTime() - tKtmEnd.getTime();
                     if (now > tKtmEnd && timeSinceEnd > 60000) {
-                        await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'ENDED' });
+                        await supabase
+                            .from('events')
+                            .update({ status: 'ENDED' })
+                            .eq('id', 'sunday_lottery');
                         console.log('🤖 Auto-Trigger: KTM Event Ended');
                     }
                 }
@@ -760,18 +777,27 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
         }
 
         try {
+            // Get current user
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                alert("Please login to join the lottery.");
+                return;
+            }
+
             // Generate unique code
             const luckyNumber = Math.floor(Math.random() * 900000) + 100000;
 
-            // Save to Firestore
-            await addDoc(collection(db, 'sunday_lottery_participants'), {
-                code: luckyNumber,
-                prize: 'KTM',
-                joinedAt: Timestamp.now(),
-                userId: auth.currentUser?.uid,
-                username: auth.currentUser?.displayName || 'Unknown',
-                isBot: false
-            });
+            // Save to Supabase
+            await supabase
+                .from('sunday_lottery_participants')
+                .insert({
+                    code: luckyNumber,
+                    prize: 'KTM',
+                    joined_at: new Date(),
+                    user_id: user.id,
+                    username: user.user_metadata?.username || user.user_metadata?.full_name || 'Unknown',
+                    is_bot: false
+                });
             console.log('Processed new KTM entry:', luckyNumber);
 
             setKtmEntry(luckyNumber);
@@ -791,17 +817,26 @@ const SundayLotteryView: React.FC<EventProps & { onBack: () => void, eventData: 
         }
 
         try {
+            // Get current user
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+                alert("Please login to join the lottery.");
+                return;
+            }
+
             const luckyNumber = Math.floor(Math.random() * 900000) + 100000;
 
-            // Save to Firestore
-            await addDoc(collection(db, 'sunday_lottery_participants'), {
-                code: luckyNumber,
-                prize: 'iPhone',
-                joinedAt: Timestamp.now(),
-                userId: auth.currentUser?.uid,
-                username: auth.currentUser?.displayName || 'Unknown',
-                isBot: false
-            });
+            // Save to Supabase
+            await supabase
+                .from('sunday_lottery_participants')
+                .insert({
+                    code: luckyNumber,
+                    prize: 'iPhone',
+                    joined_at: new Date(),
+                    user_id: user.id,
+                    username: user.user_metadata?.username || user.user_metadata?.full_name || 'Unknown',
+                    is_bot: false
+                });
             console.log('Processed new iPhone entry:', luckyNumber);
 
             setIphoneEntry(luckyNumber);
@@ -867,7 +902,7 @@ const EventLobby: React.FC<{ onSelect: (id: string) => void, eventData: LotteryE
             if (!eventData) return;
             // Target next draw
             const now = new Date();
-            const iphoneStart = eventData.iphone_start.toDate();
+            const iphoneStart = eventData.iphone_start;
             // Simple logic: count down to iPhone start (7PM)
             // If passed, count to KTM? Or just show "LIVE"?
             // For this UI demo, let's count to iPhone start.
@@ -876,7 +911,7 @@ const EventLobby: React.FC<{ onSelect: (id: string) => void, eventData: LotteryE
             if (now > iphoneStart) {
                 // If iPhone started, maybe show KTM start?
                 // matching original logic
-                const ktmStart = eventData.ktm_start.toDate();
+                const ktmStart = eventData.ktm_start;
                 if (now < ktmStart) target = ktmStart;
                 else {
                     // next week
@@ -1012,7 +1047,7 @@ const EventLobby: React.FC<{ onSelect: (id: string) => void, eventData: LotteryE
                                     className="w-full relative overflow-hidden group/btn rounded-xl"
                                 >
                                     <div className="absolute inset-0 bg-gradient-to-r from-yellow-600 via-yellow-500 to-yellow-600 transition-all duration-300 group-hover/btn:brightness-110"></div>
-                                    <div className="absolute inset-0 opacity-10 mix-blend-overlay" style={{ backgroundImage: "url('https://www.transparenttextures.com/patterns/carbon-fibre.png')" }}></div>
+                                    <div className="absolute inset-0 opacity-10 mix-blend-overlay" style={{ backgroundImage: "radial-gradient(black 15%, transparent 16%), radial-gradient(black 15%, transparent 16%)", backgroundSize: "4px 4px", backgroundPosition: "0 0, 2px 2px" }}></div>
                                     <div className="relative px-4 py-2.5 flex items-center justify-center gap-2">
                                         <span className="font-display font-bold text-lg text-black tracking-wide">ENTER ARENA</span>
                                         <span className="font-bold text-black group-hover/btn:translate-x-1 transition-transform text-sm">→</span>
@@ -1058,13 +1093,60 @@ const Event: React.FC<EventProps> = (props) => {
 
     // Fetch Event Data Logic moved to Parent to share with Lobby
     useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'events', 'sunday_lottery'), (doc) => {
-            if (doc.exists()) {
-                const data = doc.data() as LotteryEventData;
-                setEventData(data);
+        const channel = supabase
+            .channel('sunday_lottery_events')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'events',
+                filter: 'id=eq.sunday_lottery'
+            }, async (payload) => {
+                if (payload.new) {
+                    const data = payload.new as any;
+                    // Convert snake_case to camelCase for compatibility
+                    const eventData: LotteryEventData = {
+                        iphone_start: new Date(data.iphone_start),
+                        iphone_end: new Date(data.iphone_end),
+                        ktm_start: new Date(data.ktm_start),
+                        ktm_end: new Date(data.ktm_end),
+                        iphone_winner: data.iphone_winner,
+                        ktm_winner: data.ktm_winner,
+                        status: data.status,
+                        last_updated: data.last_updated ? new Date(data.last_updated) : undefined
+                    };
+                    setEventData(eventData);
+                }
+            })
+            .subscribe();
+
+        // Initial fetch
+        const fetchInitialData = async () => {
+            const { data, error } = await supabase
+                .from('events')
+                .select('*')
+                .eq('id', 'sunday_lottery')
+                .single();
+
+            if (data && !error) {
+                const eventData: LotteryEventData = {
+                    iphone_start: new Date(data.iphone_start),
+                    iphone_end: new Date(data.iphone_end),
+                    ktm_start: new Date(data.ktm_start),
+                    ktm_end: new Date(data.ktm_end),
+                    iphone_winner: data.iphone_winner,
+                    ktm_winner: data.ktm_winner,
+                    status: data.status,
+                    last_updated: data.last_updated ? new Date(data.last_updated) : undefined
+                };
+                setEventData(eventData);
             }
-        });
-        return () => unsub();
+        };
+
+        fetchInitialData();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
 
 

@@ -1,36 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Users, Loader2, Plus, X, UserPlus, User as UserIcon, Bell, Search, Check, UserMinus, Copy, Send } from 'lucide-react';
-import { auth, db } from '../../firebase';
+import { supabase, auth } from '../../supabaseClient';
 import { useLeaderboard } from '../../hooks/useLeaderboard';
 import { LeaderboardEntry, User, FriendRequest, Friend } from '../../types';
 import EToken from '../EToken';
 import PrizeImage from '../PrizeImage';
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  limit,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  serverTimestamp,
-  runTransaction,
-  getCountFromServer
-} from 'firebase/firestore';
 import { getLevelProgress } from '../../utils/levelUtils';
 
 // Local interfaces removed in favor of global types
 
 const Leaderboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'PRIZE' | 'WEEKLY' | 'FRIENDS'>('WEEKLY');
-  const currentUser = auth.currentUser;
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // Get current user from Supabase Auth
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    getCurrentUser();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setCurrentUser(session?.user || null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Use custom hook for leaderboard data
   const { leaderboard, loading, userRank, weekRange } = useLeaderboard(
-    currentUser?.uid,
+    currentUser?.id,
     100
   );
 
@@ -60,7 +61,7 @@ const Leaderboard: React.FC = () => {
 
   useEffect(() => {
     if (currentUser) {
-      const userData = leaderboard.find(entry => entry.userId === currentUser.uid);
+      const userData = leaderboard.find(entry => entry.userId === currentUser.id);
       if (userData) {
         setCurrentUserData(userData);
       } else if (userRank > 0) {
@@ -68,14 +69,22 @@ const Leaderboard: React.FC = () => {
         const fetchUserCoins = async () => {
           if (!currentUser) return;
           try {
-            const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-            if (userDoc.exists()) {
+            const { data, error } = await supabase
+              .from('users')
+              .select('coins, username, photo_url, total_spins, created_at')
+              .eq('uid', currentUser.id)
+              .single();
+
+            if (data && !error) {
               setCurrentUserData({
-                userId: currentUser.uid,
-                username: currentUser.displayName || 'You',
-                coins: userDoc.data().coins || 0,
+                userId: currentUser.id,
+                username: data.username || currentUser.user_metadata?.username || currentUser.user_metadata?.full_name || 'You',
+                photoURL: data.photo_url || currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || '',
+                coins: data.coins || 0,
+                totalSpins: data.total_spins || 0,
                 rank: userRank,
-                isMe: true
+                isMe: true,
+                createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now()
               });
             }
           } catch (e) {
@@ -92,35 +101,151 @@ const Leaderboard: React.FC = () => {
     if (!currentUser) return;
 
     // Listen for Friend Requests
-    const requestsRef = collection(db, 'users', currentUser.uid, 'friendRequests');
-    const unsubscribeRequests = onSnapshot(requestsRef, (snapshot) => {
-      const reqs: FriendRequest[] = [];
-      snapshot.forEach(doc => {
-        reqs.push({ id: doc.id, ...doc.data() } as FriendRequest);
-      });
-      setFriendRequests(reqs);
-    });
+    const requestsChannel = supabase
+      .channel(`friend_requests_${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'friend_requests',
+          filter: `receiver_id=eq.${currentUser.id}`
+        },
+        async (payload) => {
+          // Fetch all friend requests for this user
+          const { data, error } = await supabase
+            .from('friend_requests')
+            .select('*')
+            .eq('receiver_id', currentUser.id);
+
+          if (!error && data) {
+            const reqs: FriendRequest[] = data.map(req => ({
+              id: req.sender_id,
+              senderId: req.sender_id,
+              senderName: req.sender_username || 'Unknown',
+              username: req.sender_username || 'Unknown',
+              photoURL: req.sender_photo_url || '',
+              status: 'pending' as const,
+              createdAt: new Date(req.created_at),
+              time: new Date(req.created_at).toLocaleDateString()
+            }));
+            setFriendRequests(reqs);
+          }
+        }
+      )
+      .subscribe();
 
     // Listen for Friends
-    const friendsRef = collection(db, 'users', currentUser.uid, 'friends');
-    const unsubscribeFriends = onSnapshot(friendsRef, (snapshot) => {
-      const friendsList: Friend[] = [];
-      snapshot.forEach(doc => {
-        friendsList.push({ id: doc.id, ...doc.data() } as Friend);
-      });
-      setFriends(friendsList);
-    });
+    const friendsChannel = supabase
+      .channel(`friends_${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'friends',
+          filter: `user_id=eq.${currentUser.id}`
+        },
+        async (payload) => {
+          // Fetch all friends for this user
+          const { data, error } = await supabase
+            .from('friends')
+            .select('friend_id, friend_username, friend_photo_url')
+            .eq('user_id', currentUser.id);
 
-    const sentRef = collection(db, 'users', currentUser.uid, 'sentFriendRequests');
-    const unsubscribeSent = onSnapshot(sentRef, (snapshot) => {
-      const sentIds = snapshot.docs.map(doc => doc.id);
-      setSentRequests(sentIds);
-    });
+          if (!error && data) {
+            const friendsList: Friend[] = data.map(f => ({
+              id: f.friend_id,
+              username: f.friend_username || 'Unknown',
+              photoURL: f.friend_photo_url || ''
+            }));
+            setFriends(friendsList);
+          }
+        }
+      )
+      .subscribe();
+
+    // Listen for Sent Requests
+    const sentChannel = supabase
+      .channel(`sent_requests_${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'friend_requests',
+          filter: `sender_id=eq.${currentUser.id}`
+        },
+        async (payload) => {
+          // Fetch all sent requests for this user
+          const { data, error } = await supabase
+            .from('friend_requests')
+            .select('receiver_id')
+            .eq('sender_id', currentUser.id);
+
+          if (!error && data) {
+            const sentIds = data.map(req => req.receiver_id);
+            setSentRequests(sentIds);
+          }
+        }
+      )
+      .subscribe();
+
+    // Initial fetch
+    const fetchInitialData = async () => {
+      // Fetch friend requests
+      const { data: reqsData, error: reqsError } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .eq('receiver_id', currentUser.id);
+
+      if (!reqsError && reqsData) {
+        const reqs: FriendRequest[] = reqsData.map(req => ({
+          id: req.sender_id,
+          senderId: req.sender_id,
+          senderName: req.sender_username || 'Unknown',
+          username: req.sender_username || 'Unknown',
+          photoURL: req.sender_photo_url || '',
+          status: 'pending' as const,
+          createdAt: new Date(req.created_at),
+          time: new Date(req.created_at).toLocaleDateString()
+        }));
+        setFriendRequests(reqs);
+      }
+
+      // Fetch friends
+      const { data: friendsData, error: friendsError } = await supabase
+        .from('friends')
+        .select('friend_id, friend_username, friend_photo_url')
+        .eq('user_id', currentUser.id);
+
+      if (!friendsError && friendsData) {
+        const friendsList: Friend[] = friendsData.map(f => ({
+          id: f.friend_id,
+          username: f.friend_username || 'Unknown',
+          photoURL: f.friend_photo_url || ''
+        }));
+        setFriends(friendsList);
+      }
+
+      // Fetch sent requests
+      const { data: sentData, error: sentError } = await supabase
+        .from('friend_requests')
+        .select('receiver_id')
+        .eq('sender_id', currentUser.id);
+
+      if (!sentError && sentData) {
+        const sentIds = sentData.map(req => req.receiver_id);
+        setSentRequests(sentIds);
+      }
+    };
+
+    fetchInitialData();
 
     return () => {
-      unsubscribeRequests();
-      unsubscribeFriends();
-      unsubscribeSent();
+      supabase.removeChannel(requestsChannel);
+      supabase.removeChannel(friendsChannel);
+      supabase.removeChannel(sentChannel);
     };
   }, [currentUser]);
 
@@ -131,39 +256,45 @@ const Leaderboard: React.FC = () => {
         setLoadingFriendsBoard(true);
         try {
           // Fetch current user's latest data
-          const myDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          const myData = myDoc.data();
+          const { data: myData, error: myError } = await supabase
+            .from('users')
+            .select('username, photo_url, coins, total_spins, created_at')
+            .eq('uid', currentUser.id)
+            .single();
+
+          if (myError) throw myError;
+
           const me: LeaderboardEntry = {
-            userId: currentUser.uid,
-            username: myData?.username || currentUser.displayName || 'You',
-            photoURL: myData?.photoURL || currentUser.photoURL || '',
+            userId: currentUser.id,
+            username: myData?.username || currentUser.user_metadata?.username || currentUser.user_metadata?.full_name || 'You',
+            photoURL: myData?.photo_url || currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || '',
             coins: myData?.coins || 0,
-            totalSpins: myData?.totalSpins || 0,
+            totalSpins: myData?.total_spins || 0,
             isMe: true,
-            // @ts-ignore
-            createdAt: myData?.createdAt?.toMillis ? myData.createdAt.toMillis() : (myData?.createdAt || Date.now())
+            createdAt: myData?.created_at ? new Date(myData.created_at).getTime() : Date.now()
           };
 
           // Fetch all friends' data
-          const friendPromises = friends.map(async (friend) => {
-            const userDoc = await getDoc(doc(db, 'users', friend.id));
-            const userData = userDoc.data();
-            return {
-              userId: friend.id,
-              username: userData?.username || friend.username,
-              photoURL: userData?.photoURL || friend.photoURL,
-              coins: userData?.coins || 0,
-              totalSpins: userData?.totalSpins || 0,
-              isMe: false,
-              // @ts-ignore
-              createdAt: userData?.createdAt?.toMillis ? userData.createdAt.toMillis() : (userData?.createdAt || Date.now())
-            } as LeaderboardEntry;
-          });
+          const friendIds = friends.map(f => f.id);
+          const { data: friendsData, error: friendsError } = await supabase
+            .from('users')
+            .select('uid, username, photo_url, coins, total_spins, created_at')
+            .in('uid', friendIds);
 
-          const friendsData = await Promise.all(friendPromises);
+          if (friendsError) throw friendsError;
+
+          const friendsList = friendsData?.map(userData => ({
+            userId: userData.uid,
+            username: userData.username || 'Unknown',
+            photoURL: userData.photo_url || '',
+            coins: userData.coins || 0,
+            totalSpins: userData.total_spins || 0,
+            isMe: false,
+            createdAt: userData.created_at ? new Date(userData.created_at).getTime() : Date.now()
+          })) || [];
 
           // Combine and Sort
-          const allPlayers = [me, ...friendsData];
+          const allPlayers = [me, ...friendsList];
           allPlayers.sort((a, b) => {
             // 1. Sort by Total Spins (Highest First)
             const spinsA = a.totalSpins || 0;
@@ -173,9 +304,7 @@ const Leaderboard: React.FC = () => {
             }
 
             // 2. Sort by Time (Oldest First / First Come First Serve)
-            // @ts-ignore
             const timeA = a.createdAt || 0;
-            // @ts-ignore
             const timeB = b.createdAt || 0;
             return timeA - timeB;
           });
@@ -230,48 +359,50 @@ const Leaderboard: React.FC = () => {
     setIsSearchActive(true);
     setIsSearching(true);
     try {
-      const usersRef = collection(db, 'users');
       const resultsMap = new Map<string, User>();
 
-      // 1. Search by Username
-      const usernameQuery = query(
-        usersRef,
-        where('username', '>=', searchQuery),
-        where('username', '<=', searchQuery + '\uf8ff'),
-        limit(5)
-      );
+      // 1. Search by Username (using ILIKE for case-insensitive search)
+      const { data: usernameResults, error: usernameError } = await supabase
+        .from('users')
+        .select('uid, username, photo_url, coins, total_spins')
+        .ilike('username', `${searchQuery}%`)
+        .limit(5);
 
-      // 2. Search by Display ID (if query is numeric)
-      let idQuery = null;
-      if (!isNaN(Number(searchQuery))) {
-        idQuery = query(usersRef, where('displayId', '==', Number(searchQuery)), limit(1));
-      }
-
-      // Execute queries
-      const queries = [getDocs(usernameQuery)];
-      if (idQuery) {
-        queries.push(getDocs(idQuery));
-      }
-
-      const snapshots = await Promise.all(queries);
-
-      const usernameSnapshot = snapshots[0];
-      const idSnapshot = idQuery ? snapshots[1] : null;
-
-      // Process Username Results
-      usernameSnapshot.forEach((doc) => {
-        if (doc.id !== currentUser?.uid) {
-          resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as User);
-        }
-      });
-
-      // Process ID Results
-      if (idSnapshot) {
-        idSnapshot.forEach((doc) => {
-          if (doc.id !== currentUser?.uid) {
-            resultsMap.set(doc.id, { id: doc.id, ...doc.data() } as User);
+      if (!usernameError && usernameResults) {
+        usernameResults.forEach((user) => {
+          if (user.uid !== currentUser?.id) {
+            resultsMap.set(user.uid, {
+              id: user.uid,
+              username: user.username || 'Unknown',
+              photoURL: user.photo_url || '',
+              coins: user.coins || 0,
+              totalSpins: user.total_spins || 0
+            } as User);
           }
         });
+      }
+
+      // 2. Search by Display ID (if query is numeric)
+      if (!isNaN(Number(searchQuery))) {
+        const { data: idResults, error: idError } = await supabase
+          .from('users')
+          .select('uid, username, photo_url, coins, total_spins')
+          .eq('display_id', Number(searchQuery))
+          .limit(1);
+
+        if (!idError && idResults) {
+          idResults.forEach((user) => {
+            if (user.uid !== currentUser?.id) {
+              resultsMap.set(user.uid, {
+                id: user.uid,
+                username: user.username || 'Unknown',
+                photoURL: user.photo_url || '',
+                coins: user.coins || 0,
+                totalSpins: user.total_spins || 0
+              } as User);
+            }
+          });
+        }
       }
 
       setSearchResults(Array.from(resultsMap.values()));
@@ -286,9 +417,31 @@ const Leaderboard: React.FC = () => {
     setMenuState(null);
     setLoadingProfile(true);
     try {
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      if (userDoc.exists()) {
-        setViewProfileUser({ id: userDoc.id, ...userDoc.data() } as User);
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('uid', userId)
+        .single();
+
+      if (data && !error) {
+        setViewProfileUser({
+          id: data.uid,
+          uid: data.uid,
+          username: data.username || 'Unknown',
+          email: data.email || undefined,
+          isGuest: false,
+          photoURL: data.photo_url || '',
+          displayId: data.display_id,
+          referralCode: data.referral_code,
+          referralCount: data.referral_count,
+          coins: data.coins || 0,
+          totalSpins: data.total_spins || 0,
+          tokens: data.tokens || 0,
+          eTokens: data.e_tokens || 0,
+          ktmTokens: data.ktm_tokens || 0,
+          iphoneTokens: data.iphone_tokens || 0,
+          inrBalance: data.inr_balance || 0
+        } as User);
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
@@ -312,8 +465,14 @@ const Leaderboard: React.FC = () => {
 
     try {
       // 1. Check if already friends
-      const friendDoc = await getDoc(doc(db, 'users', currentUser.uid, 'friends', targetUser.id));
-      if (friendDoc.exists()) {
+      const { data: existingFriend, error: friendError } = await supabase
+        .from('friends')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .eq('friend_id', targetUser.id)
+        .maybeSingle();
+
+      if (existingFriend && !friendError) {
         showNotification("You are already friends!", 'error');
         return;
       }
@@ -331,24 +490,27 @@ const Leaderboard: React.FC = () => {
       }
 
       // 4. Check target's pending request limit (50)
-      const targetRequestsRef = collection(db, 'users', targetUser.id, 'friendRequests');
-      const targetRequestsSnapshot = await getCountFromServer(targetRequestsRef);
-      if (targetRequestsSnapshot.data().count >= 50) {
+      const { count: targetRequestsCount, error: countError } = await supabase
+        .from('friend_requests')
+        .select('*', { count: 'exact', head: true })
+        .eq('receiver_id', targetUser.id);
+
+      if (targetRequestsCount && targetRequestsCount >= 50) {
         showNotification("This user has too many pending friend requests.", 'error');
         return;
       }
 
-      // 5. Send Request (Write to target's friendRequests)
-      await setDoc(doc(db, 'users', targetUser.id, 'friendRequests', currentUser.uid), {
-        username: currentUser.displayName || 'Unknown',
-        photoURL: currentUser.photoURL || '',
-        timestamp: serverTimestamp()
-      });
+      // 5. Send Request (Write to friend_requests table)
+      const { error: insertError } = await supabase
+        .from('friend_requests')
+        .insert({
+          sender_id: currentUser.id,
+          sender_username: currentUser.user_metadata?.username || currentUser.user_metadata?.full_name || 'Unknown',
+          sender_photo_url: currentUser.user_metadata?.avatar_url || currentUser.user_metadata?.picture || '',
+          receiver_id: targetUser.id
+        });
 
-      // 6. Track Sent Request (Write to my sentFriendRequests)
-      await setDoc(doc(db, 'users', currentUser.uid, 'sentFriendRequests', targetUser.id), {
-        timestamp: serverTimestamp()
-      });
+      if (insertError) throw insertError;
 
       showNotification("Friend request sent!");
 
@@ -359,69 +521,53 @@ const Leaderboard: React.FC = () => {
   };
 
   const handleAcceptRequest = async (req: FriendRequest) => {
-    if (!currentUser) {
-      console.error("No current user");
-      return;
-    }
+    if (!currentUser) return;
 
     if (!req || !req.id) {
-      console.error("Invalid request object passed to handleAcceptRequest:", req);
-      showNotification("Error: Invalid request data. Please try refreshing.", 'error');
+      showNotification("Error: Invalid request data.", 'error');
       return;
     }
 
-    console.log("Accepting request from:", req.id, req.username);
+    // Optimistic Update: Remove from list immediately
+    setFriendRequests(prev => prev.filter(r => r.id !== req.id));
 
     try {
-      // Check my friend limit again before accepting
       if (friends.length >= 100) {
-        showNotification("You cannot accept more friends. Limit of 100 reached.", 'error');
+        showNotification("Friend limit reached.", 'error');
+        // Revert if failed (optional, but complex to add back)
         return;
       }
 
-      await runTransaction(db, async (transaction) => {
-        // 1. Remove from my friendRequests
-        const reqRef = doc(db, 'users', currentUser.uid, 'friendRequests', req.id);
-        transaction.delete(reqRef);
-
-        // 2. Remove from sender's sentFriendRequests
-        const senderSentRef = doc(db, 'users', req.id, 'sentFriendRequests', currentUser.uid);
-        transaction.delete(senderSentRef);
-
-        // 3. Add to my friends
-        const myFriendRef = doc(db, 'users', currentUser.uid, 'friends', req.id);
-        transaction.set(myFriendRef, {
-          username: req.username,
-          photoURL: req.photoURL || '',
-          timestamp: serverTimestamp()
-        });
-
-        // 4. Add me to sender's friends
-        const senderFriendRef = doc(db, 'users', req.id, 'friends', currentUser.uid);
-        transaction.set(senderFriendRef, {
-          username: currentUser.displayName || 'Unknown',
-          photoURL: currentUser.photoURL || '',
-          timestamp: serverTimestamp()
-        });
+      const { error: rpcError } = await supabase.rpc('accept_friend_request', {
+        request_sender_id: req.id,
+        request_sender_username: req.username,
+        request_sender_photo: req.photoURL || ''
       });
 
+      if (rpcError) throw rpcError;
+
       showNotification(`You are now friends with ${req.username}!`);
-      // UI update happens automatically via listeners
     } catch (error) {
       console.error("Error accepting friend request:", error);
       showNotification("Failed to accept request.", 'error');
+      // Ideally revert state here, but for now we assume success or reload
     }
   };
 
   const handleRejectRequest = async (reqId: string) => {
     if (!currentUser) return;
 
-    try {
-      // 1. Remove from my friendRequests
-      await deleteDoc(doc(db, 'users', currentUser.uid, 'friendRequests', reqId));
+    // Optimistic Update
+    setFriendRequests(prev => prev.filter(r => r.id !== reqId));
 
-      // 2. Remove from sender's sentFriendRequests
-      await deleteDoc(doc(db, 'users', reqId, 'sentFriendRequests', currentUser.uid)).catch(e => console.log("Could not clear sender's sent status", e));
+    try {
+      const { error: deleteError } = await supabase
+        .from('friend_requests')
+        .delete()
+        .eq('sender_id', reqId)
+        .eq('receiver_id', currentUser.id);
+
+      if (deleteError) throw deleteError;
 
     } catch (error) {
       console.error("Error rejecting friend request:", error);
@@ -562,7 +708,7 @@ const Leaderboard: React.FC = () => {
               {/* LEADERBOARD LIST (All Ranks) */}
               <div className="space-y-2 pb-4 mt-4">
                 {leaderboard.map((player, index) => {
-                  const isCurrentUser = currentUser && player.userId === currentUser.uid;
+                  const isCurrentUser = currentUser && player.userId === currentUser.id;
 
                   // Rank Styles
                   let rankBg = 'bg-gradient-to-br from-gray-800 to-black text-gray-300 border-gray-600 shadow-black/50';

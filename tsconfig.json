@@ -25,5 +25,15 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "backup-event-redesign",
+    "node_modules",
+    "dist",
+    "build"
+  ]
 }

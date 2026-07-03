@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Settings, Edit, ExternalLink, Share2, LogOut, ArrowRight, Minus, Plus, X, Camera, Trophy, Lock, CheckCircle, RefreshCw, Copy } from 'lucide-react';
 import { User } from '../../types';
-import { db } from '../../firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { supabase } from '../../supabaseClient';
 import Cropper from 'react-easy-crop';
 import EToken from '../EToken';
 import KTMToken from '../KTMToken';
@@ -19,9 +18,6 @@ type Area = {
   width: number;
   height: number;
 };
-
-// Supabase Configuration
-import { supabase } from '../../supabaseClient';
 
 // File validation constants
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
@@ -355,17 +351,19 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
       console.log('Photo uploaded to Supabase:', photoURL);
       console.log('User object:', user);
 
-      // Save to Firestore if user is logged in
+      // Save to Supabase if user is logged in
       if (user && !user.isGuest) {
         try {
           // Use user.id (document ID) instead of user.uid
           const userId = user.id || user.uid;
           if (userId) {
-            const userRef = doc(db, 'users', userId);
-            await updateDoc(userRef, {
-              photoURL: photoURL
-            });
-            console.log('Photo URL saved to Firestore for user:', userId);
+            await supabase
+              .from('users')
+              .update({
+                photo_url: photoURL
+              })
+              .eq('uid', userId);
+            console.log('Photo URL saved to Supabase for user:', userId);
 
             // SYNC TO LEADERBOARD IMMEDIATELY
             await syncUserToLeaderboard(
@@ -378,9 +376,9 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
             );
             console.log('Photo URL synced to Leaderboard with coins:', coins);
           }
-        } catch (firestoreError) {
-          console.error('Firestore save error:', firestoreError);
-          // Don't fail the whole operation if Firestore save fails
+        } catch (supabaseError) {
+          console.error('Supabase save error:', supabaseError);
+          // Don't fail the whole operation if Supabase save fails
         }
       }
 
@@ -734,7 +732,7 @@ const Profile: React.FC<ProfileProps> = ({ onBack, coins, tokens, eTokens, user,
                     }
                   `}>
                     {/* Background Pattern */}
-                    {isCurrent && <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-20"></div>}
+                    {isCurrent && <div className="absolute inset-0 bg-[radial-gradient(#ffffff33_1px,transparent_1px)] [background-size:16px_16px] opacity-20"></div>}
 
                     <div className="flex items-center gap-2 z-10">
                       <div className={`

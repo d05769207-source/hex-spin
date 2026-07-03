@@ -109,6 +109,12 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMess
         if (!user || claiming) return;
 
         setClaiming(message.id);
+
+        // Optimistic Update: Update local state immediately
+        setMessages(prev => prev.map(m =>
+            m.id === message.id ? { ...m, status: MessageStatus.CLAIMED } : m
+        ));
+
         try {
             const result = await claimMessage(message.id, user.id);
 
@@ -120,14 +126,14 @@ const Mailbox: React.FC<MailboxProps> = ({ onBack, user, onRewardClaimed, onMess
                 if (onRewardClaimed) {
                     onRewardClaimed(result.rewardAmount, result.rewardType);
                 }
-
-                // Optimistic Update: Update local state immediately to remove item seamlessly
-                setMessages(prev => prev.map(m =>
-                    m.id === message.id ? { ...m, status: MessageStatus.CLAIMED } : m
-                ));
             }
         } catch (error: any) {
             showNotification(`Failed to claim: ${error.message}`, 'error');
+
+            // Revert Optimistic Update on failure
+            setMessages(prev => prev.map(m =>
+                m.id === message.id ? { ...m, status: MessageStatus.UNREAD } : m
+            ));
         } finally {
             setClaiming(null);
         }

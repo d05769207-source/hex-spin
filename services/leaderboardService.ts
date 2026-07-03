@@ -1,21 +1,4 @@
-import {
-    collection,
-    query,
-    orderBy,
-    limit,
-    getDocs,
-    doc,
-    setDoc,
-    getDoc,
-    onSnapshot,
-    where,
-    Timestamp,
-    updateDoc,
-    increment,
-    getCountFromServer,
-    writeBatch
-} from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase, rpc, realtime } from '../supabaseClient';
 import { LeaderboardEntry, WeeklyStats } from '../types';
 import { getCurrentWeekId, getWeekStartDate, getWeekEndDate } from '../utils/weekUtils';
 
@@ -23,38 +6,38 @@ import { getCurrentWeekId, getWeekStartDate, getWeekEndDate } from '../utils/wee
 export const getWeeklyLeaderboard = async (limitCount: number = 100, excludeBots: boolean = false): Promise<LeaderboardEntry[]> => {
     try {
         const weekId = getCurrentWeekId();
-        const leaderboardRef = collection(db, 'weeklyLeaderboard');
-        const q = query(
-            leaderboardRef,
-            where('weekId', '==', weekId),
-            orderBy('coins', 'desc'),
-            orderBy('lastUpdated', 'asc'), // Tie-breaker 1: Earlier timestamp wins (First come, first served)
-            orderBy('totalSpins', 'desc'), // Tie-breaker 2: More activity
-            orderBy('level', 'desc'),      // Tie-breaker 3: Higher level
-            orderBy('username', 'asc'),    // Final Tie-breaker: Alphabetical
-            limit(limitCount)
-        );
 
-        const snapshot = await getDocs(q);
+        const { data, error } = await supabase
+            .from('weekly_leaderboard')
+            .select('*')
+            .eq('week_id', weekId)
+            .order('coins', { ascending: false })
+            .order('last_updated', { ascending: true }) // Tie-breaker 1: Earlier timestamp wins
+            .order('total_spins', { ascending: false }) // Tie-breaker 2: More activity
+            .order('level', { ascending: false }) // Tie-breaker 3: Higher level
+            .order('username', { ascending: true }) // Final Tie-breaker: Alphabetical
+            .limit(limitCount);
+
+        if (error) {
+            console.error('Error fetching weekly leaderboard:', error);
+            return [];
+        }
+
         const leaderboard: LeaderboardEntry[] = [];
 
-        let index = 0;
-        snapshot.forEach((doc) => {
-            const data = doc.data();
-
+        (data || []).forEach((entry, index) => {
             // Skip bots if excludeBots is true
-            if (excludeBots && data.userId && data.userId.startsWith('bot_')) {
+            if (excludeBots && entry.user_id && entry.user_id.startsWith('bot_')) {
                 return;
             }
 
             leaderboard.push({
-                userId: data.userId,
-                username: data.username,
-                coins: data.coins || 0,
-                photoURL: data.photoURL,
+                userId: entry.user_id,
+                username: entry.username,
+                coins: entry.coins || 0,
+                photoURL: entry.photo_url,
                 rank: index + 1
             });
-            index++;
         });
 
         return leaderboard;
@@ -71,76 +54,33 @@ export const subscribeToLeaderboard = (
     excludeBots: boolean = false
 ) => {
     const weekId = getCurrentWeekId();
-    const leaderboardRef = collection(db, 'weeklyLeaderboard');
-    const q = query(
-        leaderboardRef,
-        where('weekId', '==', weekId),
-        orderBy('coins', 'desc'),
-        orderBy('lastUpdated', 'asc'), // Tie-breaker 1: Earlier timestamp wins
-        orderBy('totalSpins', 'desc'), // Tie-breaker 2: More activity
-        orderBy('level', 'desc'),      // Tie-breaker 3: Higher level
-        orderBy('username', 'asc'),    // Final Tie-breaker: Alphabetical
-        limit(limitCount)
-    );
 
-    return onSnapshot(q, (snapshot) => {
-        const leaderboard: LeaderboardEntry[] = [];
-        let index = 0;
-        snapshot.forEach((doc) => {
-            const data = doc.data();
-
-            // Skip bots if excludeBots is true
-            if (excludeBots && data.userId && data.userId.startsWith('bot_')) {
-                return;
-            }
-
-            leaderboard.push({
-                userId: data.userId,
-                username: data.username,
-                coins: data.coins || 0,
-                photoURL: data.photoURL,
-                totalSpins: data.totalSpins || 0,
-                level: data.level || 0,
-                rank: index + 1
-            });
-            index++;
-        });
+    const unsubscribe = realtime.subscribeToLeaderboard(weekId, async () => {
+        // Fetch fresh data on change
+        const leaderboard = await getWeeklyLeaderboard(limitCount, excludeBots);
         callback(leaderboard);
-    }, (error) => {
-        console.error('Error in leaderboard subscription:', error);
-        callback([]);
     });
+
+    // Initial fetch
+    getWeeklyLeaderboard(limitCount, excludeBots).then(callback);
+
+    return unsubscribe;
 };
 
 // Get user's rank in weekly leaderboard (Global Rank)
 export const getUserRank = async (userId: string): Promise<number> => {
     try {
         const weekId = getCurrentWeekId();
-        const leaderboardRef = collection(db, 'weeklyLeaderboard');
 
-        // 1. Get current user's coins
-        const userDocRef = doc(db, 'weeklyLeaderboard', `${userId}_${weekId}`);
-        const userDoc = await getDoc(userDocRef);
+        // Use RPC function for efficient rank calculation
+        const { data, error } = await rpc.getUserRank(userId, weekId);
 
-        if (!userDoc.exists()) {
-            return 0; // User hasn't played this week
+        if (error) {
+            console.error('Error getting user rank:', error);
+            return 0;
         }
 
-        const userCoins = userDoc.data().coins || 0;
-
-        // 2. Count users with MORE coins than current user
-        const q = query(
-            leaderboardRef,
-            where('weekId', '==', weekId),
-            where('coins', '>', userCoins)
-        );
-
-        const snapshot = await getCountFromServer(q);
-        const count = snapshot.data().count;
-
-        // Rank is count + 1 (e.g. if 5 people have more coins, I am #6)
-        return count + 1;
-
+        return data || 0;
     } catch (error) {
         console.error('Error getting user rank:', error);
         return 0;
@@ -156,33 +96,47 @@ export const updateUserWeeklyCoins = async (
 ): Promise<void> => {
     try {
         const weekId = getCurrentWeekId();
-        const leaderboardDocRef = doc(db, 'weeklyLeaderboard', `${userId}_${weekId}`);
 
         // Check if document exists
-        const docSnap = await getDoc(leaderboardDocRef);
+        const { data: existingEntry } = await supabase
+            .from('weekly_leaderboard')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('week_id', weekId)
+            .single();
 
-        if (docSnap.exists()) {
+        if (existingEntry) {
             // Update existing entry
             const updateData: any = {
-                coins: increment(coinsToAdd),
-                lastUpdated: Timestamp.now()
+                coins: existingEntry.coins + coinsToAdd,
+                last_updated: new Date().toISOString()
             };
 
             if (photoURL) {
-                updateData.photoURL = photoURL;
+                updateData.photo_url = photoURL;
             }
 
-            await updateDoc(leaderboardDocRef, updateData);
+            const { error } = await supabase
+                .from('weekly_leaderboard')
+                .update(updateData)
+                .eq('user_id', userId)
+                .eq('week_id', weekId);
+
+            if (error) throw error;
         } else {
             // Create new entry
-            await setDoc(leaderboardDocRef, {
-                userId,
-                username,
-                coins: coinsToAdd,
-                photoURL: photoURL || null,
-                weekId,
-                lastUpdated: Timestamp.now()
-            });
+            const { error } = await supabase
+                .from('weekly_leaderboard')
+                .insert({
+                    user_id: userId,
+                    username,
+                    coins: coinsToAdd,
+                    photo_url: photoURL || null,
+                    week_id: weekId,
+                    last_updated: new Date().toISOString()
+                });
+
+            if (error) throw error;
         }
     } catch (error) {
         console.error('Error updating weekly coins:', error);
@@ -201,20 +155,22 @@ export const syncUserToLeaderboard = async (
 ): Promise<void> => {
     try {
         const weekId = getCurrentWeekId();
-        const leaderboardDocRef = doc(db, 'weeklyLeaderboard', `${userId}_${weekId}`);
 
-        // Set/Update the document with absolute coin value
-        await setDoc(leaderboardDocRef, {
+        // Use RPC function for atomic sync
+        const { error } = await rpc.syncUserToLeaderboard(
             userId,
             username,
-            coins: totalCoins, // Absolute value
-            photoURL: photoURL || null,
-            totalSpins: totalSpins,
-            level: level,
-            weekId,
-            lastUpdated: Timestamp.now()
-        }, { merge: true });
+            totalCoins,
+            photoURL || null,
+            totalSpins,
+            level,
+            weekId
+        );
 
+        if (error) {
+            console.error('Error syncing user to leaderboard:', error);
+            // Don't throw, just log - we don't want to break the main flow
+        }
     } catch (error) {
         console.error('Error syncing user to leaderboard:', error);
         // Don't throw, just log - we don't want to break the main flow
@@ -239,24 +195,33 @@ export const getWeeklyStats = (): WeeklyStats => {
 export const getLeaderboardAnalytics = async () => {
     try {
         const weekId = getCurrentWeekId();
-        const leaderboardRef = collection(db, 'weeklyLeaderboard');
-        const q = query(
-            leaderboardRef,
-            where('weekId', '==', weekId),
-            orderBy('coins', 'desc'),
-            limit(300)
-        );
 
-        const snapshot = await getDocs(q);
+        const { data, error } = await supabase
+            .from('weekly_leaderboard')
+            .select('*')
+            .eq('week_id', weekId)
+            .order('coins', { ascending: false })
+            .limit(300);
+
+        if (error) {
+            console.error('Error getting leaderboard analytics:', error);
+            return {
+                total: 0,
+                realUsers: 0,
+                bots: 0,
+                realUsersTop100: 0,
+                botsTop100: 0,
+                realUserPercentageTop100: 0
+            };
+        }
+
         let realUsersCount = 0;
         let botsCount = 0;
         let realUsersTop100 = 0;
         let botsTop100 = 0;
 
-        let index = 0;
-        snapshot.forEach((doc) => {
-            const data = doc.data();
-            const isBot = data.userId && data.userId.startsWith('bot_');
+        (data || []).forEach((entry, index) => {
+            const isBot = entry.user_id && entry.user_id.startsWith('bot_');
 
             if (isBot) {
                 botsCount++;
@@ -265,7 +230,6 @@ export const getLeaderboardAnalytics = async () => {
                 realUsersCount++;
                 if (index < 100) realUsersTop100++;
             }
-            index++;
         });
 
         return {
@@ -274,7 +238,7 @@ export const getLeaderboardAnalytics = async () => {
             bots: botsCount,
             realUsersTop100,
             botsTop100,
-            realUserPercentageTop100: realUsersTop100 > 0 ? (realUsersTop100 / Math.min(100, index)) * 100 : 0
+            realUserPercentageTop100: realUsersTop100 > 0 ? (realUsersTop100 / Math.min(100, data?.length || 0)) * 100 : 0
         };
     } catch (error) {
         console.error('Error getting leaderboard analytics:', error);
@@ -306,20 +270,22 @@ export const forceResyncUserToLeaderboard = async (userId: string): Promise<void
         console.log(`🔄 Force resyncing user ${userId} to leaderboard...`);
 
         // Fetch user's actual data from their profile
-        const userDocRef = doc(db, 'users', userId);
-        const userDoc = await getDoc(userDocRef);
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('uid', userId)
+            .single();
 
-        if (!userDoc.exists()) {
+        if (userError || !userData) {
             console.error(`❌ User ${userId} not found in database`);
             return;
         }
 
-        const userData = userDoc.data();
         const actualCoins = userData.coins || 0;
-        const actualSpins = userData.totalSpins || 0;
+        const actualSpins = userData.total_spins || 0;
         const actualLevel = userData.level || 0;
         const username = userData.username || 'Player';
-        const photoURL = userData.photoURL || null;
+        const photoURL = userData.photo_url || null;
 
         console.log(`📊 User Data: ${username}, Coins: ${actualCoins}, Spins: ${actualSpins}, Level: ${actualLevel}`);
 
@@ -346,48 +312,62 @@ export const repairLeaderboardData = async () => {
     try {
         console.log('🔧 Starting Leaderboard Repair...');
         const weekId = getCurrentWeekId();
-        const leaderboardRef = collection(db, 'weeklyLeaderboard');
-        // Get ALL docs for this week (without ordering, so we see the broken ones)
-        const q = query(leaderboardRef, where('weekId', '==', weekId));
-        const snapshot = await getDocs(q);
 
-        console.log(`Found ${snapshot.size} entries to check.`);
-        const batch = writeBatch(db);
+        // Get ALL docs for this week (without ordering, so we see the broken ones)
+        const { data: entries, error } = await supabase
+            .from('weekly_leaderboard')
+            .select('*')
+            .eq('week_id', weekId);
+
+        if (error) {
+            console.error('Error fetching leaderboard entries for repair:', error);
+            return;
+        }
+
+        console.log(`Found ${entries?.length || 0} entries to check.`);
         let updateCount = 0;
 
-        for (const docSnap of snapshot.docs) {
-            const data = docSnap.data();
-
+        for (const entry of entries || []) {
             // Check if repair is needed (fields missing)
-            if (data.totalSpins === undefined || data.level === undefined) {
+            if (entry.total_spins === undefined || entry.level === undefined) {
                 let actualSpins = 0;
                 let actualLevel = 0;
 
                 // If it's a real user, try to fetch from their profile
-                if (data.userId && !data.userId.startsWith('bot_')) {
+                if (entry.user_id && !entry.user_id.startsWith('bot_')) {
                     try {
-                        const userProfileSnap = await getDoc(doc(db, 'users', data.userId));
-                        if (userProfileSnap.exists()) {
-                            const userData = userProfileSnap.data();
-                            actualSpins = userData.totalSpins || 0;
-                            actualLevel = userData.level || 0;
-                            console.log(`Recovered data for ${data.username}: Spins=${actualSpins}, Level=${actualLevel}`);
+                        const { data: userProfile } = await supabase
+                            .from('users')
+                            .select('total_spins, level')
+                            .eq('uid', entry.user_id)
+                            .single();
+
+                        if (userProfile) {
+                            actualSpins = userProfile.total_spins || 0;
+                            actualLevel = userProfile.level || 0;
+                            console.log(`Recovered data for ${entry.username}: Spins=${actualSpins}, Level=${actualLevel}`);
                         }
                     } catch (e) {
-                        console.warn(`Could not fetch profile for ${data.username}, defaulting to 0`);
+                        console.warn(`Could not fetch profile for ${entry.username}, defaulting to 0`);
                     }
                 }
 
-                batch.update(docSnap.ref, {
-                    totalSpins: actualSpins,
-                    level: actualLevel
-                });
-                updateCount++;
+                // Update the entry
+                const { error: updateError } = await supabase
+                    .from('weekly_leaderboard')
+                    .update({
+                        total_spins: actualSpins,
+                        level: actualLevel
+                    })
+                    .eq('id', entry.id);
+
+                if (!updateError) {
+                    updateCount++;
+                }
             }
         }
 
         if (updateCount > 0) {
-            await batch.commit();
             console.log(`✅ Repair Complete! Updated ${updateCount} documents.`);
         } else {
             console.log('✨ No repairs needed. All data is good.');

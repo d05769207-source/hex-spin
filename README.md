@@ -2,19 +2,93 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# Hexfire Royal Spin
 
-This contains everything you need to run your app locally.
+A spin wheel game application with real-time leaderboard, user profiles, and event management.
 
-View your app in AI Studio: https://ai.studio/apps/drive/19vu2K8F0Qctmv0u093q0jOgWQJIKJ41W
+## Tech Stack
+
+- **Frontend:** React 19, TypeScript, Vite
+- **Backend:** Supabase (PostgreSQL, Auth, Realtime, Storage)
+- **Mobile:** Capacitor (Android)
+- **Animations:** GSAP
+- **UI:** Custom components with Lucide React icons
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js, Supabase Project
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+
+2. Set up Supabase:
+   - Create a new project at [supabase.com](https://supabase.com)
+   - Run the SQL schema from `supabase-schema.sql` in your Supabase SQL Editor
+   - Enable Google OAuth in Supabase Auth settings
+   - Create a storage bucket named `profile-photos` with public access
+
+3. Set environment variables in `.env.local`:
+   ```env
+   VITE_SUPABASE_URL=your_supabase_project_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+   ```
+
+4. Run the app:
+   ```bash
+   npm run dev
+   ```
+
+## Database Schema
+
+The application uses the following tables:
+
+- `users` - User profiles and game data
+- `weekly_leaderboard` - Weekly leaderboard entries
+- `mailbox` - User messages and rewards
+- `bot_users` - Smart bot users for leaderboard
+- `sunday_lottery_participants` - Lottery event participants
+- `events` - Game events and configurations
+- `counters` - Auto-increment counters
+- `system` - System configuration
+- `game_status` - Game maintenance status
+- `friend_requests` - Friend request records
+- `friends` - Friend relationships
+
+## Features
+
+- **Authentication:** Google OAuth and Email/Password login
+- **Spin Wheel:** Interactive spin wheel with prizes
+- **Leaderboard:** Real-time weekly leaderboard with friend system
+- **Profile:** User profiles with photo upload
+- **Events:** Special events like KTM Rush, iPhone Giveaway, Sunday Lottery
+- **Mailbox:** Reward messages and notifications
+- **Admin Dashboard:** Admin controls for maintenance mode, events, and bot management
+- **Real-time Updates:** Live updates using Supabase Realtime
+
+## Project Structure
+
+```
+├── components/          # React components
+│   ├── admin/          # Admin dashboard components
+│   ├── auth/           # Authentication components
+│   └── pages/          # Page components
+├── services/           # Supabase service functions
+├── hooks/              # Custom React hooks
+├── public/             # Static assets
+├── plans/              # Migration plans and documentation
+└── supabase-schema.sql # Database schema
+```
+
+## Migration from Firebase
+
+This project has been migrated from Firebase to Supabase. See the `plans/` directory for detailed migration documentation.
+
+## Build for Android
+
+```bash
+npm run build
+npx cap sync android
+npx cap open android
+```

@@ -1,13 +1,12 @@
-import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabaseClient';
 import { User } from '../types';
 import { createUserProfile } from './userService';
 
 /**
- * Fetch user data from Firestore with retry logic
+ * Fetch user data from Supabase with retry logic
  * Implements exponential backoff for network failures
- * 
- * @param uid - User's Firebase UID
+ *
+ * @param uid - User's Supabase UID
  * @param maxRetries - Maximum number of retry attempts (default: 3)
  * @returns User data if found, null if not found
  * @throws Error if all retries fail
@@ -20,15 +19,26 @@ export async function fetchUserWithRetry(
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
-            const userDocRef = doc(db, 'users', uid);
-            const userDoc = await getDoc(userDocRef);
+            const { data, error } = await supabase
+                .from('users')
+                .select('*')
+                .eq('uid', uid)
+                .single();
 
-            if (userDoc.exists()) {
+            if (error) {
+                if (error.code === 'PGRST116') {
+                    // No rows returned - user doesn't exist
+                    console.log(`⚠️ User document does not exist (attempt ${attempt + 1})`);
+                    return null;
+                }
+                throw error;
+            }
+
+            if (data) {
                 console.log(`✅ User data found on attempt ${attempt + 1}`);
-                return userDoc.data();
+                return data;
             } else {
                 console.log(`⚠️ User document does not exist (attempt ${attempt + 1})`);
-                // Document doesn't exist - no need to retry
                 return null;
             }
         } catch (error) {
@@ -51,39 +61,45 @@ export async function fetchUserWithRetry(
 }
 
 /**
- * Recreate user profile from Firebase Auth data
- * Used when Firestore data is missing but Auth profile exists (cache clear scenario)
- * 
- * @param firebaseUser - Firebase Auth user object
+ * Recreate user profile from Supabase Auth data
+ * Used when Supabase data is missing but Auth profile exists (cache clear scenario)
+ *
+ * @param supabaseUser - Supabase Auth user object
  * @returns Created user profile data
  */
-export async function recreateUserProfile(firebaseUser: any): Promise<any> {
-    console.log('🔧 Recreating user profile from Firebase Auth data...');
+export async function recreateUserProfile(supabaseUser: any): Promise<any> {
+    console.log('🔧 Recreating user profile from Supabase Auth data...');
     console.log('Auth User:', {
-        uid: firebaseUser.uid,
-        displayName: firebaseUser.displayName,
-        email: firebaseUser.email
+        uid: supabaseUser.id,
+        displayName: supabaseUser.user_metadata?.username || supabaseUser.user_metadata?.full_name,
+        email: supabaseUser.email
     });
 
     try {
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        const userDoc = await getDoc(userRef);
+        const { data: existingUser } = await supabase
+            .from('users')
+            .select('*')
+            .eq('uid', supabaseUser.id)
+            .single();
 
-        if (userDoc.exists()) {
-            console.log('✅ User profile already exists in Firestore');
-            return userDoc.data();
+        if (existingUser) {
+            console.log('✅ User profile already exists in Supabase');
+            return existingUser;
         }
 
         // Profile is missing - create new one from Auth data
-        console.log('⚠️ Profile missing in Firestore, creating new profile...');
+        console.log('⚠️ Profile missing in Supabase, creating new profile...');
+
+        const userData = supabaseUser.user_metadata || {};
+        const username = userData.username || userData.full_name || supabaseUser.email?.split('@')[0] || 'Player';
 
         const newUser: User = {
-            id: firebaseUser.uid,
-            uid: firebaseUser.uid,
-            username: firebaseUser.displayName || 'Player',
-            email: firebaseUser.email || undefined,
+            id: supabaseUser.id,
+            uid: supabaseUser.id,
+            username: username,
+            email: supabaseUser.email || undefined,
             isGuest: false,
-            photoURL: firebaseUser.photoURL || undefined,
+            photoURL: userData.avatar_url || userData.picture || undefined,
             tokens: 10, // Welcome bonus
             coins: 0,
             eTokens: 0,
@@ -99,9 +115,14 @@ export async function recreateUserProfile(firebaseUser: any): Promise<any> {
         console.log('✅ Profile recreated successfully:', result);
 
         // Fetch the newly created profile
-        const newUserDoc = await getDoc(userRef);
-        if (newUserDoc.exists()) {
-            return newUserDoc.data();
+        const { data: newUserDoc } = await supabase
+            .from('users')
+            .select('*')
+            .eq('uid', supabaseUser.id)
+            .single();
+
+        if (newUserDoc) {
+            return newUserDoc;
         }
 
         return null;
@@ -112,17 +133,21 @@ export async function recreateUserProfile(firebaseUser: any): Promise<any> {
 }
 
 /**
- * Check if user exists in Firestore
+ * Check if user exists in Supabase
  * Simple helper to check user existence without fetching full data
- * 
- * @param uid - User's Firebase UID
+ *
+ * @param uid - User's Supabase UID
  * @returns true if user exists, false otherwise
  */
 export async function checkUserExists(uid: string): Promise<boolean> {
     try {
-        const userDocRef = doc(db, 'users', uid);
-        const userDoc = await getDoc(userDocRef);
-        return userDoc.exists();
+        const { data, error } = await supabase
+            .from('users')
+            .select('uid')
+            .eq('uid', uid)
+            .single();
+
+        return !error && !!data;
     } catch (error) {
         console.error('Error checking user existence:', error);
         return false;

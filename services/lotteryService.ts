@@ -1,9 +1,8 @@
-import { db } from '../firebase';
-import { collection, doc, getDocs, query, where, addDoc, Timestamp, getDoc } from 'firebase/firestore';
+import { supabase } from '../supabaseClient';
 import { BotTier } from '../types';
 import { getSmartBots } from './smartBotService';
 
-const LOTTERY_PARTICIPANTS_COLLECTION = 'sunday_lottery_participants';
+const LOTTERY_PARTICIPANTS_TABLE = 'sunday_lottery_participants';
 
 /**
  * Ensures the 'Lottery Bot' has a ticket for the given prize.
@@ -19,7 +18,7 @@ export const ensureLotteryBotParticipation = async (prize: 'iPhone' | 'KTM'): Pr
             targetTier = BotTier.SMART_LOTTERY_KTM; // KTM Bot
         }
 
-        const lotteryBot = (bots as any[]).find(b => b.botTier === targetTier);
+        const lotteryBot = (bots as any[]).find(b => b.bot_tier === targetTier);
 
         if (!lotteryBot) {
             console.warn('⚠️ No Lottery Bot found!');
@@ -27,37 +26,43 @@ export const ensureLotteryBotParticipation = async (prize: 'iPhone' | 'KTM'): Pr
         }
 
         // 2. Check if already participated
-        const q = query(
-            collection(db, LOTTERY_PARTICIPANTS_COLLECTION),
-            where('userId', '==', lotteryBot.uid), // Assuming we start saving userId
-            where('prize', '==', prize)
-        );
+        const { data, error } = await supabase
+            .from(LOTTERY_PARTICIPANTS_TABLE)
+            .select('*')
+            .eq('user_id', lotteryBot.uid)
+            .eq('prize', prize)
+            .limit(1);
 
-        // Note: In Event.tsx currently we don't save userId, only code. 
-        // We need to upgrade Event.tsx to save userId if we want to query by it, 
-        // OR we just rely on saving it locally in this function.
-        // For robustness, let's checking by a specific field we will start using.
+        if (error) {
+            console.error('Error checking lottery bot participation:', error);
+            return null;
+        }
 
-        const snapshot = await getDocs(q);
-
-        if (!snapshot.empty) {
-            const data = snapshot.docs[0].data();
-            console.log(`🤖 Lottery Bot (${lotteryBot.username}) already joined ${prize} with code ${data.code}`);
-            return { number: data.code, name: lotteryBot.username! };
+        if (data && data.length > 0) {
+            const entry = data[0];
+            console.log(`🤖 Lottery Bot (${lotteryBot.username}) already joined ${prize} with code ${entry.code}`);
+            return { number: entry.code, name: lotteryBot.username! };
         }
 
         // 3. Generate a "Lucky" Ticket
         const luckyTicket = Math.floor(Math.random() * 900000) + 100000;
 
         // 4. Force Join
-        await addDoc(collection(db, LOTTERY_PARTICIPANTS_COLLECTION), {
-            code: luckyTicket,
-            prize: prize,
-            joinedAt: Timestamp.now(),
-            userId: lotteryBot.uid, // We add this field for tracking
-            isBot: true,
-            username: lotteryBot.username
-        });
+        const { error: insertError } = await supabase
+            .from(LOTTERY_PARTICIPANTS_TABLE)
+            .insert({
+                code: luckyTicket,
+                prize: prize,
+                joined_at: new Date().toISOString(),
+                user_id: lotteryBot.uid,
+                is_bot: true,
+                username: lotteryBot.username
+            });
+
+        if (insertError) {
+            console.error('Error inserting lottery bot participation:', insertError);
+            return null;
+        }
 
         console.log(`🤖 Lottery Bot (${lotteryBot.username}) Force Joined ${prize} with code ${luckyTicket}`);
         return { number: luckyTicket, name: lotteryBot.username! };

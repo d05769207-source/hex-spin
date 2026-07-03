@@ -68,6 +68,7 @@ export interface LeaderboardEntry {
   totalSpins?: number;
   level?: number;
   isMe?: boolean;
+  createdAt?: number;
 }
 
 export interface WeeklyStats {

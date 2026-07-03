@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { doc, updateDoc, Timestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabaseClient';
 import { User } from '../types';
 import { getCurrentDayId } from '../utils/weekUtils';
 
@@ -18,7 +17,8 @@ export const useDailyReset = (
         if (!user) return;
 
         const checkAndReset = async () => {
-            const currentDayId = getCurrentDayId();
+            // SECURITY: Use getServerDayId to prevent device time manipulation
+            const currentDayId = await import('../utils/weekUtils').then(m => m.getServerDayId());
 
             // Initialize on first run if null
             if (!processedDayId.current) {
@@ -30,6 +30,20 @@ export const useDailyReset = (
             if (processedDayId.current !== currentDayId) {
                 console.log(`🌅 [DailyReset] New Day Detected! Old: ${processedDayId.current}, New: ${currentDayId}`);
 
+                // SECURITY VALIDATION: Check against server before resetting
+                if (!user.isGuest) {
+                    try {
+                        const { data: validation, error: valError } = await supabase.rpc('validate_daily_reset', { user_uid: user.id });
+                        if (!valError && validation && validation.allowed === false) {
+                            console.warn(`🚨 [DailyReset] BLOCKED: ${validation.reason}`);
+                            // If blocked, we DO NOT reset local state
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn("[DailyReset] Validation RPC failed, proceeding with caution", e);
+                    }
+                }
+
                 // 1. Update Tracker Immediately to lock
                 processedDayId.current = currentDayId;
 
@@ -38,19 +52,21 @@ export const useDailyReset = (
                 setSuperModeSpinsLeft(0);
                 setSuperModeEndTime(null);
 
-                // 3. Firestore Reset (if not guest)
+                // 3. Supabase Reset (if not guest)
                 if (!user.isGuest) {
                     try {
-                        const userRef = doc(db, 'users', user.id);
-                        await updateDoc(userRef, {
-                            spinsToday: 0,
-                            superModeSpinsLeft: 0,
-                            superModeEndTime: null,
-                            lastSpinDate: Timestamp.now()
-                        });
-                        console.log("✅ [DailyReset] Firestore updated successfully.");
+                        await supabase
+                            .from('users')
+                            .update({
+                                spins_today: 0,
+                                super_mode_spins_left: 0,
+                                super_mode_end_time: null,
+                                last_spin_date: new Date()
+                            })
+                            .eq('uid', user.id);
+                        console.log("✅ [DailyReset] Supabase updated successfully.");
                     } catch (error) {
-                        console.error("❌ [DailyReset] Firestore update failed:", error);
+                        console.error("❌ [DailyReset] Supabase update failed:", error);
                     }
                 }
             }

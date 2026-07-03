@@ -1,5 +1,4 @@
-import { collection, getDocs, doc, writeBatch, updateDoc, setDoc, deleteDoc, query, where, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabaseClient';
 import { getCurrentWeekId } from '../utils/weekUtils';
 
 /**
@@ -12,51 +11,53 @@ export const deleteAllTestData = async (
         console.log('🗑️ DELETING ALL test data...');
 
         // Step 1: Delete all users
-        const usersRef = collection(db, 'users');
-        const usersSnapshot = await getDocs(usersRef);
+        const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('uid');
 
-        const totalUsers = usersSnapshot.size;
+        if (usersError) throw usersError;
+
+        const totalUsers = usersData?.length || 0;
         console.log(`Found ${totalUsers} users to delete`);
 
         let deleted = 0;
         const batchSize = 500;
 
         for (let i = 0; i < totalUsers; i += batchSize) {
-            const batch = writeBatch(db);
-            const users = usersSnapshot.docs.slice(i, i + batchSize);
+            const batch = usersData?.slice(i, i + batchSize) || [];
 
-            users.forEach((userDoc) => {
-                batch.delete(doc(db, 'users', userDoc.id));
-            });
+            for (const user of batch) {
+                await supabase.from('users').delete().eq('uid', user.uid);
+            }
 
-            await batch.commit();
-            deleted += users.length;
+            deleted += batch.length;
             onProgress(deleted, totalUsers * 2); // *2 because we delete users + leaderboard
             console.log(`✅ Deleted users batch (${deleted}/${totalUsers})`);
         }
 
         // Step 2: Delete all leaderboard entries
-        const leaderboardRef = collection(db, 'weeklyLeaderboard');
-        const lbSnapshot = await getDocs(leaderboardRef);
+        const { data: lbData, error: lbError } = await supabase
+            .from('weekly_leaderboard')
+            .select('user_id');
 
-        const totalLB = lbSnapshot.size;
+        if (lbError) throw lbError;
+
+        const totalLB = lbData?.length || 0;
         console.log(`Found ${totalLB} leaderboard entries to delete`);
 
         for (let i = 0; i < totalLB; i += batchSize) {
-            const batch = writeBatch(db);
-            const entries = lbSnapshot.docs.slice(i, i + batchSize);
+            const batch = lbData?.slice(i, i + batchSize) || [];
 
-            entries.forEach((entryDoc) => {
-                batch.delete(doc(db, 'weeklyLeaderboard', entryDoc.id));
-            });
+            for (const entry of batch) {
+                await supabase.from('weekly_leaderboard').delete().eq('user_id', entry.user_id);
+            }
 
-            await batch.commit();
-            deleted += entries.length;
+            deleted += batch.length;
             onProgress(deleted, totalUsers + totalLB);
-            console.log(`✅ Deleted leaderboard batch (${i + entries.length}/${totalLB})`);
+            console.log(`✅ Deleted leaderboard batch (${i + batch.length}/${totalLB})`);
         }
 
-        console.log('✅ ALL test data deleted from Firebase!');
+        console.log('✅ ALL test data deleted from Supabase!');
     } catch (error) {
         console.error('❌ Error deleting test data:', error);
         throw error;
@@ -73,10 +74,13 @@ export const resetAllUsersToZero = async (
         console.log('🔄 Resetting ALL users to zero...');
 
         // Get ALL users from users collection
-        const usersRef = collection(db, 'users');
-        const snapshot = await getDocs(usersRef);
+        const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('uid');
 
-        const total = snapshot.size;
+        if (usersError) throw usersError;
+
+        const total = usersData?.length || 0;
         console.log(`Found ${total} users to reset`);
 
         const batchSize = 500;
@@ -84,27 +88,27 @@ export const resetAllUsersToZero = async (
 
         // Process in batches
         for (let i = 0; i < total; i += batchSize) {
-            const batch = writeBatch(db);
-            const users = snapshot.docs.slice(i, i + batchSize);
+            const batch = usersData?.slice(i, i + batchSize) || [];
 
-            users.forEach((userDoc) => {
-                const userRef = doc(db, 'users', userDoc.id);
-                batch.update(userRef, {
-                    coins: 0,
-                    tokens: 0,
-                    eTokens: 0,
-                    ktmTokens: 0,
-                    iphoneTokens: 0,
-                    totalSpins: 0,
-                    spinsToday: 0,
-                    level: 1,
-                    superModeSpinsLeft: 0,
-                    superModeEndTime: null
-                });
-            });
+            for (const user of batch) {
+                await supabase
+                    .from('users')
+                    .update({
+                        coins: 0,
+                        tokens: 0,
+                        e_tokens: 0,
+                        ktm_tokens: 0,
+                        iphone_tokens: 0,
+                        total_spins: 0,
+                        spins_today: 0,
+                        level: 1,
+                        super_mode_spins_left: 0,
+                        super_mode_end_time: null
+                    })
+                    .eq('uid', user.uid);
+            }
 
-            await batch.commit();
-            processed += users.length;
+            processed += batch.length;
             onProgress(processed, total);
             console.log(`✅ Reset batch complete (${processed}/${total})`);
         }
@@ -130,34 +134,35 @@ export const populateTestData = async (
     try {
         console.log('🎲 Populating test data for all users...');
 
-        const usersRef = collection(db, 'users');
-        const snapshot = await getDocs(usersRef);
+        const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('uid');
 
-        const total = snapshot.size;
+        if (usersError) throw usersError;
+
+        const total = usersData?.length || 0;
         const batchSize = 500;
         let processed = 0;
 
         for (let i = 0; i < total; i += batchSize) {
-            const batch = writeBatch(db);
-            const users = snapshot.docs.slice(i, i + batchSize);
+            const batch = usersData?.slice(i, i + batchSize) || [];
 
-            users.forEach((userDoc) => {
-                const userData = userDoc.data();
-
+            for (const user of batch) {
                 // Random coins between min and max
                 const randomCoins = Math.floor(Math.random() * (maxCoins - minCoins + 1)) + minCoins;
 
-                const userRef = doc(db, 'users', userDoc.id);
-                batch.update(userRef, {
-                    coins: randomCoins,
-                    tokens: tokens,
-                    totalSpins: spins,
-                    level: level
-                });
-            });
+                await supabase
+                    .from('users')
+                    .update({
+                        coins: randomCoins,
+                        tokens: tokens,
+                        total_spins: spins,
+                        level: level
+                    })
+                    .eq('uid', user.uid);
+            }
 
-            await batch.commit();
-            processed += users.length;
+            processed += batch.length;
             onProgress(processed, total);
             console.log(`✅ Test data batch complete (${processed}/${total})`);
         }
@@ -179,36 +184,39 @@ export const syncAllUsersToLeaderboard = async (
         console.log('📊 Syncing ALL users to leaderboard...');
 
         const weekId = getCurrentWeekId();
-        const usersRef = collection(db, 'users');
-        const snapshot = await getDocs(usersRef);
 
-        const total = snapshot.size;
+        const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('uid, username, coins, photo_url, is_guest');
+
+        if (usersError) throw usersError;
+
+        const total = usersData?.length || 0;
         const batchSize = 500;
         let processed = 0;
 
         for (let i = 0; i < total; i += batchSize) {
-            const batch = writeBatch(db);
-            const users = snapshot.docs.slice(i, i + batchSize);
+            const batch = usersData?.slice(i, i + batchSize) || [];
 
-            users.forEach((userDoc) => {
-                const userData = userDoc.data();
-
+            for (const user of batch) {
                 // Skip guest users
-                if (userData.isGuest) return;
+                if (user.is_guest) continue;
 
-                const leaderboardDocRef = doc(db, 'weeklyLeaderboard', `${userDoc.id}_${weekId}`);
-                batch.set(leaderboardDocRef, {
-                    userId: userDoc.id,
-                    username: userData.username || 'Player',
-                    coins: userData.coins || 0,
-                    photoURL: userData.photoURL || null,
-                    weekId: weekId,
-                    lastUpdated: new Date()
-                }, { merge: true });
-            });
+                await supabase
+                    .from('weekly_leaderboard')
+                    .upsert({
+                        user_id: user.uid,
+                        username: user.username || 'Player',
+                        coins: user.coins || 0,
+                        photo_url: user.photo_url || null,
+                        week_id: weekId,
+                        last_updated: new Date().toISOString()
+                    }, {
+                        onConflict: 'user_id,week_id'
+                    });
+            }
 
-            await batch.commit();
-            processed += users.length;
+            processed += batch.length;
             onProgress(processed, total);
             console.log(`✅ Leaderboard sync batch complete (${processed}/${total})`);
         }
@@ -282,62 +290,64 @@ export const verifyTieBreaker = async (): Promise<string> => {
     try {
         console.log('🧪 Starting Tie-Breaker Verification...');
         const weekId = getCurrentWeekId();
-        const batch = writeBatch(db);
 
         // 1. Create User A (Early Scorer)
         const userA_ID = 'test_A_' + Date.now();
         const timeA = new Date(Date.now() - 1000 * 60 * 10); // 10 mins ago
 
-        const refA = doc(db, 'weeklyLeaderboard', `${userA_ID}_${weekId}`);
-        batch.set(refA, {
-            userId: userA_ID,
-            username: 'User A (Early)',
-            coins: 5000,
-            weekId,
-            lastUpdated: timeA
-        });
+        await supabase
+            .from('weekly_leaderboard')
+            .upsert({
+                user_id: userA_ID,
+                username: 'User A (Early)',
+                coins: 5000,
+                week_id: weekId,
+                last_updated: timeA.toISOString()
+            }, {
+                onConflict: 'user_id,week_id'
+            });
 
         // 2. Create User B (Late Scorer)
         const userB_ID = 'test_B_' + Date.now();
         const timeB = new Date(); // Now
 
-        const refB = doc(db, 'weeklyLeaderboard', `${userB_ID}_${weekId}`);
-        batch.set(refB, {
-            userId: userB_ID,
-            username: 'User B (Late)',
-            coins: 5000, // SAME SCORE
-            weekId,
-            lastUpdated: timeB
-        });
+        await supabase
+            .from('weekly_leaderboard')
+            .upsert({
+                user_id: userB_ID,
+                username: 'User B (Late)',
+                coins: 5000, // SAME SCORE
+                week_id: weekId,
+                last_updated: timeB.toISOString()
+            }, {
+                onConflict: 'user_id,week_id'
+            });
 
-        await batch.commit();
+        await new Promise(r => setTimeout(r, 2000));
         console.log('✅ Created test users A and B with same score (5000). Fetching ranks...');
 
         // 3. Fetch Leaderboard to check Ranks
-        // Wait 2 seconds for indexing/propagation (though usually instant for simple query)
-        await new Promise(r => setTimeout(r, 2000));
+        const { data, error } = await supabase
+            .from('weekly_leaderboard')
+            .select('*')
+            .eq('week_id', weekId)
+            .order('coins', { ascending: false })
+            .order('last_updated', { ascending: true }) // Tie-breaker: Earlier time is better
+            .limit(50);
 
-        const lbRef = collection(db, 'weeklyLeaderboard');
-        const q = query(
-            lbRef,
-            where('weekId', '==', weekId),
-            orderBy('coins', 'desc'),
-            orderBy('lastUpdated', 'asc'), // Tie-breaker: Earlier time is better
-            limit(50)
-        );
+        if (error) throw error;
 
-        const snap = await getDocs(q);
         let rankA = -1;
         let rankB = -1;
 
-        snap.docs.forEach((d, index) => {
-            if (d.data().userId === userA_ID) rankA = index + 1;
-            if (d.data().userId === userB_ID) rankB = index + 1;
+        (data || []).forEach((entry, index) => {
+            if (entry.user_id === userA_ID) rankA = index + 1;
+            if (entry.user_id === userB_ID) rankB = index + 1;
         });
 
         // Cleanup
-        await deleteDoc(refA);
-        await deleteDoc(refB);
+        await supabase.from('weekly_leaderboard').delete().eq('user_id', userA_ID);
+        await supabase.from('weekly_leaderboard').delete().eq('user_id', userB_ID);
 
         if (rankA === -1 || rankB === -1) return "❌ Failed: Could not find test users in top 50.";
 

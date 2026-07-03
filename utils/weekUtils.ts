@@ -1,5 +1,23 @@
 // Week management utilities for leaderboard
+import { supabase } from '../supabaseClient';
 
+export const getServerWeekId = async (): Promise<string> => {
+    const { data, error } = await supabase.rpc('get_current_week_id');
+    if (error) {
+        console.error("Failed to get server week ID, falling back to local:", error);
+        return getCurrentWeekId(); // Fallback to local if RPC fails
+    }
+    return data;
+};
+
+export const getServerDayId = async (): Promise<string> => {
+    const { data, error } = await supabase.rpc('get_current_day_id');
+    if (error) {
+        console.error("Failed to get server day ID, falling back to local:", error);
+        return getCurrentDayId(); // Fallback to local if RPC fails
+    }
+    return data;
+};
 
 // --- TIME SIMULATION LOGIC ---
 let simulatedTimeOffset = 0;
@@ -44,7 +62,7 @@ export const getCurrentWeekId = (): string => {
     const now = getNow();
     const year = now.getFullYear();
     const weekNumber = getWeekNumber(now);
-    return `${year}-W${weekNumber.toString().padStart(2, '0')}`;
+    return `${year}-MW${weekNumber.toString().padStart(2, '0')}`;
 };
 
 export const getCurrentDayId = (): string => {

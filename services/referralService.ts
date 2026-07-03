@@ -1,5 +1,4 @@
-import { db } from '../firebase';
-import { doc, getDoc, updateDoc, runTransaction, increment, collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { supabase } from '../supabaseClient';
 import { User, MessageType, MessageStatus } from '../types';
 
 /**
@@ -11,19 +10,20 @@ export const validateReferralCode = async (code: string, currentUserId: string):
 
     try {
         // 1. Check if the code belongs to a user
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('referralCode', '==', code));
-        const querySnapshot = await getDocs(q);
+        const { data, error } = await supabase
+            .from('users')
+            .select('uid')
+            .eq('referral_code', code)
+            .single();
 
-        if (querySnapshot.empty) {
+        if (error || !data) {
             // Fallback: Check if code is a UID substring (legacy support or simple ID match)
             // For now, we strictly enforce the stored referralCode. 
             // If you want to support UID matching, you'd need a different query or client-side check if not indexed.
             return null;
         }
 
-        const referrerDoc = querySnapshot.docs[0];
-        const referrerId = referrerDoc.id;
+        const referrerId = data.uid;
 
         // 2. Prevent self-referral
         if (referrerId === currentUserId) {
@@ -46,61 +46,84 @@ export const validateReferralCode = async (code: string, currentUserId: string):
  */
 export const applyReferral = async (currentUserId: string, referrerId: string): Promise<{ success: boolean; message: string }> => {
     try {
-        await runTransaction(db, async (transaction) => {
-            const currentUserRef = doc(db, 'users', currentUserId);
-            const referrerRef = doc(db, 'users', referrerId);
+        // Use a transaction-like approach with RPC or sequential updates
+        // For simplicity, we'll do sequential updates with error handling
 
-            const currentUserDoc = await transaction.get(currentUserRef);
-            const referrerDoc = await transaction.get(referrerRef);
+        // 1. Get current user data
+        const { data: currentUserData, error: currentUserError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('uid', currentUserId)
+            .single();
 
-            if (!currentUserDoc.exists()) {
-                throw new Error('Current user does not exist');
-            }
-            if (!referrerDoc.exists()) {
-                throw new Error('Referrer does not exist');
-            }
+        if (currentUserError || !currentUserData) {
+            throw new Error('Current user does not exist');
+        }
 
-            const currentUserData = currentUserDoc.data() as User;
+        // 2. Get referrer data
+        const { data: referrerData, error: referrerError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('uid', referrerId)
+            .single();
 
-            // Double check if already referred
-            if (currentUserData.referredBy) {
-                throw new Error('User already referred');
-            }
+        if (referrerError || !referrerData) {
+            throw new Error('Referrer does not exist');
+        }
 
-            // 1. Update Current User
-            transaction.update(currentUserRef, {
-                referredBy: referrerId,
-                referralDismissed: true, // Dismiss the prompt since they successfully used a code
-                lastLevelRewardTriggered: currentUserData.level || 1 // Start tracking from current level
-            });
+        // 3. Check if already referred
+        if (currentUserData.referred_by) {
+            throw new Error('User already referred');
+        }
 
-            // 2. Update Referrer (Add 50 eTokens via Mailbox + Increment Count/Earnings)
-            // Note: We do NOT increment 'eTokens' directly anymore. User must claim from Mailbox.
-            // We DO increment 'referralEarnings' to track lifetime stats.
+        // 4. Update Current User
+        const { error: updateCurrentUserError } = await supabase
+            .from('users')
+            .update({
+                referred_by: referrerId,
+                referral_dismissed: true, // Dismiss the prompt since they successfully used a code
+                last_level_reward_triggered: currentUserData.level || 1 // Start tracking from current level
+            })
+            .eq('uid', currentUserId);
 
-            transaction.update(referrerRef, {
-                referralCount: increment(1),
-                referralEarnings: increment(50)
-            });
-        });
+        if (updateCurrentUserError) throw updateCurrentUserError;
 
-        // Send Mailbox Message (Direct Implementation to avoid import issues)
+        // 5. Update Referrer (Add 50 eTokens via Mailbox + Increment Count/Earnings)
+        // Note: We do NOT increment 'e_tokens' directly anymore. User must claim from Mailbox.
+        // We DO increment 'referral_earnings' to track lifetime stats.
+
+        const { error: updateReferrerError } = await supabase
+            .from('users')
+            .update({
+                referral_count: (referrerData.referral_count || 0) + 1,
+                referral_earnings: (referrerData.referral_earnings || 0) + 50
+            })
+            .eq('uid', referrerId);
+
+        if (updateReferrerError) throw updateReferrerError;
+
+        // 6. Send Mailbox Message (Direct Implementation to avoid import issues)
         try {
             const now = new Date();
             const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
-            await addDoc(collection(db, 'mailbox'), {
-                userId: referrerId,
-                type: MessageType.REFERRAL_REWARD,
-                title: '🎁 Referral Reward!',
-                description: `New Referral Bonus: 50 E-Tokens`,
-                createdAt: new Date(),
-                expiresAt: expiresAt,
-                status: MessageStatus.UNREAD,
-                rewardType: 'E_TOKEN',
-                rewardAmount: 50,
-                isExpired: false
-            });
+            const { error: mailboxError } = await supabase
+                .from('mailbox')
+                .insert({
+                    user_id: referrerId,
+                    type: MessageType.REFERRAL_REWARD,
+                    title: '🎁 Referral Reward!',
+                    description: `New Referral Bonus: 50 E-Tokens`,
+                    created_at: now.toISOString(),
+                    expires_at: expiresAt.toISOString(),
+                    status: MessageStatus.UNREAD,
+                    reward_type: 'E_TOKEN',
+                    reward_amount: 50,
+                    is_expired: false
+                });
+
+            if (mailboxError) throw mailboxError;
+
             console.log(`✅ Direct Mailbox Write Success for ${referrerId}`);
         } catch (msgError) {
             console.error('❌ Direct Mailbox Write Failed:', msgError);
@@ -119,10 +142,15 @@ export const applyReferral = async (currentUserId: string, referrerId: string): 
 export const dismissReferralPrompt = async (currentUserId: string): Promise<void> => {
     try {
         console.log('Attempting to dismiss referral prompt for:', currentUserId);
-        const userRef = doc(db, 'users', currentUserId);
-        await updateDoc(userRef, {
-            referralDismissed: true
-        });
+        const { error } = await supabase
+            .from('users')
+            .update({
+                referral_dismissed: true
+            })
+            .eq('uid', currentUserId);
+
+        if (error) throw error;
+
         console.log('Successfully dismissed referral prompt for:', currentUserId);
     } catch (error) {
         console.error('Error dismissing referral prompt:', error);
@@ -135,14 +163,16 @@ export const dismissReferralPrompt = async (currentUserId: string): Promise<void
  */
 export const processLevelUpReward = async (currentUserId: string, currentLevel: number): Promise<void> => {
     try {
-        const userRef = doc(db, 'users', currentUserId);
-        const userSnap = await getDoc(userRef);
+        const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('uid', currentUserId)
+            .single();
 
-        if (!userSnap.exists()) return;
+        if (userError || !userData) return;
 
-        const userData = userSnap.data() as User;
-        const referrerId = userData.referredBy;
-        const lastTriggered = userData.lastLevelRewardTriggered || 0;
+        const referrerId = userData.referred_by;
+        const lastTriggered = userData.last_level_reward_triggered || 0;
 
         // If no referrer or no new levels gained since last reward, exit
         if (!referrerId || currentLevel <= lastTriggered) return;
@@ -157,38 +187,57 @@ export const processLevelUpReward = async (currentUserId: string, currentLevel: 
             return;
         }
 
-        await runTransaction(db, async (transaction) => {
-            const referrerRef = doc(db, 'users', referrerId);
+        // 1. Award 20 eTokens per level to Referrer (Via Mailbox)
+        // Only update earnings tracker here
+        const { data: referrerData, error: referrerError } = await supabase
+            .from('users')
+            .select('referral_earnings')
+            .eq('uid', referrerId)
+            .single();
 
-            // 1. Award 20 eTokens per level to Referrer (Via Mailbox)
-            // Only update earnings tracker here
-            transaction.update(referrerRef, {
-                referralEarnings: increment(levelsGained * 20)
-            });
+        if (referrerError || !referrerData) return;
 
-            // 2. Update Current User's tracker
-            transaction.update(userRef, {
-                lastLevelRewardTriggered: currentLevel
-            });
-        });
+        const { error: updateReferrerError } = await supabase
+            .from('users')
+            .update({
+                referral_earnings: (referrerData.referral_earnings || 0) + (levelsGained * 20)
+            })
+            .eq('uid', referrerId);
 
-        // Send Mailbox Message (Direct Implementation)
+        if (updateReferrerError) throw updateReferrerError;
+
+        // 2. Update Current User's tracker
+        const { error: updateUserError } = await supabase
+            .from('users')
+            .update({
+                last_level_reward_triggered: currentLevel
+            })
+            .eq('uid', currentUserId);
+
+        if (updateUserError) throw updateUserError;
+
+        // 3. Send Mailbox Message (Direct Implementation)
         try {
             const now = new Date();
             const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-            await addDoc(collection(db, 'mailbox'), {
-                userId: referrerId,
-                type: MessageType.REFERRAL_REWARD,
-                title: '🎁 Referral Reward!',
-                description: `Friend Level Up Bonus (${levelsGained} levels): ${levelsGained * 20} E-Tokens`,
-                createdAt: new Date(),
-                expiresAt: expiresAt,
-                status: MessageStatus.UNREAD,
-                rewardType: 'E_TOKEN',
-                rewardAmount: levelsGained * 20,
-                isExpired: false
-            });
+            const { error: mailboxError } = await supabase
+                .from('mailbox')
+                .insert({
+                    user_id: referrerId,
+                    type: MessageType.REFERRAL_REWARD,
+                    title: '🎁 Referral Reward!',
+                    description: `Friend Level Up Bonus (${levelsGained} levels): ${levelsGained * 20} E-Tokens`,
+                    created_at: now.toISOString(),
+                    expires_at: expiresAt.toISOString(),
+                    status: MessageStatus.UNREAD,
+                    reward_type: 'E_TOKEN',
+                    reward_amount: levelsGained * 20,
+                    is_expired: false
+                });
+
+            if (mailboxError) throw mailboxError;
+
             console.log(`✅ Direct Mailbox Write Success for LevelUp: ${referrerId}`);
         } catch (msgError) {
             console.error('❌ Direct Mailbox Write LevelUp Failed:', msgError);

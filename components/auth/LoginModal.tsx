@@ -1,14 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, Mail, ArrowLeft, Loader2 } from 'lucide-react';
-import { auth, db } from '../../firebase';
-import {
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword
-} from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../../supabaseClient';
 
 interface LoginModalProps {
   onLoginSuccess: () => void;
@@ -27,23 +20,29 @@ const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onClose }) => {
   const handleGoogleLogin = async () => {
     setLoading(true);
     setError('');
-    const provider = new GoogleAuthProvider();
-
-    // ✅ CRITICAL FIX: Force account selection screen to enable account switching
-    provider.setCustomParameters({
-      prompt: 'select_account'
-    });
 
     try {
-      await signInWithPopup(auth, provider);
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account'
+          },
+          redirectTo: `${window.location.origin}/auth/callback`
+        }
+      });
+
+      if (error) throw error;
+
       // User creation is now handled in App.tsx via UsernameModal
       onLoginSuccess();
     } catch (err: any) {
       console.error('Google Sign-In Error:', err);
-      if (err.code === 'auth/unauthorized-domain') {
+      if (err.message?.includes('URL is not supported')) {
         const currentDomain = window.location.hostname;
-        setError(`Domain Blocked: '${currentDomain}'. Add this domain to Firebase Console > Auth > Settings > Authorized Domains.`);
-      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError(`Domain Blocked: '${currentDomain}'. Add this domain to Supabase Dashboard > Auth > URL Configuration.`);
+      } else if (err.message?.includes('popup closed')) {
         setError('Sign-in cancelled by user.');
       } else {
         setError('Google Sign-In Failed. ' + err.message);
@@ -60,21 +59,39 @@ const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess, onClose }) => {
 
     try {
       if (isSignUp) {
-        // Create user in Firebase Auth
-        await createUserWithEmailAndPassword(auth, email, password);
-        // User creation in Firestore is now handled in App.tsx via UsernameModal
+        // Create user in Supabase Auth
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`
+          }
+        });
+
+        if (error) throw error;
+
+        // User creation in Supabase is now handled in App.tsx via UsernameModal
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        // Sign in existing user
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+
+        if (error) throw error;
       }
+
       onLoginSuccess();
     } catch (err: any) {
       console.error('Authentication Error:', err);
-      if (err.code === 'auth/email-already-in-use') {
+      if (err.message?.includes('User already registered')) {
         setError('Email already exists. Please login.');
-      } else if (err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+      } else if (err.message?.includes('Invalid login credentials')) {
         setError('Invalid Email or Password.');
-      } else if (err.code === 'auth/weak-password') {
+      } else if (err.message?.includes('Password should be at least')) {
         setError('Password should be at least 6 characters.');
+      } else if (err.message?.includes('Email not confirmed')) {
+        setError('Please confirm your email address.');
       } else {
         setError('Authentication failed: ' + err.message);
       }

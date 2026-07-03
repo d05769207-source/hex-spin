@@ -17,24 +17,13 @@ import {
     Zap,
     Menu,
     X,
-    Wrench,
     Trophy,
     Download,
     Bot
 } from 'lucide-react';
-import { auth, db } from '../../firebase';
-import { doc, updateDoc, Timestamp, collection, getDocs, orderBy, query, limit, onSnapshot } from 'firebase/firestore';
+import { supabase, auth } from '../../supabaseClient';
 import { setSimulatedTimeOffset, clearSimulatedTime, getWeekEndDate, getCurrentTime, getCurrentWeekId } from '../../utils/weekUtils';
-import {
-    startMaintenanceMode,
-    endMaintenanceMode,
-    getTopWinners,
-    distributeRewards,
-    resetAllUsersData,
-    WinnerData,
-    subscribeToGameStatus,
-    GameStatus
-} from '../../services/maintenanceService';
+import { forceClearMaintenanceMode } from '../../services/maintenanceService';
 import { bulkResetAndPopulate, deleteAllTestData } from '../../services/bulkDataService';
 import { getDashboardStats, getUsersList, AdminStats } from '../../services/adminService';
 import { BotManagementPanel } from './BotManagementPanel';
@@ -54,31 +43,22 @@ interface UIUser extends User {
 }
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame }) => {
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings' | 'maintenance' | 'bots' | 'bulkdata' | 'events'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'settings' | 'bots' | 'bulkdata' | 'events'>('dashboard');
     const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
     const [isSundayBypass, setIsSundayBypass] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     // Real Data States
     const [stats, setStats] = useState<AdminStats>({
-        onlineUsers: 0,
-        totalRegistrations: 0,
-        spinsToday: 0,
-        rewardsDistributed: 0
+        online_users: 0,
+        total_registrations: 0,
+        spins_today: 0,
+        rewards_distributed: 0
     });
     const [users, setUsers] = useState<UIUser[]>([]);
     const [lastUserDoc, setLastUserDoc] = useState<any>(null);
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
     const [userSearch, setUserSearch] = useState('');
-
-    // Maintenance Control State
-    const [gameStatus, setGameStatus] = useState<GameStatus | null>(null);
-    const [winners, setWinners] = useState<WinnerData[]>([]);
-    const [isLoadingWinners, setIsLoadingWinners] = useState(false);
-    const [resetProgress, setResetProgress] = useState({ current: 0, total: 0 });
-    const [rewardProgress, setRewardProgress] = useState({ current: 0, total: 0 });
-    const [isResetting, setIsResetting] = useState(false);
-    const [isDistributing, setIsDistributing] = useState(false);
 
     // Bulk Data State
     const [bulkProgress, setBulkProgress] = useState({ step: '', current: 0, total: 100 });
@@ -92,12 +72,38 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
 
     // Fetch Event Data for Admin Controls
     useEffect(() => {
-        const unsub = onSnapshot(doc(db, 'events', 'sunday_lottery'), (doc: any) => {
-            if (doc.exists()) {
-                setEventData(doc.data());
+        const channel = supabase
+            .channel('sunday_lottery_events_admin')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'events',
+                filter: 'id=eq.sunday_lottery'
+            }, async (payload) => {
+                if (payload.new) {
+                    setEventData(payload.new);
+                }
+            })
+            .subscribe();
+
+        // Initial fetch
+        const fetchInitialData = async () => {
+            const { data, error } = await supabase
+                .from('events')
+                .select('*')
+                .eq('id', 'sunday_lottery')
+                .single();
+
+            if (data && !error) {
+                setEventData(data);
             }
-        });
-        return () => unsub();
+        };
+
+        fetchInitialData();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     // Fetch Stats on Mount
@@ -136,7 +142,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
             if (reset) {
                 setUsers(mappedUsers);
             } else {
-                setUsers(prev => [...prev, ...mappedUsers]);
+                setUsers(prev => {
+                    const existingIds = new Set(prev.map(u => u.id));
+                    const newUniqueUsers = mappedUsers.filter(u => !existingIds.has(u.id));
+                    return [...prev, ...newUniqueUsers];
+                });
             }
             setLastUserDoc(result.lastDoc);
         } catch (error) {
@@ -146,68 +156,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
         }
     };
 
-    // Subscriptions
-    useEffect(() => {
-        const unsubscribe = subscribeToGameStatus((status) => {
-            setGameStatus(status);
-        });
-        return () => unsubscribe();
-    }, []);
-
-    // 🤖 AUTO-PILOT: Handle Weekly Reset Automation
-    const autoPilotFailedRef = useRef<string | null>(null);
-
-    useEffect(() => {
-        if (!gameStatus) return;
-
-        const checkAutoPilot = async () => {
-            const currentWeekId = getCurrentWeekId();
-
-            // Check if we need to run a reset for this week
-            // (i.e. Week has changed, but we haven't recorded a batch reset for it yet)
-            // Safety: Don't retry if we already failed for THIS week (prevents infinite loops)
-            if (
-                gameStatus.lastBatchResetWeekId !== currentWeekId &&
-                !isResetting &&
-                autoPilotFailedRef.current !== currentWeekId
-            ) {
-                console.log(`🤖 AUTO-PILOT: New Week Detect (${currentWeekId}). Maintenance Required.`);
-
-                // Step 1: Start Maintenance if not active
-                if (!gameStatus.maintenanceMode && !gameStatus.warningActive) {
-                    console.log("🤖 AUTO-PILOT: Activating Maintenance Mode...");
-                    await startMaintenanceMode();
-                    return;
-                }
-
-                // Step 2: Once Maintenance is Fully Active (Warning Done), Run Reset
-                if (gameStatus.maintenanceMode && !gameStatus.warningActive) {
-                    console.log("🤖 AUTO-PILOT: Maintenance Active. Starting Safe Batch Reset...");
-
-                    setIsResetting(true);
-                    try {
-                        await resetAllUsersData((current, total) => {
-                            setResetProgress({ current, total });
-                        });
-                        console.log("🤖 AUTO-PILOT: Reset Function Completed.");
-                        // Note: resetAllUsersData updates lastBatchResetWeekId internally,
-                        // so this loop will stop naturally on next check.
-                    } catch (error) {
-                        console.error("🤖 AUTO-PILOT ERROR - Stopping Retries:", error);
-                        // Mark this week as FAILED so we don't loop infinitely
-                        autoPilotFailedRef.current = currentWeekId;
-                        alert("⚠️ Auto-Reset Failed. Check Console. Loop Stopped.");
-                    } finally {
-                        setIsResetting(false);
-                    }
-                }
-            }
-        };
-
-        const interval = setInterval(checkAutoPilot, 5000); // Check every 5s
-        return () => clearInterval(interval);
-    }, [gameStatus, isResetting]);
-
     const handleBroadcast = (e: React.FormEvent) => {
         e.preventDefault();
         if (!broadcastMsg) return;
@@ -216,21 +164,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
     };
 
     const handleForceSuperMode = async () => {
-        if (!auth.currentUser) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
             alert("Error: No user logged in.");
             return;
         }
 
         try {
-            const userRef = doc(db, 'users', auth.currentUser.uid);
             // 1 Hour fallback + 50 Spins logic
             const endTime = new Date(Date.now() + 60 * 60 * 1000);
 
-            await updateDoc(userRef, {
-                spinsToday: 100,
-                superModeSpinsLeft: 50,
-                superModeEndTime: Timestamp.fromDate(endTime)
-            });
+            await supabase
+                .from('users')
+                .update({
+                    spins_today: 100,
+                    super_mode_spins_left: 50,
+                    super_mode_end_time: endTime
+                })
+                .eq('uid', user.id);
 
             alert("⚡ Super Mode Activated: Given 50 Spins!");
         } catch (error) {
@@ -240,14 +191,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
     };
 
     const handleDeactivateSuperMode = async () => {
-        if (!auth.currentUser) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
         try {
-            const userRef = doc(db, 'users', auth.currentUser.uid);
-            await updateDoc(userRef, {
-                superModeEndTime: null,
-                superModeSpinsLeft: 0
-            });
+            await supabase
+                .from('users')
+                .update({
+                    super_mode_end_time: null,
+                    super_mode_spins_left: 0
+                })
+                .eq('uid', user.id);
             alert("⚡ Super Mode DEACTIVATED.");
         } catch (error) {
             console.error("Error deactivating Super Mode:", error);
@@ -278,6 +232,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
         clearSimulatedTime();
         alert("🕒 Time Simulation Cleared. Back to Real Time.");
         window.location.reload();
+    };
+
+    const handleClearStuckMaintenance = async () => {
+        if (confirm('⚠️ Force Clear Maintenance Mode?\n\nThis will clear all stuck countdowns and maintenance states from the database.\n\nProceed?')) {
+            try {
+                await forceClearMaintenanceMode();
+                alert('✅ Maintenance mode cleared! The app should now work normally.');
+            } catch (error) {
+                console.error('Error clearing maintenance mode:', error);
+                alert('❌ Failed to clear maintenance mode. Check console for details.');
+            }
+        }
     };
 
     const NavItem = ({ id, icon: Icon, label }: any) => (
@@ -328,7 +294,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                     <NavItem id="bots" icon={Bot} label="Bot Management" />
                     <NavItem id="events" icon={Trophy} label="Event Control" />
                     <NavItem id="bulkdata" icon={Settings} label="Bulk Data" />
-                    <NavItem id="maintenance" icon={Wrench} label="Maintenance Control" />
                     <NavItem id="settings" icon={Settings} label="Master Controls" />
                 </nav>
 
@@ -362,7 +327,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                         {activeTab === 'bots' && 'Bot Management System V2 (Global Check)'}
                         {activeTab === 'events' && 'Event Management'}
                         {activeTab === 'bulkdata' && 'Bulk Data Management'}
-                        {activeTab === 'maintenance' && 'Weekly Reset Control'}
                         {activeTab === 'settings' && 'System Config'}
                     </h2>
                     <div className="flex items-center gap-4">
@@ -387,28 +351,28 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                                 <StatCard
                                     title="Live Users"
-                                    value={stats.onlineUsers}
+                                    value={stats.online_users}
                                     icon={<Users size={24} className="text-green-400" />}
                                     trend="+12%"
                                     color="green"
                                 />
                                 <StatCard
                                     title="Total Spins"
-                                    value={stats.spinsToday}
+                                    value={stats.spins_today}
                                     icon={<RefreshCw size={24} className="text-blue-400" />}
                                     trend="+5%"
                                     color="blue"
                                 />
                                 <StatCard
                                     title="Registrations"
-                                    value={stats.totalRegistrations}
+                                    value={stats.total_registrations}
                                     icon={<Activity size={24} className="text-yellow-400" />}
                                     trend="+24"
                                     color="yellow"
                                 />
                                 <StatCard
                                     title="Rewards Given"
-                                    value={stats.rewardsDistributed}
+                                    value={stats.rewards_distributed}
                                     icon={<Gift size={24} className="text-red-400" />}
                                     trend="-2%"
                                     color="red"
@@ -435,6 +399,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                         SEND <PlayCircle size={18} />
                                     </button>
                                 </form>
+                            </div>
+
+                            {/* Emergency Maintenance Clear */}
+                            <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-4 md:p-6">
+                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                    <AlertTriangle className="text-red-500" size={20} /> Emergency Maintenance Clear
+                                </h3>
+                                <p className="text-sm text-gray-400 mb-4">
+                                    Use this if the app is stuck in "NEW WEEK STARTING!" or maintenance countdown mode.
+                                </p>
+                                <button
+                                    onClick={handleClearStuckMaintenance}
+                                    className="w-full px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
+                                >
+                                    <RefreshCw size={18} /> FORCE CLEAR MAINTENANCE MODE
+                                </button>
                             </div>
                         </div>
                     )}
@@ -515,184 +495,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                         </div>
                     )}
 
-                    {/* MAINTENANCE TAB */}
-                    {activeTab === 'maintenance' && (
-                        <div className="space-y-6">
-                            {/* Current Status */}
-                            <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 border border-purple-500/50 rounded-xl p-6">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <Wrench className="text-purple-400" size={28} />
-                                    <div>
-                                        <h3 className="text-xl font-bold text-white">Weekly Reset Maintenance Control</h3>
-                                        <p className="text-sm text-gray-400">Manual control of weekly data reset and rewards</p>
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4 mt-4">
-                                    <div className="bg-black/30 p-4 rounded-lg">
-                                        <p className="text-xs text-gray-400 mb-1">Current Status</p>
-                                        <p className={`text-lg font-bold ${gameStatus?.maintenanceMode ? 'text-red-400' :
-                                            gameStatus?.warningActive ? 'text-yellow-400' :
-                                                gameStatus?.readyCountdown > 0 ? 'text-green-400' :
-                                                    'text-green-500'
-                                            }`}>
-                                            {gameStatus?.maintenanceMode ? '🔴 MAINTENANCE' :
-                                                gameStatus?.warningActive ? '⚠️ WARNING' :
-                                                    gameStatus?.readyCountdown > 0 ? '🟢 READY COUNTDOWN' :
-                                                        '🟢 GAME ACTIVE'}
-                                        </p>
-                                    </div>
-                                    <div className="bg-black/30 p-4 rounded-lg">
-                                        <p className="text-xs text-gray-400 mb-1">Spin Status</p>
-                                        <p className={`text-lg font-bold ${gameStatus?.spinEnabled ? 'text-green-500' : 'text-red-400'
-                                            }`}>
-                                            {gameStatus?.spinEnabled ? '✅ ENABLED' : '❌ DISABLED'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Step 1: Start Maintenance */}
-                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center font-bold">1</div>
-                                    <h3 className="text-lg font-bold text-white">Enable Maintenance Mode</h3>
-                                </div>
-                                <p className="text-sm text-gray-400 mb-4">
-                                    Start 15s warning countdown, then disable spin globally
-                                </p>
-                                {gameStatus?.warningActive && (
-                                    <div className="bg-yellow-900/20 border border-yellow-500/50 rounded-lg p-4 mb-4">
-                                        <p className="text-yellow-400 font-bold text-center text-xl">
-                                            ⚠️ WARNING IN PROGRESS: {gameStatus.warningCountdown}s
-                                        </p>
-                                    </div>
-                                )}
-                                <button
-                                    onClick={async () => {
-                                        if (confirm('Start maintenance mode? Users will get 15s warning.')) {
-                                            await startMaintenanceMode();
-                                        }
-                                    }}
-                                    disabled={gameStatus?.maintenanceMode || gameStatus?.warningActive}
-                                    className="w-full px-6 py-3 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all"
-                                >
-                                    {gameStatus?.warningActive ? `WARNING (${gameStatus.warningCountdown}s)` :
-                                        gameStatus?.maintenanceMode ? 'MAINTENANCE ACTIVE' :
-                                            '🔴 START MAINTENANCE MODE'}
-                                </button>
-                            </div>
-
-                            {/* Step 2: Safe User Reset */}
-                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className="w-8 h-8 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold">2</div>
-                                    <h3 className="text-lg font-bold text-white">Reset Weekly Data (Safe Mode)</h3>
-                                </div>
-                                <p className="text-sm text-gray-400 mb-6">
-                                    Resets coins to 0 and converts to E-Tokens for all offline users. Auto-skips online users.
-                                </p>
-
-                                <div>
-                                    <button
-                                        onClick={async () => {
-                                            if (confirm('Start Safe Batch Reset?\n\n- Targets OFFLINE users\n- Skips users who already reset (Online)\n- Converts coins to E-Tokens\n\nProceed?')) {
-                                                setIsResetting(true);
-                                                await resetAllUsersData((current, total) => {
-                                                    setResetProgress({ current, total });
-                                                });
-                                                setIsResetting(false);
-                                                alert('✅ Safe Reset Complete! All offline users processed.');
-                                            }
-                                        }}
-                                        disabled={!gameStatus?.maintenanceMode || isResetting}
-                                        className="w-full px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <RefreshCw size={20} className={isResetting ? 'animate-spin' : ''} />
-                                        {isResetting ? `PROCESSING BATCH... (${resetProgress.current}/${resetProgress.total})` : '🚀 START SAFE BATCH RESET'}
-                                    </button>
-                                    <p className="text-xs text-center text-gray-500 mt-2">
-                                        Safe Mode: Auto-skips users who have already been processed via Lazy Reset.
-                                    </p>
-                                    {isResetting && (
-                                        <div className="mt-2 bg-gray-800 rounded-full h-2 overflow-hidden">
-                                            <div
-                                                className="h-full bg-purple-500 transition-all duration-300"
-                                                style={{ width: `${(resetProgress.current / resetProgress.total) * 100}%` }}
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Step 3: End Maintenance */}
-                            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className="w-8 h-8 rounded-full bg-green-600 text-white flex items-center justify-center font-bold">3</div>
-                                    <h3 className="text-lg font-bold text-white">Resume Game</h3>
-                                </div>
-                                <p className="text-sm text-gray-400 mb-4">
-                                    Start 15s ready countdown, then enable spin globally
-                                </p>
-                                {gameStatus?.readyCountdown > 0 && (
-                                    <div className="bg-green-900/20 border border-green-500/50 rounded-lg p-4 mb-4">
-                                        <p className="text-green-400 font-bold text-center text-xl">
-                                            🎊 READY COUNTDOWN: {gameStatus.readyCountdown}s
-                                        </p>
-                                    </div>
-                                )}
-                                <button
-                                    onClick={async () => {
-                                        if (confirm('End maintenance mode? Users will get 15s ready countdown.')) {
-                                            await endMaintenanceMode();
-                                        }
-                                    }}
-                                    disabled={!gameStatus?.maintenanceMode || gameStatus?.readyCountdown > 0}
-                                    className="w-full px-6 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-all"
-                                >
-                                    {gameStatus?.readyCountdown > 0 ? `COUNTDOWN (${gameStatus.readyCountdown}s)` : '🟢 END MAINTENANCE MODE'}
-                                </button>
-                            </div>
-
-                            {/* 🧪 MAINTENANCE TEST LAB */}
-                            <div className="bg-gray-900/50 border border-yellow-500/30 rounded-xl p-6 mt-8">
-                                <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2">
-                                    <span>🧪</span> Testing Zone
-                                </h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <button
-                                        onClick={() => {
-                                            const now = new Date();
-                                            const daysUntilSunday = (7 - now.getDay()) % 7;
-                                            const target = new Date(now);
-                                            target.setDate(now.getDate() + daysUntilSunday);
-                                            target.setHours(23, 59, 45, 0); // 15 seconds before midnight
-                                            const offset = target.getTime() - Date.now();
-                                            setSimulatedTimeOffset(offset);
-                                            alert("⚡ TEST MODE: Time jumped to Sunday 11:59:45 PM.\n\nWatch Auto-Pilot trigger Maintenance & Reset!");
-                                            window.location.reload();
-                                        }}
-                                        className="p-4 bg-red-900/30 hover:bg-red-900/50 border border-red-500/40 rounded-lg text-red-200 font-bold hover:scale-[1.02] transition-all text-left"
-                                    >
-                                        ⚡ Simulate Reset Trigger
-                                        <div className="text-xs font-normal opacity-60 mt-1">Jumps to Sun 11:59:45 PM (Auto-Pilot Test)</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            clearSimulatedTime();
-                                            alert("✅ Back to Real Time.");
-                                            window.location.reload();
-                                        }}
-                                        className="p-4 bg-green-900/30 hover:bg-green-900/50 border border-green-500/40 rounded-lg text-green-200 font-bold hover:scale-[1.02] transition-all text-left"
-                                    >
-                                        🔁 Reset to Real Time
-                                        <div className="text-xs font-normal opacity-60 mt-1">Disables simulation mode</div>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     {/* BOTS TAB */}
                     {activeTab === 'bots' && (
                         <BotManagementPanel />
@@ -731,11 +533,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                         <div className="space-y-2 text-xs font-mono text-gray-400">
                                             <div className="flex justify-between">
                                                 <span>iPhone Start:</span>
-                                                <span className="text-white">{eventData?.iphone_start?.toDate().toLocaleString() || '-'}</span>
+                                                <span className="text-white">{eventData?.iphone_start ? new Date(eventData.iphone_start).toLocaleString() : '-'}</span>
                                             </div>
                                             <div className="flex justify-between">
                                                 <span>KTM Start:</span>
-                                                <span className="text-white">{eventData?.ktm_start?.toDate().toLocaleString() || '-'}</span>
+                                                <span className="text-white">{eventData?.ktm_start ? new Date(eventData.ktm_start).toLocaleString() : '-'}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -763,10 +565,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                                     const iphoneNum = Math.floor(Math.random() * 900000) + 100000;
                                                     nextUpdate = {
                                                         status: 'LIVE_IPHONE',
-                                                        iphone_start: Timestamp.fromDate(now),
-                                                        iphone_end: Timestamp.fromDate(tenMinsLater),
+                                                        iphone_start: now,
+                                                        iphone_end: tenMinsLater,
                                                         iphone_winner: { number: iphoneNum, name: 'Lucky Winner' }, // Set winner IMMEDIATELY for progressive reveal
-                                                        last_updated: Timestamp.now()
+                                                        last_updated: new Date()
                                                     };
                                                     actionName = `START iPHONE DRAW (Winner: ${iphoneNum})`;
                                                 }
@@ -775,10 +577,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                                     const ktmNum = Math.floor(Math.random() * 900000) + 100000;
                                                     nextUpdate = {
                                                         status: 'LIVE_KTM',
-                                                        ktm_start: Timestamp.fromDate(now),
-                                                        ktm_end: Timestamp.fromDate(tenMinsLater),
+                                                        ktm_start: now,
+                                                        ktm_end: tenMinsLater,
                                                         ktm_winner: { number: ktmNum, name: 'Lucky Winner' }, // Set winner IMMEDIATELY for progressive reveal
-                                                        last_updated: Timestamp.now()
+                                                        last_updated: new Date()
                                                     };
                                                     actionName = `START KTM DRAW (Winner: ${ktmNum})`;
                                                 }
@@ -791,7 +593,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                                 }
 
                                                 if (confirm(`Action: ${actionName}\n\nThis will start the 10-minute progressive reveal animation. The winner is pre-selected but revealed slowly to users.\n\nProceed?`)) {
-                                                    await updateDoc(doc(db, 'events', 'sunday_lottery'), nextUpdate);
+                                                    await supabase
+                                                        .from('events')
+                                                        .update(nextUpdate)
+                                                        .eq('id', 'sunday_lottery');
                                                 }
                                             }}
                                             disabled={eventData?.status?.includes('LIVE')}
@@ -827,7 +632,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                             <button
                                                 onClick={async () => {
                                                     if (confirm("Force Stop & Reset to WAITING?")) {
-                                                        await updateDoc(doc(db, 'events', 'sunday_lottery'), { status: 'WAITING' });
+                                                        await supabase
+                                                            .from('events')
+                                                            .update({ status: 'WAITING' })
+                                                            .eq('id', 'sunday_lottery');
                                                     }
                                                 }}
                                                 className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs font-bold rounded-lg border border-gray-700"
@@ -978,12 +786,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     <button
                                         onClick={async () => {
                                             if (confirm("💥 FORCE RESET EVENT DATA?\n\nThis will clear winners and set status to WAITING. Use this to re-run tests.")) {
-                                                const { updateDoc, doc } = await import('firebase/firestore');
-                                                await updateDoc(doc(db, 'events', 'sunday_lottery'), {
-                                                    status: 'WAITING',
-                                                    iphone_winner: null,
-                                                    ktm_winner: null
-                                                });
+                                                await supabase
+                                                    .from('events')
+                                                    .update({
+                                                        status: 'WAITING',
+                                                        iphone_winner: null,
+                                                        ktm_winner: null
+                                                    })
+                                                    .eq('id', 'sunday_lottery');
                                                 alert("💥 Event Data Reset!");
                                             }
                                         }}
@@ -1004,8 +814,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     onClick={async () => {
                                         if (!confirm('Initialize Sunday Lottery Database?')) return;
                                         try {
-                                            const { setDoc, doc, Timestamp } = await import('firebase/firestore');
-
                                             // Get next Sunday's date for reference
                                             const now = new Date();
                                             let targetDate = new Date();
@@ -1040,17 +848,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                             ktmEnd.setHours(20, 10, 0, 0); // 8:10 PM
 
                                             const eventData = {
-                                                iphone_start: Timestamp.fromDate(iphoneStart),
-                                                iphone_end: Timestamp.fromDate(iphoneEnd),
-                                                ktm_start: Timestamp.fromDate(ktmStart),
-                                                ktm_end: Timestamp.fromDate(ktmEnd),
+                                                iphone_start: iphoneStart,
+                                                iphone_end: iphoneEnd,
+                                                ktm_start: ktmStart,
+                                                ktm_end: ktmEnd,
                                                 iphone_winner: null,
                                                 ktm_winner: null,
                                                 status: 'WAITING', // WAITING, LIVE_IPHONE, LIVE_KTM, ENDED
-                                                last_updated: Timestamp.now()
+                                                last_updated: new Date()
                                             };
 
-                                            await setDoc(doc(db, 'events', 'sunday_lottery'), eventData, { merge: true });
+                                            await supabase
+                                                .from('events')
+                                                .upsert(eventData, { onConflict: 'id' });
                                             alert('✅ Sunday Lottery Initialized Successfully!');
                                         } catch (error) {
                                             console.error(error);
@@ -1227,12 +1037,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                 <div className="mt-8 bg-red-950/30 border-2 border-red-600 rounded-xl p-6">
                                     <h3 className="text-lg font-bold text-red-400 mb-2">⚠️ DANGER ZONE</h3>
                                     <p className="text-sm text-gray-400 mb-6">
-                                        This will PERMANENTLY DELETE all users and leaderboard data from Firebase. This cannot be undone!
+                                        This will PERMANENTLY DELETE all users and leaderboard data from Supabase. This cannot be undone!
                                     </p>
 
                                     <button
                                         onClick={async () => {
-                                            const confirm1 = confirm('⚠️ WARNING: This will DELETE ALL USERS from Firebase!\n\nAre you ABSOLUTELY sure?');
+                                            const confirm1 = confirm('⚠️ WARNING: This will DELETE ALL USERS from Supabase!\n\nAre you ABSOLUTELY sure?');
                                             if (!confirm1) return;
 
                                             const confirm2 = confirm('⚠️ FINAL WARNING: All user data and leaderboard will be PERMANENTLY DELETED!\n\nType YES in your mind and click OK to proceed.');
@@ -1244,7 +1054,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                                     const percent = Math.floor((current / total) * 100);
                                                     setBulkProgress({ step: 'Deleting all data...', current: percent, total: 100 });
                                                 });
-                                                alert('✅ All test data deleted from Firebase!');
+                                                alert('✅ All test data deleted from Supabase!');
                                             } catch (error) {
                                                 console.error(error);
                                                 alert('❌ Error: ' + error);
@@ -1313,9 +1123,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onLogout, onBackToGame 
                                     <div>
                                         <button
                                             onClick={async () => {
-                                                if (!auth.currentUser) return;
-                                                const userRef = doc(db, 'users', auth.currentUser.uid);
-                                                await updateDoc(userRef, { spinsToday: 95 });
+                                                const { data: { user } } = await supabase.auth.getUser();
+                                                if (!user) return;
+                                                await supabase
+                                                    .from('users')
+                                                    .update({ spins_today: 95 })
+                                                    .eq('uid', user.id);
                                                 alert("⚡ Spins set to 95! Spin 5 more times to test Super Mode.");
                                             }}
                                             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-900/50 active:scale-95 transition-all w-full"

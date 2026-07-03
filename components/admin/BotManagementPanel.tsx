@@ -12,8 +12,7 @@ import {
 } from '../../services/smartBotService';
 import { getLeaderboardAnalytics, syncUserToLeaderboard } from '../../services/leaderboardService';
 import { getCurrentWeekId } from '../../utils/weekUtils';
-import { auth, db } from '../../firebase';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { supabase, auth } from '../../supabaseClient';
 
 export const BotManagementPanel: React.FC = () => {
     // Config state is removed as we hardcoded 3 bots for now.
@@ -23,6 +22,7 @@ export const BotManagementPanel: React.FC = () => {
     const [reservedCount, setReservedCount] = useState<number>(0);
     const [levelConfig, setLevelConfig] = useState<any>(null); // NEW: Level config
     const [levelPools, setLevelPools] = useState<any>(null); // NEW: Level pools
+    const [photoStats, setPhotoStats] = useState({ used: 0, total: 0 }); // NEW: Photo stats
     const [botList, setBotList] = useState<any[]>([]);
     const [showBotList, setShowBotList] = useState(false);
 
@@ -39,20 +39,69 @@ export const BotManagementPanel: React.FC = () => {
         setSimState(savedState);
 
         // REAL-TIME LISTENERS for Reserved IDs System
-        const reservedRef = doc(db, 'system', 'reserved_bot_ids');
-        const configRef = doc(db, 'system', 'reserved_ids_config');
+        const reservedChannel = supabase
+            .channel('reserved_bot_ids')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'system',
+                filter: 'id=eq.reserved_bot_ids'
+            }, async (payload) => {
+                if (payload.new) {
+                    const data = payload.new as any;
+                    setReservedCount(data.ids?.length || 0);
+                    setLevelPools(data.level_pools || {});
+                }
+            })
+            .subscribe();
 
-        const unsubReserved = onSnapshot(reservedRef, (doc) => {
-            if (doc.exists()) {
-                const data = doc.data();
+        const configChannel = supabase
+            .channel('reserved_ids_config')
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'system',
+                filter: 'id=eq.reserved_ids_config'
+            }, async (payload) => {
+                if (payload.new) {
+                    setLevelConfig(payload.new);
+                } else {
+                    // Fallback config if not initialized
+                    setLevelConfig({
+                        currentLevel: 1,
+                        levels: {
+                            1: { maxIds: 6, gapSize: 2, filled: 0 },
+                            2: { maxIds: 10, gapSize: 5, filled: 0 },
+                            3: { maxIds: 20, gapSize: 10, filled: 0 },
+                            4: { maxIds: 50, gapSize: 20, filled: 0 },
+                            5: { maxIds: 100, gapSize: 50, filled: 0 }
+                        }
+                    });
+                }
+            })
+            .subscribe();
+
+        // Initial fetch for reserved data
+        const fetchReservedData = async () => {
+            const { data } = await supabase
+                .from('system')
+                .select('*')
+                .eq('id', 'reserved_bot_ids')
+                .single();
+            if (data) {
                 setReservedCount(data.ids?.length || 0);
-                setLevelPools(data.levelPools || {});
+                setLevelPools(data.level_pools || {});
             }
-        });
+        };
 
-        const unsubConfig = onSnapshot(configRef, (doc) => {
-            if (doc.exists()) {
-                setLevelConfig(doc.data());
+        const fetchConfigData = async () => {
+            const { data } = await supabase
+                .from('system')
+                .select('*')
+                .eq('id', 'reserved_ids_config')
+                .single();
+            if (data) {
+                setLevelConfig(data);
             } else {
                 // Fallback config if not initialized
                 setLevelConfig({
@@ -66,12 +115,15 @@ export const BotManagementPanel: React.FC = () => {
                     }
                 });
             }
-        });
+        };
+
+        fetchReservedData();
+        fetchConfigData();
 
         return () => {
             if (autoRunInterval.current) clearInterval(autoRunInterval.current);
-            unsubReserved();
-            unsubConfig();
+            supabase.removeChannel(reservedChannel);
+            supabase.removeChannel(configChannel);
         };
     }, []);
 
@@ -93,6 +145,19 @@ export const BotManagementPanel: React.FC = () => {
     const loadAnalytics = async () => {
         const stats = await getLeaderboardAnalytics();
         setAnalytics(stats);
+
+        // Fetch Photo Stats
+        const { count: totalPhotos } = await supabase
+            .from('bot_profile_photos')
+            .select('*', { count: 'exact', head: true });
+
+        const { count: usedPhotos } = await supabase
+            .from('bot_profile_photos')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_used', true);
+
+        setPhotoStats({ used: usedPhotos || 0, total: totalPhotos || 0 });
+
         // Note: Reserved IDs are now handled by real-time listeners above
     };
 
@@ -173,22 +238,25 @@ export const BotManagementPanel: React.FC = () => {
     };
 
     const handleSyncMyScore = async () => {
-        if (!auth.currentUser) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
         setLoading(true);
         try {
-            const userRef = doc(db, 'users', auth.currentUser.uid);
-            const snap = await getDoc(userRef);
-            if (snap.exists()) {
-                const data = snap.data();
+            const { data: userData } = await supabase
+                .from('users')
+                .select('*')
+                .eq('uid', user.id)
+                .single();
+            if (userData) {
                 await syncUserToLeaderboard(
-                    auth.currentUser.uid,
-                    data.username || "Admin",
-                    data.coins || 0,
-                    data.photoURL,
-                    data.totalSpins || 0,
-                    data.level || 1
+                    user.id,
+                    userData.username || "Admin",
+                    userData.coins || 0,
+                    userData.photo_url,
+                    userData.total_spins || 0,
+                    userData.level || 1
                 );
-                alert(`✅ Synced! Your score (${data.coins}) is now on the Leaderboard.`);
+                alert(`✅ Synced! Your score (${userData.coins}) is now on the Leaderboard.`);
             }
         } catch (error) {
             console.error(error);
@@ -245,63 +313,72 @@ export const BotManagementPanel: React.FC = () => {
                             </div>
                             <div style={styles.statLabel}>Reserved IDs Pool</div>
                         </div>
+                        <div style={styles.statBox}>
+                            <div style={{ ...styles.statValue, color: '#E91E63' }}>
+                                {photoStats.total - photoStats.used}
+                            </div>
+                            <div style={styles.statLabel}>Photos Remaining</div>
+                        </div>
                     </div>
 
                     {/* Level Progress Bar */}
-                    {levelConfig && (
-                        <div style={{ marginTop: '20px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', padding: '15px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#00bcd4' }}>
-                                    Level {levelConfig.currentLevel} Progress
-                                </span>
-                                <span style={{ fontSize: '12px', color: '#aaa' }}>
-                                    {reservedCount}/{levelConfig.levels[levelConfig.currentLevel].maxIds} IDs
-                                </span>
-                            </div>
-                            <div style={{ width: '100%', height: '10px', background: '#222', borderRadius: '5px', overflow: 'hidden' }}>
-                                <div style={{
-                                    width: `${(reservedCount / levelConfig.levels[levelConfig.currentLevel].maxIds) * 100}%`,
-                                    height: '100%',
-                                    background: 'linear-gradient(90deg, #00bcd4, #4CAF50)',
-                                    transition: 'width 0.3s ease',
-                                    borderRadius: '5px'
-                                }} />
-                            </div>
+                    {
+                        levelConfig && (
+                            <div style={{ marginTop: '20px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', padding: '15px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#00bcd4' }}>
+                                        Level {levelConfig?.currentLevel} Progress
+                                    </span>
+                                    <span style={{ fontSize: '12px', color: '#aaa' }}>
+                                        {reservedCount}/{levelConfig?.levels?.[levelConfig?.currentLevel]?.maxIds || 0} IDs
+                                    </span>
+                                </div>
+                                <div style={{ width: '100%', height: '10px', background: '#222', borderRadius: '5px', overflow: 'hidden' }}>
+                                    <div style={{
+                                        width: `${Math.min(100, (reservedCount / (levelConfig?.levels?.[levelConfig?.currentLevel]?.maxIds || 1)) * 100)}%`,
+                                        height: '100%',
+                                        background: 'linear-gradient(90deg, #00bcd4, #4CAF50)',
+                                        transition: 'width 0.3s ease',
+                                        borderRadius: '5px'
+                                    }} />
+                                </div>
 
-                            {/* Level Breakdown */}
-                            <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #444' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '10px', color: '#aaa' }}>Level Breakdown:</div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
-                                    {[1, 2, 3, 4, 5].map(level => {
-                                        const poolSize = levelPools?.[level]?.length || 0;
-                                        const maxIds = levelConfig.levels[level].maxIds;
-                                        const isCurrent = level === levelConfig.currentLevel;
-                                        const isUnlocked = level <= levelConfig.currentLevel;
+                                {/* Level Breakdown */}
+                                <div style={{ marginTop: '15px', paddingTop: '15px', borderTop: '1px solid #444' }}>
+                                    <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '10px', color: '#aaa' }}>Level Breakdown:</div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+                                        {[1, 2, 3, 4, 5].map(level => {
+                                            const poolSize = levelPools?.[level]?.length || 0;
+                                            const maxIds = levelConfig?.levels?.[level]?.maxIds || 0;
+                                            const gapSize = levelConfig?.levels?.[level]?.gapSize || 0;
+                                            const isCurrent = level === (levelConfig?.currentLevel || 1);
+                                            const isUnlocked = level <= (levelConfig?.currentLevel || 1);
 
-                                        return (
-                                            <div key={level} style={{
-                                                background: isCurrent ? 'rgba(0, 188, 212, 0.2)' : 'rgba(255,255,255,0.05)',
-                                                border: isCurrent ? '2px solid #00bcd4' : '1px solid #444',
-                                                borderRadius: '8px',
-                                                padding: '8px',
-                                                textAlign: 'center',
-                                                opacity: isUnlocked ? 1 : 0.5
-                                            }}>
-                                                <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '4px' }}>L{level}</div>
-                                                <div style={{ fontSize: '13px', fontWeight: 'bold', color: isUnlocked ? '#4CAF50' : '#666' }}>
-                                                    {poolSize}/{maxIds}
+                                            return (
+                                                <div key={level} style={{
+                                                    background: isCurrent ? 'rgba(0, 188, 212, 0.2)' : 'rgba(255,255,255,0.05)',
+                                                    border: isCurrent ? '2px solid #00bcd4' : '1px solid #444',
+                                                    borderRadius: '8px',
+                                                    padding: '8px',
+                                                    textAlign: 'center',
+                                                    opacity: isUnlocked ? 1 : 0.5
+                                                }}>
+                                                    <div style={{ fontSize: '11px', color: '#aaa', marginBottom: '4px' }}>L{level}</div>
+                                                    <div style={{ fontSize: '13px', fontWeight: 'bold', color: isUnlocked ? '#4CAF50' : '#666' }}>
+                                                        {poolSize}/{maxIds}
+                                                    </div>
+                                                    <div style={{ fontSize: '9px', color: '#888', marginTop: '2px' }}>
+                                                        Gap: {gapSize}
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: '9px', color: '#888', marginTop: '2px' }}>
-                                                    Gap: {levelConfig.levels[level].gapSize}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
-                </div>
+                        )
+                    }
+                </div >
             )}
 
             {/* Control Buttons */}

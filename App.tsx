@@ -28,9 +28,7 @@ import InfoModal from './components/InfoModal';
 import SuperModeTransition from './components/SuperModeTransition'; // NEW: Animation Component
 import { Volume2, VolumeX, Info, Mail } from 'lucide-react';
 import './index.css';
-import { auth, db } from './firebase';
-import { onAuthStateChanged, updateProfile, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { doc, getDoc, updateDoc, setDoc, Timestamp, onSnapshot, increment } from 'firebase/firestore';
+import { supabase, auth } from './supabaseClient';
 import { updateUserWeeklyCoins, syncUserToLeaderboard } from './services/leaderboardService';
 import { ensureUserHasDisplayId, createUserProfile } from './services/userService';
 import { fetchUserWithRetry, recreateUserProfile, clearAllStorage } from './services/authHelpers'; // NEW: Auth Helper Functions
@@ -38,7 +36,6 @@ import { simulateSmartBotActivity } from './services/smartBotService'; // NEW: S
 import { calculateLevel } from './utils/levelUtils';
 import ReferralModal from './components/ReferralModal';
 import { processLevelUpReward, validateReferralCode, applyReferral } from './services/referralService';
-import MaintenancePoster from './components/MaintenancePoster';
 // NEW: Import Weekly Reset Hook
 import { useWeeklyReset } from './hooks/useWeeklyReset';
 import { useDailyReset } from './hooks/useDailyReset'; // NEW: Daily Reset Hook
@@ -64,22 +61,11 @@ const App: React.FC = () => {
   // User & Auth State
   const [user, setUser] = useState<User | null>(null);
 
-  // NEW: Initialize Weekly Reset Hook
-
-
-  // NEW: Initialize Weekly Reset Hook
-
-  // NEW: Initialize Weekly Reset Hook
-
   const [isLoadingScreen, setIsLoadingScreen] = useState<boolean>(true); // NEW: Global Loading State
-  // const [isLoading, setIsLoading] = useState<boolean>(true); // Renamed/Refactored
   const isLoading = isLoadingScreen; // Mapping for usage in hooks
 
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
-
-
   const [showUsernameModal, setShowUsernameModal] = useState<boolean>(false);
-
   const [hasEnteredGame, setHasEnteredGame] = useState<boolean>(false); // NEW: Controls transition to Game
 
   // Admin State
@@ -122,10 +108,27 @@ const App: React.FC = () => {
   const pressStartTime = useRef<number | null>(null);
   const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Prevent sync until data is loaded
-
   // NEW: Initialize Weekly Reset Hook with LIVE State (Coins, eTokens)
   const { isProcessing: isWeeklyResetProcessing } = useWeeklyReset(user, coins, setCoins, setETokens);
+
+  // FIX: Force reload unread count after weekly reset finishes
+  // This ensures the notification dot appears even if Realtime subscription missed the insert
+  const prevResetState = useRef(isWeeklyResetProcessing);
+  useEffect(() => {
+    // If we just finished processing (true -> false)
+    if (prevResetState.current && !isWeeklyResetProcessing) {
+      if (user && !user.isGuest) {
+        // Small delay to ensure DB insert is fully propagated
+        setTimeout(() => {
+          getUnreadCount(user.id).then(count => {
+            console.log("🔄 Force-refreshed unread count after reset:", count);
+            setUnreadMailCount(count);
+          });
+        }, 1500);
+      }
+    }
+    prevResetState.current = isWeeklyResetProcessing;
+  }, [isWeeklyResetProcessing, user]);
 
   // --- DAILY RESET LOGIC (Hook) ---
   // Replaces the old interval-based check with a robust Day ID tracker
@@ -151,209 +154,190 @@ const App: React.FC = () => {
     return () => clearInterval(botInterval);
   }, [user]); // Re-run when user changes (login/logout)
 
-
-
-  // AUTH LISTENER
+  // AUTH LISTENER (Supabase)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // User is signed in
-        if (firebaseUser.displayName) {
-          // Setup complete
-
-          // ✅ CRITICAL: Don't show username modal yet - wait for data fetch
-          setShowUsernameModal(false);
-
-          setUser({
-            id: firebaseUser.uid,
-            uid: firebaseUser.uid,
-            username: firebaseUser.displayName,
-            email: firebaseUser.email || undefined,
-            isGuest: false,
-            photoURL: firebaseUser.photoURL || undefined
-          });
-
-          // Load user data from Firestore with RETRY LOGIC
-          try {
-            console.log('🔍 Loading user data for:', firebaseUser.uid);
-
-            // LAYER 1: Fetch user data with retry (3 attempts)
-            const userData = await fetchUserWithRetry(firebaseUser.uid, 3);
-
-            // LAYER 2: Decision Logic - 3 Scenarios
-            if (userData && userData.displayId) {
-              // ✅ SCENARIO 1: EXISTING USER - Data found in Firestore
-              console.log('✅ Existing user detected, loading data...');
-
-              setBalance(userData.tokens !== undefined ? userData.tokens : 10);
-              setCoins(userData.coins || 0);
-              setETokens(userData.eTokens || 0);
-              setKtmTokens(userData.ktmTokens || 0);
-              setIphoneTokens(userData.iphoneTokens || 0);
-              setInrBalance(userData.inrBalance || 0);
-
-              // Daily Reset Logic
-              const lastDate = userData.lastSpinDate ? userData.lastSpinDate.toDate() : new Date();
-              const today = new Date();
-              const isSameDay = lastDate.getDate() === today.getDate() &&
-                lastDate.getMonth() === today.getMonth() &&
-                lastDate.getFullYear() === today.getFullYear();
-
-              setSpinsToday(isSameDay ? (userData.spinsToday || 0) : 0);
-              setSuperModeEndTime(userData.superModeEndTime ? userData.superModeEndTime.toDate() : null);
-              setSuperModeSpinsLeft(userData.superModeSpinsLeft || 0);
-
-              const loadedSpins = userData.totalSpins || 0;
-              setTotalSpins(loadedSpins);
-              totalSpinsRef.current = loadedSpins;
-
-              // Update user object with all data from Firestore
-              setUser(prev => prev ? {
-                ...prev,
-                photoURL: userData.photoURL || prev.photoURL,
-                displayId: userData.displayId,
-                referralCode: userData.referralCode,
-                referralCount: userData.referralCount,
-                referredBy: userData.referredBy,
-                referralDismissed: userData.referralDismissed,
-                lastWeekId: userData.lastWeekId,
-                coins: userData.coins || 0,
-                totalSpins: loadedSpins
-              } : null);
-
-              // ✅ CRITICAL: Force close username modal for existing users
-              setShowUsernameModal(false);
-
-              // BACKFILL: Ensure user has a numeric ID and Referral Code
-              if (!userData.displayId || !userData.referralCode) {
-                ensureUserHasDisplayId({ ...userData, uid: firebaseUser.uid, id: firebaseUser.uid } as any).then(updatedUser => {
-                  if (updatedUser.displayId || updatedUser.referralCode) {
-                    setUser(prev => prev ? {
-                      ...prev,
-                      displayId: updatedUser.displayId,
-                      referralCode: updatedUser.referralCode
-                    } : null);
-                  }
-                });
-              }
-
-            } else if (firebaseUser.displayName && !userData) {
-              // ⚠️ SCENARIO 2: CACHE CLEAR - Auth has name but Firestore missing
-              console.log('⚠️ Cache clear scenario detected - recreating profile from Auth...');
-
-              // Recreate profile from Firebase Auth data
-              const recreatedData = await recreateUserProfile(firebaseUser);
-
-              if (recreatedData) {
-                console.log('✅ Profile recreated successfully');
-
-                // Load the recreated data
-                setBalance(recreatedData.tokens !== undefined ? recreatedData.tokens : 10);
-                setCoins(recreatedData.coins || 0);
-                setETokens(recreatedData.eTokens || 0);
-                setKtmTokens(recreatedData.ktmTokens || 0);
-                setIphoneTokens(recreatedData.iphoneTokens || 0);
-                setInrBalance(recreatedData.inrBalance || 0);
-
-                const loadedSpins = recreatedData.totalSpins || 0;
-                setTotalSpins(loadedSpins);
-                totalSpinsRef.current = loadedSpins;
-
-                setUser(prev => prev ? {
-                  ...prev,
-                  photoURL: recreatedData.photoURL || prev.photoURL,
-                  displayId: recreatedData.displayId,
-                  referralCode: recreatedData.referralCode,
-                  referralCount: recreatedData.referralCount,
-                  lastWeekId: recreatedData.lastWeekId,
-                  coins: recreatedData.coins || 0,
-                  totalSpins: loadedSpins
-                } : null);
-
-                // ✅ CRITICAL: Don't show username modal - profile was recreated
-                setShowUsernameModal(false);
-              } else {
-                // Recreation failed - show username modal as fallback
-                console.log('❌ Profile recreation failed, showing username modal');
-                setShowUsernameModal(true);
-              }
-
-            } else {
-              // ❌ SCENARIO 3: TRULY NEW USER - No displayName and no Firestore data
-              console.log('❌ New user detected, showing username modal...');
-              setShowUsernameModal(true);
-            }
-
-            // Enable sync AFTER data is loaded with a small delay
-            setTimeout(() => {
-              setIsSyncEnabled(true);
-            }, 1000);
-
-          } catch (error) {
-            // Error handled with fallback
-            console.error('🚨 Auth listener error:', error);
-
-            // Fallback to defaults on error
-            setBalance(10);
-            setCoins(0);
-            setETokens(0);
-            setKtmTokens(0);
-            setIphoneTokens(0);
-            setInrBalance(0);
-            setTotalSpins(0);
-            totalSpinsRef.current = 0;
-
-            // If user has displayName, don't show username modal (assume existing user)
-            if (!firebaseUser.displayName) {
-              setShowUsernameModal(true);
-            }
-
-            // Still enable sync after delay
-            setTimeout(() => {
-              setIsSyncEnabled(true);
-            }, 1000);
-          }
-        } else {
-          // Signed in but no username (email signup) -> Show Username Modal
-          console.log('📧 Email signup detected - showing username modal...');
-
-          // Set user object even without displayName
-          setUser({
-            id: firebaseUser.uid,
-            uid: firebaseUser.uid,
-            username: '', // Will be set in UsernameModal
-            email: firebaseUser.email || undefined,
-            isGuest: false,
-            photoURL: firebaseUser.photoURL || undefined
-          });
-
-          // Enter game to exit AuthScreen
-          enterGame();
-
-          // Show username modal
-          setShowUsernameModal(true);
-        }
-        setShowLoginModal(false);
-        // setIsLoading(false); // Auth check handled by LoadingScreen
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        handleUserLogin(session.user);
       } else {
-        // User is signed out - FORCE AUTH SCREEN
         setUser(null);
-        setIsSyncEnabled(false);
-        setHasEnteredGame(false); // <--- CRITICAL: Resets to Auth Screen
-        setBalance(0);
-        setCoins(0);
-        setETokens(0);
-        setKtmTokens(0);
-        setIphoneTokens(0);
-        setInrBalance(0);
-        setTotalSpins(0);
-        totalSpinsRef.current = 0;
-        // setIsLoading(false); // Auth check handled by LoadingScreen
+        setIsLoadingScreen(false);
       }
     });
 
-    return () => unsubscribe();
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_IN' && session?.user) {
+          handleUserLogin(session.user);
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setIsLoadingScreen(false);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
+
+  const handleUserLogin = async (supabaseUser: any) => {
+    const userData = supabaseUser.user_metadata || {};
+    const username = userData.username || userData.full_name || supabaseUser.email?.split('@')[0];
+
+    // Setup complete
+    setShowUsernameModal(false);
+
+    setUser({
+      id: supabaseUser.id,
+      uid: supabaseUser.id,
+      username: username,
+      email: supabaseUser.email || undefined,
+      isGuest: false,
+      photoURL: userData.avatar_url || userData.picture || undefined
+    });
+
+    // Load user data from Supabase with RETRY LOGIC
+    try {
+      console.log('🔍 Loading user data for:', supabaseUser.id);
+
+      // LAYER 1: Fetch user data with retry (3 attempts)
+      const userData = await fetchUserWithRetry(supabaseUser.id, 3);
+
+      // LAYER 2: Decision Logic - 3 Scenarios
+      if (userData && userData.display_id) {
+        // ✅ SCENARIO 1: EXISTING USER - Data found in Supabase
+        console.log('✅ Existing user detected, loading data...');
+
+        setBalance(userData.tokens !== undefined ? userData.tokens : 10);
+        setCoins(userData.coins || 0);
+        setETokens(userData.e_tokens || 0);
+        setKtmTokens(userData.ktm_tokens || 0);
+        setIphoneTokens(userData.iphone_tokens || 0);
+        setInrBalance(userData.inr_balance || 0);
+
+        // Daily Reset Logic
+        const lastDate = userData.last_spin_date ? new Date(userData.last_spin_date) : new Date();
+        const today = new Date();
+        const isSameDay = lastDate.getDate() === today.getDate() &&
+          lastDate.getMonth() === today.getMonth() &&
+          lastDate.getFullYear() === today.getFullYear();
+
+        setSpinsToday(isSameDay ? (userData.spins_today || 0) : 0);
+        setSuperModeEndTime(userData.super_mode_end_time ? new Date(userData.super_mode_end_time) : null);
+        setSuperModeSpinsLeft(userData.super_mode_spins_left || 0);
+
+        const loadedSpins = userData.total_spins || 0;
+        setTotalSpins(loadedSpins);
+        totalSpinsRef.current = loadedSpins;
+
+        // Update user object with all data from Supabase
+        setUser(prev => prev ? {
+          ...prev,
+          photoURL: userData.photo_url || prev.photoURL,
+          displayId: userData.display_id,
+          referralCode: userData.referral_code,
+          referralCount: userData.referral_count,
+          referredBy: userData.referred_by,
+          referralDismissed: userData.referral_dismissed,
+          lastWeekId: userData.last_week_id,
+          coins: userData.coins || 0,
+          totalSpins: loadedSpins
+        } : null);
+
+        // ✅ CRITICAL: Force close username modal for existing users
+        setShowUsernameModal(false);
+
+        // BACKFILL: Ensure user has a numeric ID and Referral Code
+        if (!userData.display_id || !userData.referral_code) {
+          ensureUserHasDisplayId({ ...userData, uid: supabaseUser.id, id: supabaseUser.id } as any).then(updatedUser => {
+            if (updatedUser.displayId || updatedUser.referralCode) {
+              setUser(prev => prev ? {
+                ...prev,
+                displayId: updatedUser.displayId,
+                referralCode: updatedUser.referralCode
+              } : null);
+            }
+          });
+        }
+
+      } else if (username && !userData) {
+        // ⚠️ SCENARIO 2: CACHE CLEAR - Auth has name but Supabase missing
+        console.log('⚠️ Cache clear scenario detected - recreating profile from Auth...');
+
+        // Recreate profile from Supabase Auth data
+        const recreatedData = await recreateUserProfile(supabaseUser);
+
+        if (recreatedData) {
+          console.log('✅ Profile recreated successfully');
+
+          // Load the recreated data
+          setBalance(recreatedData.tokens !== undefined ? recreatedData.tokens : 10);
+          setCoins(recreatedData.coins || 0);
+          setETokens(recreatedData.e_tokens || 0);
+          setKtmTokens(recreatedData.ktm_tokens || 0);
+          setIphoneTokens(recreatedData.iphone_tokens || 0);
+          setInrBalance(recreatedData.inr_balance || 0);
+
+          const loadedSpins = recreatedData.total_spins || 0;
+          setTotalSpins(loadedSpins);
+          totalSpinsRef.current = loadedSpins;
+
+          setUser(prev => prev ? {
+            ...prev,
+            photoURL: recreatedData.photo_url || prev.photoURL,
+            displayId: recreatedData.display_id,
+            referralCode: recreatedData.referral_code,
+            referralCount: recreatedData.referral_count,
+            lastWeekId: recreatedData.last_week_id,
+            coins: recreatedData.coins || 0,
+            totalSpins: loadedSpins
+          } : null);
+
+          // ✅ CRITICAL: Don't show username modal - profile was recreated
+          setShowUsernameModal(false);
+        } else {
+          // Recreation failed - show username modal as fallback
+          console.log('❌ Profile recreation failed, showing username modal');
+          setShowUsernameModal(true);
+        }
+
+      } else {
+        // ❌ SCENARIO 3: TRULY NEW USER - No displayName and no Firestore data
+        console.log('❌ New user detected, showing username modal...');
+        setShowUsernameModal(true);
+      }
+
+      // Enable sync AFTER data is loaded with a small delay
+      setTimeout(() => {
+        setIsSyncEnabled(true);
+      }, 1000);
+
+    } catch (error) {
+      // Error handled with fallback
+      console.error('🚨 Auth listener error:', error);
+
+      // Fallback to defaults on error
+      setBalance(10);
+      setCoins(0);
+      setETokens(0);
+      setKtmTokens(0);
+      setIphoneTokens(0);
+      setInrBalance(0);
+      setTotalSpins(0);
+      totalSpinsRef.current = 0;
+
+      // If user has displayName, don't show username modal (assume existing user)
+      if (!username) {
+        setShowUsernameModal(true);
+      }
+
+      // Still enable sync after delay
+      setTimeout(() => {
+        setIsSyncEnabled(true);
+      }, 1000);
+    }
+  };
 
   // NEW: Handle Loading Screen Completion
   const handleLoadingComplete = () => {
@@ -368,26 +352,24 @@ const App: React.FC = () => {
 
   const handleGoogleLogin = async () => {
     try {
-      const provider = new GoogleAuthProvider();
-      // Force account selection every time (fixes logout issue)
-      provider.setCustomParameters({
-        prompt: 'select_account'
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          queryParams: {
+            prompt: 'select_account'
+          }
+        }
       });
-      await signInWithPopup(auth, provider);
-      // Success will be handled by the onAuthStateChanged listener
+
+      if (error) {
+        console.error("Google Login Error:", error);
+        return;
+      }
+
+      // Success will be handled by the onAuthStateChange listener
       enterGame();
     } catch (error: any) {
-      // Suppress CORS warnings (harmless in development)
-      if (error.code === 'auth/popup-closed-by-user') {
-        console.log('Login cancelled by user');
-        return;
-      }
-      if (error.code === 'auth/cancelled-popup-request') {
-        console.log('Popup request cancelled');
-        return;
-      }
       console.error("Google Login Error:", error);
-      // Optional: Show error toast
     }
   };
 
@@ -396,7 +378,6 @@ const App: React.FC = () => {
     if (user) setHasEnteredGame(true);
   }, [user]);
 
-  // Load unread count when user logs in and periodically refresh
   // Load unread count when user logs in and subscribe to changes
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -430,15 +411,18 @@ const App: React.FC = () => {
     if (!user) return;
 
     try {
-      const userDocRef = doc(db, 'users', user.id);
+      // Convert camelCase to snake_case for Supabase
+      const dataToSave: any = {};
+      for (const [key, value] of Object.entries(updates)) {
+        const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+        dataToSave[snakeKey] = value;
+      }
+      dataToSave.last_spin_date = new Date().toISOString();
 
-      // Merge with timestamp
-      const dataToSave = {
-        ...updates,
-        lastSpinDate: Timestamp.now()
-      };
-
-      await updateDoc(userDocRef, dataToSave);
+      await supabase
+        .from('users')
+        .update(dataToSave)
+        .eq('uid', user.id);
 
 
       // --- LEADERBOARD SYNC (Throttled) ---
@@ -454,7 +438,7 @@ const App: React.FC = () => {
       const currentTotalSpins = updates.totalSpins !== undefined ? updates.totalSpins : totalSpins;
       const currentLevel = updates.level !== undefined ? updates.level : calculateLevel(currentTotalSpins);
 
-      // PATCH: Sync more frequently for realtime feel. 
+      // PATCH: Sync more frequently for realtime feel.
       // Old: 60s or 5000 coins. New: 5s or > 100 coins change.
       // Since spin takes ~4s, this effectively syncs every spin if they win > 100.
       if (user.id && (timeDiff > 5000 || coinDiff > 100)) {
@@ -491,105 +475,113 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    const userDocRef = doc(db, 'users', user.id);
-    const unsubscribe = onSnapshot(userDocRef, (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const data = docSnapshot.data();
+    const channel = supabase
+      .channel(`user_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `uid=eq.${user.id}`
+        },
+        (payload) => {
+          const data = payload.new as any;
 
-        // Update Spins Today if changed externally
-        if (data.spinsToday !== undefined) {
-          const serverSpins = data.spinsToday;
-          const localSpins = spinsTodayRef.current;
+          // Update Spins Today if changed externally
+          if (data.spins_today !== undefined) {
+            const serverSpins = data.spins_today;
+            const localSpins = spinsTodayRef.current;
 
-          // DATE CHECK: Ensure the server data is for TODAY
-          const serverDate = data.lastSpinDate ? data.lastSpinDate.toDate() : new Date();
-          const today = new Date();
-          const isServerDataToday = serverDate.getDate() === today.getDate() &&
-            serverDate.getMonth() === today.getMonth() &&
-            serverDate.getFullYear() === today.getFullYear();
+            // DATE CHECK: Ensure the server data is for TODAY
+            const serverDate = data.last_spin_date ? new Date(data.last_spin_date) : new Date();
+            const today = new Date();
+            const isServerDataToday = serverDate.getDate() === today.getDate() &&
+              serverDate.getMonth() === today.getMonth() &&
+              serverDate.getFullYear() === today.getFullYear();
 
-          if (isServerDataToday) {
-            // Normal Sync: Only update if server is AHEAD or resets to 0
-            if (serverSpins > localSpins || serverSpins === 0) {
-              setSpinsToday(serverSpins);
-            }
-          } else {
-            // Server data is OLD (Yesterday or earlier).
-            // We should treat serverSpins as 0 for today's context.
-            // If localSpins is 0 (we already reset), good.
-            // If localSpins > 0 (we spun today), we ignore the old server data.
-            // No action needed, effectively "filtering out" the stale 50 spins.
-            // console.log('⚠️ Ignoring old server data from:', serverDate);
-          }
-        }
-
-        // Update Super Mode End Time if changed externally
-        if (data.superModeEndTime) {
-          const newEndTime = data.superModeEndTime.toDate();
-          const currentEndTime = superModeEndTimeRef.current;
-          if (!currentEndTime || newEndTime.getTime() !== currentEndTime.getTime()) {
-
-            setSuperModeEndTime(newEndTime);
-          }
-        }
-
-        // Update Super Mode Spins Left if changed externally
-        if (data.superModeSpinsLeft !== undefined) {
-          const serverSuper = data.superModeSpinsLeft;
-          const localSuper = superModeSpinsLeftRef.current;
-
-          // Only update if server is AHEAD (lower, because it counts down) 
-          // OR if server is RESET/ACTIVATED (50 or 0)
-          if (serverSuper < localSuper || serverSuper === 50 || serverSuper === 0) {
-            // Edge case: If server says 0 but we are at 50 (just activated), we might ignore 0 if we assume it's stale.
-            // But usually 0 means "expired". 
-            // If local is 50 (just activated) and server says 0 (old state), we MUST ignore 0.
-            if (localSuper === 50 && serverSuper === 0) {
-
+            if (isServerDataToday) {
+              // Normal Sync: Only update if server is AHEAD or resets to 0
+              if (serverSpins > localSpins || serverSpins === 0) {
+                setSpinsToday(serverSpins);
+              }
             } else {
-
-              setSuperModeSpinsLeft(serverSuper);
+              // Server data is OLD (Yesterday or earlier).
+              // We should treat serverSpins as 0 for today's context.
+              // If localSpins is 0 (we already reset), good.
+              // If localSpins > 0 (we spun today), we ignore the old server data.
+              // No action needed, effectively "filtering out" the stale 50 spins.
+              // console.log('⚠️ Ignoring old server data from:', serverDate);
             }
-          } else if (serverSuper > localSuper && serverSuper !== 50) {
-            // Server says 45, Local says 40. Server is "behind" in consumption. Ignore.
+          }
 
+          // Update Super Mode End Time if changed externally
+          if (data.super_mode_end_time) {
+            const newEndTime = new Date(data.super_mode_end_time);
+            const currentEndTime = superModeEndTimeRef.current;
+            if (!currentEndTime || newEndTime.getTime() !== currentEndTime.getTime()) {
+              setSuperModeEndTime(newEndTime);
+            }
+          }
+
+          // Update Super Mode Spins Left if changed externally
+          if (data.super_mode_spins_left !== undefined) {
+            const serverSuper = data.super_mode_spins_left;
+            const localSuper = superModeSpinsLeftRef.current;
+
+            // Only update if server is AHEAD (lower, because it counts down)
+            // OR if server is RESET/ACTIVATED (50 or 0)
+            if (serverSuper < localSuper || serverSuper === 50 || serverSuper === 0) {
+              // Edge case: If server says 0 but we are at 50 (just activated), we might ignore 0 if we assume it's stale.
+              // But usually 0 means "expired".
+              // If local is 50 (just activated) and server says 0 (old state), we MUST ignore 0.
+              if (localSuper === 50 && serverSuper === 0) {
+                // Ignore
+              } else {
+                setSuperModeSpinsLeft(serverSuper);
+              }
+            } else if (serverSuper > localSuper && serverSuper !== 50) {
+              // Server says 45, Local says 40. Server is "behind" in consumption. Ignore.
+            }
+          }
+
+          // Update Photo URL if changed externally (e.g. from Profile page)
+          if (data.photo_url) {
+            setUser(prev => {
+              if (prev && prev.photoURL !== data.photo_url) {
+                // console.log('🔄 Photo URL updated from Supabase:', data.photo_url);
+                return {
+                  ...prev,
+                  photoURL: data.photo_url,
+                  coins: data.coins || prev.coins || 0, // Sync coins too
+                  totalSpins: data.total_spins || prev.totalSpins || 0 // Sync totalSpins too
+                };
+              }
+              return prev;
+            });
+          }
+
+          // SYNC REFERRAL STATS (Real-time update)
+          if (data.referral_count !== undefined || data.referral_earnings !== undefined) {
+            setUser(prev => {
+              if (!prev) return null;
+              const newCount = data.referral_count !== undefined ? data.referral_count : prev.referralCount;
+              const newEarnings = data.referral_earnings !== undefined ? data.referral_earnings : prev.referralEarnings;
+
+              if (newCount !== prev.referralCount || newEarnings !== prev.referralEarnings) {
+                // console.log(`🔄 Referral Stats Updated: Count=${newCount}, Earnings=${newEarnings}`);
+                return { ...prev, referralCount: newCount, referralEarnings: newEarnings };
+              }
+              return prev;
+            });
           }
         }
+      )
+      .subscribe();
 
-        // Update Photo URL if changed externally (e.g. from Profile page)
-        if (data.photoURL) {
-          setUser(prev => {
-            if (prev && prev.photoURL !== data.photoURL) {
-              // console.log('🔄 Photo URL updated from Firestore:', data.photoURL);
-              return {
-                ...prev,
-                photoURL: data.photoURL,
-                coins: data.coins || prev.coins || 0, // Sync coins too
-                totalSpins: data.totalSpins || prev.totalSpins || 0 // Sync totalSpins too
-              };
-            }
-            return prev;
-          });
-        }
-
-        // SYNC REFERRAL STATS (Real-time update)
-        if (data.referralCount !== undefined || data.referralEarnings !== undefined) {
-          setUser(prev => {
-            if (!prev) return null;
-            const newCount = data.referralCount !== undefined ? data.referralCount : prev.referralCount;
-            const newEarnings = data.referralEarnings !== undefined ? data.referralEarnings : prev.referralEarnings;
-
-            if (newCount !== prev.referralCount || newEarnings !== prev.referralEarnings) {
-              // console.log(`🔄 Referral Stats Updated: Count=${newCount}, Earnings=${newEarnings}`);
-              return { ...prev, referralCount: newCount, referralEarnings: newEarnings };
-            }
-            return prev;
-          });
-        }
-      }
-    });
-
-    return () => unsubscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user?.id]); // Stabilize dependency to PREVENT rapid re-subscription loops
 
 
@@ -734,7 +726,7 @@ const App: React.FC = () => {
       totalSpins: newTotalSpins
     } : null);
 
-    // Prepare Final Object for Firestore
+    // Prepare Final Object for Supabase
     finalWinningsUpdates.coins = earnedCoins;
     finalWinningsUpdates.ktmTokens = earnedKtm;
     finalWinningsUpdates.iphoneTokens = earnedIphone;
@@ -761,7 +753,10 @@ const App: React.FC = () => {
       // Dynamic import to avoid cycles or ensure service availability
       import('./services/mailboxService').then(({ createLevelUpRewardMessage }) => {
         if (user?.id) {
-          createLevelUpRewardMessage(user.id, newLevel);
+          createLevelUpRewardMessage(user.id, newLevel).then(() => {
+            // FIX: Force refresh unread count immediately so dot appears
+            getUnreadCount(user.id).then(setUnreadMailCount);
+          });
         }
       });
       // TRIGGER REFERRAL REWARD (Referrer gets 20 tokens/level)
@@ -929,21 +924,23 @@ const App: React.FC = () => {
   };
 
   const handleUsernameSet = async (username: string, referralCode?: string) => {
-    if (auth.currentUser) {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+
+    if (authUser) {
       try {
         // 1. Update Auth Profile
-        await updateProfile(auth.currentUser, {
-          displayName: username
+        await supabase.auth.updateUser({
+          data: { username }
         });
 
-        // 2. Create User Profile in Firestore
+        // 2. Create User Profile in Supabase
         const newUser: User = {
-          id: auth.currentUser.uid,
-          uid: auth.currentUser.uid,
+          id: authUser.id,
+          uid: authUser.id,
           username: username,
-          email: auth.currentUser.email || undefined,
+          email: authUser.email || undefined,
           isGuest: false,
-          photoURL: auth.currentUser.photoURL || undefined,
+          photoURL: authUser.user_metadata.avatar_url || authUser.user_metadata.picture || undefined,
           tokens: 10, // Welcome Bonus
           coins: 0,
           eTokens: 0,
@@ -955,23 +952,18 @@ const App: React.FC = () => {
 
         const result = await createUserProfile(newUser);
 
-
         // 3. Handle Referral Code (if provided)
         if (referralCode) {
-
-          const referrerId = await validateReferralCode(referralCode, auth.currentUser.uid);
+          const referrerId = await validateReferralCode(referralCode, authUser.id);
 
           if (referrerId) {
-            const referralResult = await applyReferral(auth.currentUser.uid, referrerId);
+            const referralResult = await applyReferral(authUser.id, referrerId);
             if (referralResult.success) {
-
               // Optional: Show success toast
             } else {
-
               throw new Error(referralResult.message || 'Referral failed');
             }
           } else {
-
             throw new Error('Invalid referral code');
           }
         }
@@ -988,11 +980,6 @@ const App: React.FC = () => {
 
         setShowUsernameModal(false);
 
-        // Reload page to ensure everything syncs perfectly (optional but safer for initial load)
-        // window.location.reload(); 
-        // Better: Re-trigger auth check or just let the state update handle it. 
-        // Since we set User state, the app should unlock.
-
       } catch (error) {
         // Error handled silently
         alert("Error creating account. Please try again.");
@@ -1007,9 +994,9 @@ const App: React.FC = () => {
       // 1. Disable sync before logout
       setIsSyncEnabled(false);
 
-      // 2. Sign out from Firebase Auth
-      await signOut(auth);
-      console.log('✅ Firebase Auth signed out');
+      // 2. Sign out from Supabase Auth
+      await supabase.auth.signOut();
+      console.log('✅ Supabase Auth signed out');
 
       // 3. Clear ALL browser storage (fixes account switch bug)
       clearAllStorage();
@@ -1116,8 +1103,12 @@ const App: React.FC = () => {
     if (isPShape) {
 
       setShowAdminLogin(true);
-      // Haptic feedback
-      if (navigator.vibrate) navigator.vibrate(200);
+      // Haptic feedback (Safe)
+      try {
+        if (navigator.vibrate) navigator.vibrate(200);
+      } catch (e) {
+        // Ignore vibration errors (unsupported/blocked)
+      }
     } else {
 
     }
@@ -1209,7 +1200,7 @@ const App: React.FC = () => {
               onBack={() => setCurrentPage('HOME')}
               user={user}
               onRewardClaimed={handleRewardClaimed}
-            // onMessagesRead={loadUnreadCount} <-- REMOVED: Managed by Firestore Listener
+            // onMessagesRead={loadUnreadCount} <-- REMOVED: Managed by Supabase Listener
             />
           </div>
         );
@@ -1289,9 +1280,9 @@ const App: React.FC = () => {
       <div className={`absolute inset-0 bg-gradient-to-b ${isSuperMode ? 'from-transparent via-sky-900/50 to-slate-900' : 'from-transparent via-[#2a0505]/50 to-[#1a0505]'} pointer-events-none transition-colors duration-1000`}></div>
 
       {/* Header - Always Visible */}
-      < div className="absolute top-0 left-0 w-full z-50 flex justify-between items-start p-4" >
+      <div className="absolute top-0 left-0 w-full z-50 flex justify-between items-start p-4">
         {/* Top Left Brand Badge */}
-        < div className="flex items-center gap-2 md:gap-3" onClick={() => setCurrentPage('HOME')}>
+        <div className="flex items-center gap-2 md:gap-3" onClick={() => setCurrentPage('HOME')}>
           <div className="relative w-8 h-8 md:w-10 md:h-10 flex items-center justify-center bg-gradient-to-br from-yellow-500 to-yellow-700 rounded-sm border border-yellow-300 shadow-[0_0_10px_rgba(234,179,8,0.6)] skew-x-[-10deg]">
             <div className="absolute inset-0.5 bg-black skew-x-0 flex items-center justify-center">
               <span className="text-yellow-500 font-black text-sm md:text-base tracking-tighter leading-none skew-x-[10deg]">LK</span>
@@ -1308,7 +1299,7 @@ const App: React.FC = () => {
               </span>
             </div>
           </div>
-        </div >
+        </div>
 
         {/* Weekly Timer - Below Logo (Only on Home Page) */}
         {
@@ -1410,7 +1401,7 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-      </div >
+      </div>
 
       {/* RENDER CURRENT PAGE */}
       {renderContent()}
@@ -1486,12 +1477,9 @@ const App: React.FC = () => {
         )
       }
 
-      {/* MAINTENANCE POSTER - Global Overlay */}
-      <MaintenancePoster />
 
 
-
-    </div >
+    </div>
   );
 };
 

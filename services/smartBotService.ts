@@ -1,11 +1,10 @@
-import { db } from '../firebase';
-import { collection, doc, setDoc, getDoc, updateDoc, query, where, getDocs, Timestamp, writeBatch, orderBy, limit, increment, deleteDoc } from 'firebase/firestore';
+import { supabase, rpc } from '../supabaseClient';
 import { BotUser, User, BotTier } from '../types';
-import { getCurrentWeekId, getTimeRemaining, getCurrentTime } from '../utils/weekUtils';
+import { getCurrentWeekId, getTimeRemaining, getCurrentTime, getServerWeekId } from '../utils/weekUtils';
 
 // CONSTANTS
 const TOTAL_BOTS = 4;
-const BOT_COLLECTION = 'botUsers';
+const BOT_COLLECTION = 'bot_users';
 const USER_COLLECTION = 'users';
 const LOCK_COLLECTION = 'system';
 const LOCK_DOC_ID = 'botLock';
@@ -201,11 +200,19 @@ const generateRealisticBotName = async (preferredFormat?: number, gender: 'male'
 
         // Check if username already exists in users collection
         try {
-            const usersRef = collection(db, USER_COLLECTION);
-            const q = query(usersRef, where('username', '==', username));
-            const snapshot = await getDocs(q);
+            const { data, error } = await supabase
+                .from('users')
+                .select('uid')
+                .eq('username', username)
+                .limit(1);
 
-            if (snapshot.empty) {
+            if (error) {
+                console.warn('Error checking username uniqueness:', error);
+                // On error, just return it (unlikely collision)
+                return username;
+            }
+
+            if (!data || data.length === 0) {
                 // Username is unique!
                 return username;
             }
@@ -226,17 +233,22 @@ const generateRealisticBotName = async (preferredFormat?: number, gender: 'male'
 // Returns the coins needed to beat the user at 'rank'
 const getScoreForRank = async (targetRank: number): Promise<number> => {
     try {
-        const leaderboardRef = collection(db, 'weeklyLeaderboard');
-        const q = query(
-            leaderboardRef,
-            where('weekId', '==', getCurrentWeekId()),
-            orderBy('coins', 'desc'),
-            limit(targetRank + 5) // Fetch a bit more to be safe
-        );
-        const snapshot = await getDocs(q);
+        const weekId = await getServerWeekId();
+
+        const { data, error } = await supabase
+            .from('weekly_leaderboard')
+            .select('coins')
+            .eq('week_id', weekId)
+            .order('coins', { ascending: false })
+            .limit(targetRank + 5); // Fetch a bit more to be safe
+
+        if (error) {
+            console.warn('Error fetching score for rank, using fallback.', error);
+            return 0;
+        }
 
         // If leaderboard is empty or small, return a base target based on day
-        if (snapshot.empty || snapshot.docs.length < targetRank) {
+        if (!data || data.length < targetRank) {
             // Monday: 50, Sunday: 5000 (Simulated Base)
             const day = getCurrentTime().getDay();
             const baseMap: { [key: number]: number } = { 1: 50, 2: 100, 3: 500, 4: 1000, 5: 2500, 6: 4000, 0: 6000 };
@@ -244,11 +256,10 @@ const getScoreForRank = async (targetRank: number): Promise<number> => {
         }
 
         // Get the user at the specific rank (0-indexed)
-        const targetDoc = snapshot.docs[targetRank - 1];
-        if (targetDoc) {
-            const data = targetDoc.data();
-            // console.log(`🎯 Target Rank #${targetRank} Holder: ${data.username} (${data.coins} coins)`);
-            return data.coins || 0;
+        const targetEntry = data[targetRank - 1];
+        if (targetEntry) {
+            // console.log(`🎯 Target Rank #${targetRank} Holder: ${targetEntry.username} (${targetEntry.coins} coins)`);
+            return targetEntry.coins || 0;
         }
         return 0;
     } catch (error) {
@@ -264,61 +275,14 @@ const getScoreForRank = async (targetRank: number): Promise<number> => {
  */
 export const hardDeleteAllBots = async () => {
     try {
-        console.log('🔥 Starting Hard Delete (Full Reset)...');
-        const botsRef = collection(db, BOT_COLLECTION);
-        const snapshot = await getDocs(botsRef);
-        const batch = writeBatch(db);
-        let count = 0;
+        console.log('🔥 Starting Hard Delete (Full Reset) via RPC...');
 
-        snapshot.docs.forEach((botDoc) => {
-            const botId = botDoc.id;
-            batch.delete(botDoc.ref); // Delete from botUsers
-            batch.delete(doc(db, USER_COLLECTION, botId)); // Delete from users
+        const { data, error } = await rpc.hardDeleteAllBots();
 
-            // Try to delete from leaderboard (Current & Old)
-            // We'll guess the weekid or rely on query
-            batch.delete(doc(db, 'weeklyLeaderboard', `${botId}_${botDoc.data().weekId}`));
-            count++;
-        });
+        if (error) throw error;
 
-        // Also clean floating leaderboard entries
-        const currentWeekId = getCurrentWeekId();
-        const leaderboardQ = query(
-            collection(db, 'weeklyLeaderboard'),
-            where('userId', '>=', 'bot_'),
-            where('userId', '<=', 'bot_\uf8ff')
-        );
-        const lbSnapshot = await getDocs(leaderboardQ);
-        lbSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-
-        // FIX: Reset System Config to Level 1
-        const reservedIdsRef = doc(db, 'system', 'reserved_bot_ids');
-        const configRef = doc(db, 'system', 'reserved_ids_config');
-
-        batch.set(reservedIdsRef, {
-            ids: [],
-            currentLevel: 1,
-            levelPools: { 1: [], 2: [], 3: [], 4: [], 5: [] },
-            lastUpdated: Timestamp.now()
-        });
-
-        batch.set(configRef, {
-            currentLevel: 1,
-            levels: {
-                1: { maxIds: 6, gapSize: 2, filled: 0 },
-                2: { maxIds: 10, gapSize: 5, filled: 0 },
-                3: { maxIds: 20, gapSize: 10, filled: 0 },
-                4: { maxIds: 50, gapSize: 20, filled: 0 },
-                5: { maxIds: 100, gapSize: 50, filled: 0 }
-            },
-            lastUpdated: Timestamp.now()
-        });
-
-        await batch.commit();
-        console.log(`✅ Hard Deleted ${count} bots. System reset to Level 1.`);
-        return count;
+        console.log(`✅ Hard Deleted ${data} bots. System reset to Level 1.`);
+        return data;
     } catch (error) {
         console.error('❌ Error in hard delete:', error);
         throw error;
@@ -332,61 +296,38 @@ export const hardDeleteAllBots = async () => {
  */
 export const retireOldBots = async () => {
     try {
-        console.log('👴 Retiring Old Bots...');
-        const botsRef = collection(db, BOT_COLLECTION);
-        // Get all bots that are NOT retired
-        // Note: Firestore != query is limited, so we fetch all and filter or use status check
-        const snapshot = await getDocs(botsRef);
+        console.log('👴 Retiring Old Bots via RPC...');
 
-        const batch = writeBatch(db);
-        let count = 0;
+        const { data, error } = await rpc.retireOldBots();
 
-        for (const botDoc of snapshot.docs) {
-            const botData = botDoc.data();
+        if (error) throw error;
 
-            // Skip if already retired
-            if (botData.botTier === 'RETIRED') continue;
-
-            // 1. Mark as RETIRED in botUsers
-            batch.update(botDoc.ref, {
-                botTier: 'RETIRED',
-                lastActive: Timestamp.now()
-            });
-
-            // 2. Remove from Weekly Leaderboard (So they don't compete)
-            const weekId = botData.weekId;
-            const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botDoc.id}_${weekId}`);
-            batch.delete(leaderboardRef);
-
-            // 3. DO NOT delete from 'users' (This keeps them searchable)
-
-            count++;
-        }
-
-        await batch.commit();
-        console.log(`✅ Retired ${count} bots. They are now in Hall of Fame.`);
-        return count;
+        console.log(`✅ Retired ${data} bots. They are now in Hall of Fame.`);
+        return data;
     } catch (error) {
         console.error('❌ Error retiring bots:', error);
         throw error;
     }
 };
+
 // Helper: Get the highest displayId currently in use
 const getMaxDisplayId = async (): Promise<number> => {
     try {
-        const usersRef = collection(db, USER_COLLECTION);
         // CRITICAL FIX: Ignore 9-series fallback IDs (900000+) so we find the REAL max ID
-        const q = query(
-            usersRef,
-            where('displayId', '<', 900000),
-            orderBy('displayId', 'desc'),
-            limit(1)
-        );
-        const snapshot = await getDocs(q);
+        const { data, error } = await supabase
+            .from('users')
+            .select('display_id')
+            .lt('display_id', 900000)
+            .order('display_id', { ascending: false })
+            .limit(1);
 
-        if (!snapshot.empty) {
-            const data = snapshot.docs[0].data();
-            return data.displayId || 1000;
+        if (error) {
+            console.warn('Error fetching max displayId:', error);
+            return 1000;
+        }
+
+        if (data && data.length > 0) {
+            return data[0].display_id || 1000;
         }
         return 1000;
     } catch (error) {
@@ -395,17 +336,56 @@ const getMaxDisplayId = async (): Promise<number> => {
     }
 };
 
+/**
+ * Select an unused real profile photo from Supabase Storage
+ * Checks if bot's display_id already has a photo assigned (re-init case)
+ * @param displayId - Bot's display_id (persists across weeks)
+ * @param botUid - Current bot UID (changes weekly)
+ * @returns Supabase Storage URL for the photo
+ */
+const selectBotPhoto = async (displayId: number, botUid: string): Promise<string> => {
+    // LOGIC UPDATE: Always assign a FRESH photo for new UIDs (New Week = New Face)
+    // We do NOT check existing displayId, so even if displayId is reused, the photo changes.
+
+    // Get first unused photo
+    const { data: availablePhoto, error } = await supabase
+        .from('bot_profile_photos')
+        .select('*')
+        .eq('is_used', false)
+        .order('created_at', { ascending: true }) // FIFO order
+        .limit(1)
+        .maybeSingle(); // Use maybeSingle() if no photos left
+
+    if (error || !availablePhoto) {
+        console.error('❌ No unused photos available! Falling back to Dicebear.');
+        return `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`;
+    }
+
+    // Use RPC to mark photo as used (Bypasses Client-Side RLS restriction)
+    const { error: updateError } = await rpc.markBotPhotoUsed(availablePhoto.id, botUid, displayId);
+
+    if (updateError) {
+        console.error('❌ Error marking photo used via RPC:', updateError);
+        // Continue anyway, as the photo is returned effectively
+    }
+
+    console.log(`📸 Assigned photo ${availablePhoto.filename} to display_id ${displayId}`);
+    return availablePhoto.storage_url;
+};
+
 export const generateSmartBots = async () => {
     try {
-        const weekId = getCurrentWeekId();
+        const weekId = await getServerWeekId();
 
         // Check if bots already exist for this week
-        const botsRef = collection(db, BOT_COLLECTION);
-        const q = query(botsRef, where('weekId', '==', weekId));
-        const snapshot = await getDocs(q);
+        const { data: existingBots, error: existingError } = await supabase
+            .from(BOT_COLLECTION)
+            .select('*')
+            .eq('week_id', weekId);
 
-        const existingBots = snapshot.docs.map(doc => doc.id);
-        const isReinitializing = existingBots.length > 0;
+        if (existingError) throw existingError;
+
+        const isReinitializing = existingBots && existingBots.length > 0;
 
         if (isReinitializing) {
             console.log('🔄 Bots already exist for this week. RE-INITIALIZING with same UIDs...');
@@ -414,20 +394,22 @@ export const generateSmartBots = async () => {
         }
 
         // 1. Get Reserved IDs with level awareness
-        const reservedRef = doc(db, 'system', 'reserved_bot_ids');
-        const reservedSnap = await getDoc(reservedRef);
+        const { data: reservedData } = await supabase
+            .from('system')
+            .select('data')
+            .eq('id', 'reserved_bot_ids')
+            .single();
+
         let reservedIds: number[] = [];
         let currentLevel = 1;
         let levelPools: { [key: number]: number[] } = { 1: [], 2: [], 3: [], 4: [], 5: [] };
 
-        if (reservedSnap.exists()) {
-            const data = reservedSnap.data();
-            reservedIds = data.ids || [];
-            currentLevel = data.currentLevel || 1;
-            levelPools = data.levelPools || { 1: [], 2: [], 3: [], 4: [], 5: [] };
+        if (reservedData && reservedData.data) {
+            reservedIds = reservedData.data.ids || [];
+            currentLevel = reservedData.data.currentLevel || 1;
+            levelPools = reservedData.data.levelPools || { 1: [], 2: [], 3: [], 4: [], 5: [] };
         }
 
-        const batch = writeBatch(db);
         const shuffledAvatars = [...AVATAR_SEEDS].sort(() => 0.5 - Math.random());
         let usedReservedCount = 0;
 
@@ -455,8 +437,8 @@ export const generateSmartBots = async () => {
             }
 
             const name = await generateRealisticBotName(formatIndex, gender);
-            const avatarSeed = shuffledAvatars[i] || 'default';
-            const photoURL = `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
+            // const avatarSeed = shuffledAvatars[i] || 'default';
+            // Photo URL will be generated AFTER displayId is resolved using selectBotPhoto
 
             let level;
             if (i === 0) level = Math.floor(34 + Math.random() * 12);
@@ -469,9 +451,6 @@ export const generateSmartBots = async () => {
             joinDate.setDate(joinDate.getDate() - Math.floor(Math.random() * 60));
 
             // Generate UID (Reuse existing if re-init, or create new)
-            // Note: existingBots lookup relies on order, which isn't guaranteed in snapshot, 
-            // but for re-init we just need stable IDs specific to this week.
-            // Better: Construct it deterministically.
             const botUid = `bot_${weekId}_${i}`;
 
             // LEVEL-AWARE SMART ID LOGIC
@@ -480,10 +459,14 @@ export const generateSmartBots = async () => {
             // 1. Try to REUSE existing ID if Re-initializing
             if (isReinitializing) {
                 try {
-                    const existingUserRef = doc(db, USER_COLLECTION, botUid);
-                    const existingUserSnap = await getDoc(existingUserRef);
-                    if (existingUserSnap.exists()) {
-                        const oldId = existingUserSnap.data().displayId;
+                    const { data: existingUser } = await supabase
+                        .from('users')
+                        .select('display_id')
+                        .eq('uid', botUid)
+                        .single();
+
+                    if (existingUser && existingUser.display_id) {
+                        const oldId = existingUser.display_id;
                         // DATE: 2024-01-05 - CRITICAL FIX
                         // Only preserve ID if it is VALID (Real ID < 900000)
                         // This prevents 9-series IDs from persisting during re-initialization
@@ -500,7 +483,6 @@ export const generateSmartBots = async () => {
             }
 
             // 2. If NO existing ID found (New Bot or First Run), use Level-Aware Logic
-            // 2. If NO existing ID found (New Bot or First Run), use Level-Aware Logic
             if (!displayId) {
                 // FIX: Check ALL levels (5 down to 1) for available IDs.
                 // Priority: Consume Highest Level (Overflow) IDs first to preserve Level 1 base.
@@ -512,7 +494,6 @@ export const generateSmartBots = async () => {
                             const globalIndex = reservedIds.indexOf(realId);
                             if (globalIndex > -1) reservedIds.splice(globalIndex, 1);
                             usedReservedCount++;
-                            usedReservedCount++;
                             // console.log(`🔒 Consumed ID ${displayId} from Level ${level} pool`);
                             break; // Found one, stop searching
                         }
@@ -521,8 +502,6 @@ export const generateSmartBots = async () => {
 
                 // 3. Final Fallback to MAX ID + Increment if all Reserved pools exhausted
                 if (!displayId) {
-                    displayId = currentMaxDisplayId + fallbackIncrement;
-                    fallbackIncrement++;
                     displayId = currentMaxDisplayId + fallbackIncrement;
                     fallbackIncrement++;
                     // console.log(`⚠️ All Reserved pools empty, using fallback ID: ${displayId}`);
@@ -534,46 +513,27 @@ export const generateSmartBots = async () => {
             if (i === 2) rankType = BotTier.SMART_LOTTERY;
             if (i === 3) rankType = BotTier.SMART_LOTTERY_KTM;
 
-            const botData: any = {
-                uid: botUid,
-                username: name,
-                photoURL: photoURL,
-                email: `${name.toLowerCase()}@nomail.com`,
-                level: level,
-                totalSpins: totalSpins,
-                coins: 0,
-                weeklyCoins: 0,
-                isBot: true,
-                botTier: rankType,
-                weekId: weekId,
-                createdAt: Timestamp.fromDate(joinDate),
-                lastActive: Timestamp.now(),
-                isGuest: false,
-                tokens: 100,
-                eTokens: Math.floor(Math.random() * 500)
-            };
+            // NEW: Select real photo based on resolved displayId
+            const photoURL = await selectBotPhoto(displayId, botUid);
 
-            const botRef = doc(db, BOT_COLLECTION, botUid);
-            batch.set(botRef, botData);
-
-            const userRef = doc(db, USER_COLLECTION, botUid);
-            batch.set(userRef, {
-                ...botData,
-                displayId: displayId,
-                referralCode: `HEX${displayId}`
-            });
-
-            const leaderboardRef = doc(db, 'weeklyLeaderboard', `${botUid}_${weekId}`);
-            batch.set(leaderboardRef, {
-                userId: botUid,
-                username: name,
-                coins: 0,
-                photoURL: photoURL,
-                totalSpins: totalSpins,
-                level: level,
+            // Use RPC to generate bot (Bypasses Client-Side RLS)
+            const { error: rpcError } = await rpc.generateBotUser(
+                botUid,
+                name,
+                photoURL,
+                level,
+                totalSpins,
+                0, // coins
+                rankType,
                 weekId,
-                lastUpdated: Timestamp.now()
-            });
+                displayId,
+                Math.floor(Math.random() * 500), // e_tokens
+                100 // tokens
+            );
+
+            if (rpcError) {
+                console.error(`❌ Error generating bot ${botUid}:`, rpcError);
+            }
         }
 
         if (usedReservedCount > 0) {
@@ -592,23 +552,12 @@ export const generateSmartBots = async () => {
                 currentLevel = newLevel;
 
                 // FIX: Also update the CONFIG document so the Admin Panel reflects the change
-                const configRef = doc(db, 'system', 'reserved_ids_config');
-                batch.set(configRef, {
-                    currentLevel: newLevel,
-                    lastUpdated: Timestamp.now()
-                }, { merge: true });
+                await rpc.updateReservedIdsConfig(newLevel);
             }
 
-            batch.set(reservedRef, {
-                ids: reservedIds,
-                currentLevel: currentLevel,
-                levelPools: levelPools,
-                lastUpdated: Timestamp.now()
-            }, { merge: true });
+            await rpc.updateReservedIds(reservedIds, currentLevel, levelPools);
             // console.log(`🔒 Consumed ${usedReservedCount} IDs from Reserved pools.`);
         }
-
-        await batch.commit();
 
         if (isReinitializing) {
             console.log('✅ RE-INITIALIZED Bots!');
@@ -654,22 +603,23 @@ const getCatchUpReward = () => {
  */
 const getTopRealUserScore = async (weekId: string): Promise<number> => {
     try {
-        const leaderboardRef = collection(db, 'weeklyLeaderboard');
-        const q = query(
-            leaderboardRef,
-            where('weekId', '==', weekId),
-            orderBy('coins', 'desc'),
-            limit(10) // Check top 10
-        );
-        const snapshot = await getDocs(q);
+        const { data, error } = await supabase
+            .from('weekly_leaderboard')
+            .select('user_id, coins')
+            .eq('week_id', weekId)
+            .order('coins', { ascending: false })
+            .limit(10); // Check top 10
 
-        for (const doc of snapshot.docs) {
-            const data = doc.data();
+        if (error) {
+            return 0;
+        }
+
+        for (const entry of data || []) {
             // Check if this ID belongs to a bot (Bots have specific ID pattern or we check botUsers)
             // Fast check: startWith 'bot_' is our convention in generateSmartBots
-            if (!data.userId.startsWith('bot_')) {
-                // console.log(`👤 Top Real User Found: ${data.username} (${data.coins})`);
-                return data.coins;
+            if (!entry.user_id.startsWith('bot_')) {
+                // console.log(`👤 Top Real User Found: ${entry.username} (${entry.coins})`);
+                return entry.coins;
             }
         }
         return 0; // No real users found or they have 0 coins
@@ -698,29 +648,19 @@ const getSmallRandomReward = () => {
  */
 const acquireBotLock = async (): Promise<boolean> => {
     try {
-        const lockRef = doc(db, LOCK_COLLECTION, LOCK_DOC_ID);
-        const lockSnap = await getDoc(lockRef);
-        const now = Timestamp.now();
+        const clientId = 'client_' + Math.floor(Math.random() * 10000);
+        const { data: isAcquired, error } = await rpc.acquireBotLock(LOCK_DOC_ID, clientId);
 
-        if (lockSnap.exists()) {
-            const data = lockSnap.data();
-            const lastRun = data.lastRun as Timestamp;
-
-            // Check if lock is stale (older than 45 seconds)
-            // Giving 15s buffer before next expected run
-            const diffSeconds = now.seconds - lastRun.seconds;
-
-            if (diffSeconds < 45) {
-                console.log(`🔒 Bot Simulation Locked. Last run: ${diffSeconds}s ago. Skipping...`);
-                return false; // Lock is active, skip
-            }
+        if (error) {
+            console.warn('⚠️ Error acquiring bot lock via RPC:', error);
+            return false;
         }
 
-        // Acquire Lock
-        await setDoc(lockRef, {
-            lastRun: now,
-            lockedBy: 'client_' + Math.floor(Math.random() * 10000)
-        });
+        if (!isAcquired) {
+            console.log(`🔒 Bot Simulation Locked. Skipping...`);
+            return false;
+        }
+
         return true;
 
     } catch (error) {
@@ -751,21 +691,16 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
         const initialBots = await getSmartBots();
         if (initialBots.length === 0) return;
 
-        // Note: we fetch bots ONCE at start of loop to get their IDs.
-        // We will fetch their latest coins INSIDE the loop if needed?
-        // Actually, for performance, we keep local state and only write changes.
-        // But for SIMUALTION STATE (Admin Controls), we must check every tick.
-
-        const weekId = getCurrentWeekId();
+        const weekId = await getServerWeekId();
 
         // --- PRE-LOOP SETUP ---
         const botLeads: Record<string, number> = {};
 
         // Initial setup for leads (randomized per session)
-        const leaderBots = initialBots.filter((b: any) => b.botTier !== BotTier.SMART_LOTTERY && b.botTier !== BotTier.SMART_LOTTERY_KTM);
+        const leaderBots = initialBots.filter((b: any) => b.bot_tier !== BotTier.SMART_LOTTERY && b.bot_tier !== BotTier.SMART_LOTTERY_KTM);
         const shuffledLeaders = [...leaderBots].sort(() => 0.5 - Math.random());
-        if (shuffledLeaders[0]) botLeads[shuffledLeaders[0].id] = 15000 + Math.floor(Math.random() * 5000);
-        if (shuffledLeaders[1]) botLeads[shuffledLeaders[1].id] = 10000 + Math.floor(Math.random() * 5000);
+        if (shuffledLeaders[0]) botLeads[shuffledLeaders[0].uid] = 15000 + Math.floor(Math.random() * 5000);
+        if (shuffledLeaders[1]) botLeads[shuffledLeaders[1].uid] = 10000 + Math.floor(Math.random() * 5000);
 
         // Mutable bots array to track local state during the loop
         let bots = [...initialBots];
@@ -817,13 +752,13 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                 // Don't update ALL bots every loop to reduce writes
                 if (Math.random() > 0.4) continue;
 
-                if (bot.botTier === BotTier.SMART_LOTTERY) {
+                if (bot.bot_tier === BotTier.SMART_LOTTERY) {
                     // Lottery bot (iPhone) just chills and collects small amounts
                     if (Math.random() > 0.8) await updateSingleBot(bot, getRandomSpinReward(), weekId);
                     continue;
                 }
 
-                if (bot.botTier === BotTier.SMART_LOTTERY_KTM) {
+                if (bot.bot_tier === BotTier.SMART_LOTTERY_KTM) {
                     // Lottery bot (KTM) chills too, but earns 50% less than normal
                     if (Math.random() > 0.8) {
                         const reward = getRandomSpinReward();
@@ -836,10 +771,10 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
                 // Calculate Target
                 let myTarget = 0;
                 if (isRushHour) {
-                    const myLead = botLeads[bot.id] || 10000;
+                    const myLead = botLeads[bot.uid] || 10000;
                     myTarget = currentBaseScore + myLead;
                 } else {
-                    const isBotZero = bot.id.endsWith('_0');
+                    const isBotZero = bot.uid.endsWith('_0');
                     if (isBotZero) myTarget = currentBaseScore + 500;
                     else myTarget = Math.max(100, currentBaseScore - 500);
                 }
@@ -892,31 +827,32 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
             // 4. ZOMBIE MODE (Retired Bots Logic)
             // Wake up old bots occasionally to update their "Last Active"
             if (Math.random() > 0.7) { // 30% chance per 6s tick to wake up zombies
-                const retiredRef = collection(db, BOT_COLLECTION);
-                // Find the 3 most dormant retired bots
-                const qRetired = query(
-                    retiredRef,
-                    where('botTier', '==', 'RETIRED'),
-                    orderBy('lastActive', 'asc'),
-                    limit(3)
-                );
+                const { data: retiredBots } = await supabase
+                    .from(BOT_COLLECTION)
+                    .select('uid, username')
+                    .eq('bot_tier', 'RETIRED')
+                    .order('last_active', { ascending: true })
+                    .limit(3);
 
-                const zombieSnap = await getDocs(qRetired);
-                if (!zombieSnap.empty) {
-                    for (const zombieDoc of zombieSnap.docs) {
+                if (retiredBots && retiredBots.length > 0) {
+                    for (const zombie of retiredBots) {
                         // Wake them up!
-                        const zombieRef = doc(db, BOT_COLLECTION, zombieDoc.id);
-                        const userRef = doc(db, USER_COLLECTION, zombieDoc.id);
-
-                        // Just update timestamp and maybe 1 spin
                         const updates = {
-                            lastActive: Timestamp.now(),
-                            totalSpins: increment(1)
+                            last_active: new Date().toISOString(),
+                            total_spins: ((zombie as any).total_spins || 0) + 1
                         };
 
-                        await updateDoc(zombieRef, updates);
-                        await updateDoc(userRef, updates);
-                        // console.log(`🧟 Zombie Woke Up: ${zombieDoc.data().username}`);
+                        await supabase
+                            .from(BOT_COLLECTION)
+                            .update(updates)
+                            .eq('uid', zombie.uid);
+
+                        await supabase
+                            .from('users')
+                            .update(updates)
+                            .eq('uid', zombie.uid);
+
+                        // console.log(`🧟 Zombie Woke Up: ${zombie.username}`);
                     }
                 }
             }
@@ -929,7 +865,7 @@ export const simulateSmartBotActivity = async (forceDay?: number, forceRushHour?
 
 /**
  * ATOMIC UPDATE
- * Uses `increment` to avoid race conditions (overwrite glitches).
+ * Uses atomic operations to avoid race conditions (overwrite glitches).
  */
 const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
     // NEW: Action Based Spin Calculation
@@ -941,40 +877,13 @@ const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
     }
     // Else 1 spin for small wins (50-150)
 
-    // 1. Update botUsers
-    const botRef = doc(db, BOT_COLLECTION, bot.id);
-    await updateDoc(botRef, {
-        coins: increment(amount),
-        weeklyCoins: increment(amount),
-        totalSpins: increment(spinsToAdd),
-        lastActive: Timestamp.now()
-    });
+    // Use RPC for atomic updates and RLS bypass
+    // Note: RPC handles incrementing existing values
+    const { error } = await rpc.updateBotStats(bot.uid, weekId, amount, spinsToAdd);
 
-    // 2. Update users (Public Profile)
-    const userRef = doc(db, USER_COLLECTION, bot.id);
-    await updateDoc(userRef, {
-        coins: increment(amount),
-        weeklyCoins: increment(amount),
-        totalSpins: increment(spinsToAdd),
-        lastActive: Timestamp.now()
-    });
-
-    // 3. Update Leaderboard
-    const leaderboardRef = doc(db, 'weeklyLeaderboard', `${bot.id}_${weekId}`);
-    // Use Set with Merge because sometimes leaderboard doc might be missing (rare)
-    // CRITICAL: Do NOT overwrite username/photoURL. Simulation should only update stats.
-    await setDoc(leaderboardRef, {
-        userId: bot.id,
-        // username: bot.username,  <-- REMOVED: Don't overwrite dynamic names with stale data
-        // photoURL: bot.photoURL,  <-- REMOVED
-        // level: bot.level,        <-- REMOVED: Static
-        weekId: weekId,
-        lastUpdated: Timestamp.now(),
-        coins: increment(amount),
-        totalSpins: increment(spinsToAdd)
-    }, { merge: true });
-
-    // console.log(`🤖 Updated Bot ${bot.username}: +${amount}`);
+    if (error) {
+        console.error(`❌ Error updating bot ${bot.username}:`, error);
+    }
 };
 
 /**
@@ -983,16 +892,20 @@ const updateSingleBot = async (bot: any, amount: number, weekId: string) => {
 export const getSmartBots = async () => {
     try {
         const weekId = getCurrentWeekId();
-        const botsRef = collection(db, BOT_COLLECTION);
-        // Query for Current Week AND Active Bots (Not Retired)
-        // Note: Firestore requires composite index for multiple fields equality/inequality
-        // We will fetch by weekId and filter in memory to be safe and avoid index errors if not deployed
-        const q = query(botsRef, where('weekId', '==', weekId));
-        const snapshot = await getDocs(q);
 
-        return snapshot.docs
-            .map(doc => ({ id: doc.id, ...doc.data() }))
-            .filter((bot: any) => bot.botTier !== 'RETIRED');
+        const { data, error } = await supabase
+            .from(BOT_COLLECTION)
+            .select('*')
+            .eq('week_id', weekId);
+
+        if (error) {
+            console.error("Error getting smart bots:", error);
+            return [];
+        }
+
+        return (data || [])
+            .map((bot: any) => ({ id: bot.uid, ...bot }))
+            .filter((bot: any) => bot.bot_tier !== 'RETIRED');
     } catch (error) {
         console.error("Error getting smart bots:", error);
         return [];
@@ -1006,48 +919,19 @@ export const getSmartBots = async () => {
  */
 export const generateDemoLeaderboard = async (count: number = 80) => {
     try {
-        console.log(`🧪 Generating ${count} Demo Bots...`);
+        console.log(`🧪 Generating ${count} Demo Bots via RPC...`);
         const weekId = getCurrentWeekId();
-        const batch = writeBatch(db);
 
-        // Random names for variety
-        const ADJECTIVES = ['Super', 'Fast', 'Crazy', 'Lucky', 'Master', 'Pro', 'Epic', 'Shadow', 'Neon', 'Hyper'];
-        const NOUNS = ['Spinner', 'Winner', 'King', 'Queen', 'Ninja', 'Rider', 'Gamer', 'Star', 'Wolf', 'Eagle'];
+        const { error } = await rpc.generateDemoLeaderboard(weekId, count);
 
-        for (let i = 0; i < count; i++) {
-            const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-            const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-            const name = `${adj}${noun}_${Math.floor(Math.random() * 999)}`;
-
-            const botId = `demo_bot_${i}`;
-            const ref = doc(db, 'weeklyLeaderboard', `${botId}_${weekId}`);
-
-            // Random coins distribution (some high, most low/mid)
-            let coins = 0;
-            const r = Math.random();
-            if (r > 0.95) coins = 10000 + Math.floor(Math.random() * 20000); // 5% Top tier (10k-30k)
-            else if (r > 0.8) coins = 5000 + Math.floor(Math.random() * 5000); // 15% High tier (5k-10k)
-            else if (r > 0.5) coins = 1000 + Math.floor(Math.random() * 4000); // 30% Mid tier (1k-5k)
-            else coins = 100 + Math.floor(Math.random() * 900); // 50% Low tier (100-1k)
-
-            batch.set(ref, {
-                userId: botId,
-                username: name,
-                photoURL: `https://api.dicebear.com/7.x/bottts/svg?seed=${name}`,
-                level: Math.floor(1 + Math.random() * 50),
-                weekId: weekId,
-                lastUpdated: Timestamp.now(),
-                coins: coins,
-                totalSpins: Math.floor(coins / 100),
-                isDemo: true // Flag to identify them easily
-            });
+        if (error) {
+            console.error("Error generating demo leaderboard:", error);
+            throw error;
         }
 
-        await batch.commit();
         console.log('✅ Demo Leaderboard Populated!');
-        return count;
     } catch (error) {
-        console.error('❌ Error generating demo leaderboard:', error);
+        console.error("Error generating demo leaderboard:", error);
         throw error;
     }
 };
@@ -1061,18 +945,21 @@ export const clearDemoLeaderboard = async () => {
         const weekId = getCurrentWeekId();
 
         // Approach: Batch delete known ID range
-        const batch = writeBatch(db);
         let deleted = 0;
 
         for (let i = 0; i < 200; i++) { // Cover up to 200 potential demo bots
             const botId = `demo_bot_${i}`;
-            const ref = doc(db, 'weeklyLeaderboard', `${botId}_${weekId}`);
-            batch.delete(ref);
-            deleted++;
+
+            const { error } = await supabase
+                .from('weekly_leaderboard')
+                .delete()
+                .eq('user_id', botId)
+                .eq('week_id', weekId);
+
+            if (!error) deleted++;
         }
 
-        await batch.commit();
-        console.log('✅ Demo Bots Cleared.');
+        console.log(`✅ Demo Bots Cleared. Deleted: ${deleted}`);
     } catch (error) {
         console.error('❌ Error clearing demo bots:', error);
     }

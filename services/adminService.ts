@@ -1,74 +1,61 @@
-import {
-    collection,
-    getDocs,
-    query,
-    where,
-    orderBy,
-    limit,
-    startAfter,
-    getCountFromServer,
-    Timestamp,
-    doc,
-    getDoc,
-    QueryDocumentSnapshot,
-    DocumentData
-} from 'firebase/firestore';
-import { db } from '../firebase';
+import { supabase } from '../supabaseClient';
 import { User } from '../types';
 
 export interface AdminStats {
-    onlineUsers: number;
-    totalRegistrations: number;
-    spinsToday: number;
-    rewardsDistributed: number;
+    online_users: number;
+    total_registrations: number;
+    spins_today: number;
+    rewards_distributed: number;
 }
 
 export interface UserListResult {
     users: User[];
-    lastDoc: QueryDocumentSnapshot<DocumentData> | null;
+    lastDoc: string | null;
 }
 
 // Get global stats for the dashboard
 export const getDashboardStats = async (): Promise<AdminStats> => {
     try {
         // 1. Total Registrations
-        const usersRef = collection(db, 'users');
-        const totalSnapshot = await getCountFromServer(usersRef);
-        const totalRegistrations = totalSnapshot.data().count;
+        const { count: totalRegistrations, error: totalError } = await supabase
+            .from('users')
+            .select('*', { count: 'exact', head: true });
+
+        if (totalError) throw totalError;
 
         // 2. Online Users (Active in last 5 minutes)
-        const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const onlineQuery = query(
-            usersRef,
-            where('lastActive', '>', Timestamp.fromDate(fiveMinsAgo))
-        );
-        const onlineSnapshot = await getCountFromServer(onlineQuery);
-        const onlineUsers = onlineSnapshot.data().count;
+        const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+        const { count: onlineUsers, error: onlineError } = await supabase
+            .from('users')
+            .select('*', { count: 'exact', head: true })
+            .gt('last_active', fiveMinsAgo);
+
+        if (onlineError) throw onlineError;
 
         // 3. Spins Today (Using an estimate or global counter if available)
-        // For now, we'll try to get it from a global counter 'gameStats/daily' if it existed, 
-        // but since we don't have it, we'll return 0 or a placeholder. 
-        // NOTE: Summing all users 'spinsToday' is too expensive for a dashboard load.
+        // For now, we'll return 0 or a placeholder.
+        // NOTE: Summing all users 'spins_today' is too expensive for a dashboard load.
         // We will implement a global counter in a future task if needed.
-        const spinsToday = 0;
+        const spins_today = 0;
 
         // 4. Rewards Distributed
         // Similarly, this would require a global counter or transaction log.
-        const rewardsDistributed = 0;
+        const rewards_distributed = 0;
 
         return {
-            onlineUsers,
-            totalRegistrations,
-            spinsToday,
-            rewardsDistributed
+            online_users: onlineUsers || 0,
+            total_registrations: totalRegistrations || 0,
+            spins_today,
+            rewards_distributed
         };
     } catch (error) {
         console.error("Error fetching admin stats:", error);
         return {
-            onlineUsers: 0,
-            totalRegistrations: 0,
-            spinsToday: 0,
-            rewardsDistributed: 0
+            online_users: 0,
+            total_registrations: 0,
+            spins_today: 0,
+            rewards_distributed: 0
         };
     }
 };
@@ -76,77 +63,65 @@ export const getDashboardStats = async (): Promise<AdminStats> => {
 // Get paginated users list
 export const getUsersList = async (
     limitCount: number = 20,
-    lastDoc: QueryDocumentSnapshot<DocumentData> | null = null,
+    lastDoc: string | null = null,
     searchQuery: string = ''
 ): Promise<UserListResult> => {
     try {
-        const usersRef = collection(db, 'users');
-        let q;
+        let query = supabase
+            .from('users')
+            .select('*');
 
         if (searchQuery) {
-            // Simple search by username (case-insensitive if we had a lowerCase field, 
-            // but for now we'll match exact or startWith if possible given Firestore constraints)
-            // Firestore doesn't support 'contains' natively without 3rd party like Algolia.
-            // We'll try to search by 'username' exact match for now or just prefix.
-            // Assuming 'username' query.
-
-            // NOTE: Firestore requires separate index for this likely. 
-            // We'll try a simple prefix match on 'username'.
-            q = query(
-                usersRef,
-                where('username', '>=', searchQuery),
-                where('username', '<=', searchQuery + '\uf8ff'),
-                limit(limitCount)
-            );
+            // Simple search by username (case-insensitive using ILIKE)
+            query = query
+                .ilike('username', `%${searchQuery}%`)
+                .limit(limitCount);
         } else {
+            // Order by created_at descending
+            query = query
+                .order('created_at', { ascending: false })
+                .limit(limitCount);
+
+            // If we have a lastDoc, use it for pagination
             if (lastDoc) {
-                q = query(
-                    usersRef,
-                    orderBy('createdAt', 'desc'),
-                    startAfter(lastDoc),
-                    limit(limitCount)
-                );
-            } else {
-                q = query(
-                    usersRef,
-                    orderBy('createdAt', 'desc'),
-                    limit(limitCount)
-                );
+                query = query.gt('created_at', lastDoc);
             }
         }
 
-        const snapshot = await getDocs(q);
-        const users: User[] = snapshot.docs.map(doc => {
-            const data = doc.data() as any; // Cast to any to allow access to known properties
+        const { data, error } = await query;
+
+        if (error) throw error;
+
+        const users: User[] = (data || []).map((user: any) => {
+            const lastActive = user.last_active ? new Date(user.last_active) : undefined;
+            const createdAt = user.created_at ? new Date(user.created_at) : undefined;
+
             return {
-                id: doc.id,
-                uid: data.uid,
-                email: data.email,
-                username: data.username,
-                isGuest: data.isGuest,
-                eTokens: data.eTokens,
-                coins: data.coins, // Total Coins
-                weeklyCoins: data.weeklyCoins,
-                photoURL: data.photoURL,
-                displayId: data.displayId,
-                referralCode: data.referralCode,
-                createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : undefined,
-                lastActive: data.lastActive?.toDate ? data.lastActive.toDate() : undefined,
-                spinsToday: data.spinsToday,
-                ip: data.ip || 'N/A', // Assuming we might store IP later
-                status: (data.lastActive?.toDate && data.lastActive.toDate().getTime() > Date.now() - 5 * 60 * 1000) ? 'online' : 'offline'
+                id: user.uid,
+                uid: user.uid,
+                email: user.email,
+                username: user.username,
+                isGuest: user.is_guest,
+                eTokens: user.e_tokens,
+                coins: user.coins, // Total Coins
+                weeklyCoins: user.weekly_coins,
+                photoURL: user.photo_url,
+                displayId: user.display_id,
+                referralCode: user.referral_code,
+                createdAt: createdAt,
+                lastActive: lastActive,
+                spinsToday: user.spins_today,
+                ip: user.ip || 'N/A',
+                status: (lastActive && lastActive.getTime() > Date.now() - 5 * 60 * 1000) ? 'online' : 'offline'
             } as any;
         });
 
-        // Map status manually since it's not in DB
-        const mappedUsers = users.map(u => ({
-            ...u,
-            status: (u.lastActive && u.lastActive.getTime() > Date.now() - 5 * 60 * 1000) ? 'online' : 'offline'
-        }));
+        // Get the last document's createdAt for pagination
+        const newLastDoc = users.length > 0 ? users[users.length - 1].createdAt?.toISOString() || null : null;
 
         return {
-            users: mappedUsers as any[], // Force cast to avoid strict type mismatch on 'status' field which is UI only
-            lastDoc: snapshot.docs[snapshot.docs.length - 1] || null
+            users: users as any[],
+            lastDoc: newLastDoc
         };
     } catch (error) {
         console.error("Error fetching users list:", error);

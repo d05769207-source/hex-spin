@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-import { subscribeToGameStatus } from '../services/maintenanceService';
 
 interface SpinControlsProps {
   onSpin: (count: number) => void;
@@ -39,20 +38,11 @@ const TokenIcon = () => (
 
 const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance, isAdminMode = false, spinsToday, superModeEndTime, superModeSpinsLeft = 0 }) => {
   const isSuperMode = superModeSpinsLeft > 0;
-  const [isMaintenanceMode, setIsMaintenanceMode] = useState(false);
 
   const progress = Math.min((spinsToday / 100) * 100, 100);
 
-  // Subscribe to maintenance mode
-  useEffect(() => {
-    const unsubscribe = subscribeToGameStatus((status) => {
-      setIsMaintenanceMode(!status.spinEnabled || status.maintenanceMode);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Disable spin if in maintenance mode (unless admin)
-  const isDisabled = isSpinning || (isMaintenanceMode && !isAdminMode);
+  // Disable spin if spinning
+  const isDisabled = isSpinning;
 
   return (
     <div className="w-full flex flex-col items-center gap-4 mb-4">
@@ -91,15 +81,6 @@ const SpinControls: React.FC<SpinControlsProps> = ({ onSpin, isSpinning, balance
           ) : null // Hide everything if goal is met
         )}
       </div>
-
-      {/* Maintenance Message */}
-      {isMaintenanceMode && !isAdminMode && (
-        <div className="w-full max-w-xs px-4">
-          <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-3">
-            <p className="text-red-300 text-center text-xs md:text-sm font-bold">🛠️ Maintenance in progress. Spin disabled.</p>
-          </div>
-        </div>
-      )}
 
       <div className="w-full max-w-2xl mx-auto flex justify-center items-end gap-4 sm:gap-12 px-4">
 

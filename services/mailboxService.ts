@@ -1,19 +1,4 @@
-import { db } from '../firebase';
-import {
-    collection,
-    doc,
-    addDoc,
-    updateDoc,
-    deleteDoc,
-    query,
-    where,
-    orderBy,
-    getDocs,
-    getDoc,
-    Timestamp,
-    increment,
-    onSnapshot
-} from 'firebase/firestore';
+import { supabase, rpc, realtime } from '../supabaseClient';
 import { MailboxMessage, MessageType, MessageStatus } from '../types';
 
 /**
@@ -29,23 +14,28 @@ export const createWeeklyRewardMessage = async (
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
 
-        const message = {
-            userId,
-            type: MessageType.WEEKLY_REWARD,
-            title: '🎁 Weekly Reward Available!',
-            description: `Your ${sourceCoins.toLocaleString()} coins have been converted to ${eTokensEarned} E-Token${eTokensEarned > 1 ? 's' : ''}. Claim your reward within 7 days!`,
-            createdAt: Timestamp.now(),
-            expiresAt: Timestamp.fromDate(expiresAt),
-            status: MessageStatus.UNREAD,
-            rewardType: 'E_TOKEN' as const,
-            rewardAmount: eTokensEarned,
-            sourceCoins,
-            isExpired: false
-        };
+        const { data, error } = await supabase
+            .from('mailbox')
+            .insert({
+                user_id: userId,
+                type: MessageType.WEEKLY_REWARD,
+                title: '🎁 Weekly Reward Available!',
+                description: `Your ${sourceCoins.toLocaleString()} coins have been converted to ${eTokensEarned} E-Token${eTokensEarned > 1 ? 's' : ''}. Claim your reward within 7 days!`,
+                created_at: now.toISOString(),
+                expires_at: expiresAt.toISOString(),
+                status: MessageStatus.UNREAD,
+                reward_type: 'E_TOKEN',
+                reward_amount: eTokensEarned,
+                source_coins: sourceCoins,
+                is_expired: false
+            })
+            .select()
+            .single();
 
-        const docRef = await addDoc(collection(db, 'mailbox'), message);
-        console.log('✅ Weekly reward message created:', docRef.id);
-        return docRef.id;
+        if (error) throw error;
+
+        console.log('✅ Weekly reward message created:', data.id);
+        return data.id;
     } catch (error) {
         console.error('❌ Error creating weekly reward message:', error);
         throw error;
@@ -57,37 +47,32 @@ export const createWeeklyRewardMessage = async (
  */
 export const getUserMessages = async (userId: string): Promise<MailboxMessage[]> => {
     try {
-        const now = Timestamp.now();
+        const { data, error } = await supabase
+            .from('mailbox')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
 
-        // Query for user messages
-        const q = query(
-            collection(db, 'mailbox'),
-            where('userId', '==', userId)
-            // where('expiresAt', '>', now),
-            // orderBy('expiresAt', 'asc'),
-            // orderBy('createdAt', 'desc')
-        );
+        if (error) {
+            console.error('❌ Error fetching user messages:', error);
+            return [];
+        }
 
-        const snapshot = await getDocs(q);
-
-        const messages: MailboxMessage[] = snapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                id: doc.id,
-                userId: data.userId,
-                type: data.type,
-                title: data.title,
-                description: data.description,
-                createdAt: data.createdAt.toDate(),
-                expiresAt: data.expiresAt.toDate(),
-                status: data.status,
-                rewardType: data.rewardType,
-                rewardAmount: data.rewardAmount,
-                sourceCoins: data.sourceCoins,
-                isExpired: false,
-                claimedAt: data.claimedAt?.toDate()
-            };
-        });
+        const messages: MailboxMessage[] = (data || []).map(msg => ({
+            id: msg.id,
+            userId: msg.user_id,
+            type: msg.type,
+            title: msg.title,
+            description: msg.description,
+            createdAt: new Date(msg.created_at),
+            expiresAt: new Date(msg.expires_at),
+            status: msg.status,
+            rewardType: msg.reward_type,
+            rewardAmount: msg.reward_amount,
+            sourceCoins: msg.source_coins,
+            isExpired: false,
+            claimedAt: msg.claimed_at ? new Date(msg.claimed_at) : undefined
+        }));
 
         console.log(`✅ Fetched ${messages.length} messages for user ${userId}`);
         return messages;
@@ -106,64 +91,17 @@ export const claimMessage = async (
     userId: string
 ): Promise<{ success: boolean; rewardAmount: number; rewardType: string }> => {
     try {
-        // 1. Get message details
-        const messageRef = doc(db, 'mailbox', messageId);
-        const messageDoc = await getDoc(messageRef);
+        // Use RPC function for atomic claim operation
+        const { data, error } = await rpc.claimMailboxMessage(messageId, userId);
 
-        if (!messageDoc.exists()) {
-            throw new Error('Message not found');
-        }
+        if (error) throw error;
 
-        const messageData = messageDoc.data();
-
-        // 2. Verify ownership
-        if (messageData.userId !== userId) {
-            throw new Error('Unauthorized: Message does not belong to user');
-        }
-
-        // 3. Check if already claimed
-        if (messageData.status === MessageStatus.CLAIMED) {
-            throw new Error('Message already claimed');
-        }
-
-        // 4. Check if expired
-        const now = new Date();
-        const expiresAt = messageData.expiresAt.toDate();
-        if (now > expiresAt) {
-            throw new Error('Message has expired');
-        }
-
-        // 5. Update user's balance based on reward type
-        const userRef = doc(db, 'users', userId);
-        const rewardAmount = messageData.rewardAmount || 0;
-        const rewardType = messageData.rewardType || 'E_TOKEN';
-
-        if (rewardType === 'E_TOKEN') {
-            await updateDoc(userRef, {
-                eTokens: increment(rewardAmount)
-            });
-        } else if (rewardType === 'COINS') {
-            await updateDoc(userRef, {
-                coins: increment(rewardAmount)
-            });
-        } else if (rewardType === 'SPIN_TOKEN') {
-            await updateDoc(userRef, {
-                tokens: increment(rewardAmount)
-            });
-        }
-
-        // 6. Mark message as claimed
-        await updateDoc(messageRef, {
-            status: MessageStatus.CLAIMED,
-            claimedAt: Timestamp.now()
-        });
-
-        console.log(`✅ Message ${messageId} claimed successfully. Rewarded ${rewardAmount} ${rewardType}`);
+        console.log(`✅ Message ${messageId} claimed successfully. Rewarded ${data.rewardAmount} ${data.rewardType}`);
 
         return {
             success: true,
-            rewardAmount,
-            rewardType
+            rewardAmount: data.rewardAmount,
+            rewardType: data.rewardType
         };
     } catch (error: any) {
         console.error('❌ Error claiming message:', error);
@@ -176,20 +114,28 @@ export const claimMessage = async (
  */
 export const markMessageAsRead = async (messageId: string): Promise<void> => {
     try {
-        const messageRef = doc(db, 'mailbox', messageId);
-        const docSnap = await getDoc(messageRef);
+        const { data: message } = await supabase
+            .from('mailbox')
+            .select('*')
+            .eq('id', messageId)
+            .single();
 
-        if (docSnap.exists()) {
-            const data = docSnap.data();
+        if (message) {
             const updates: any = { status: MessageStatus.READ };
 
             // IF NOTICE/SYSTEM -> Expire in 10 minutes
-            if (data.type === MessageType.NOTICE || data.type === MessageType.SYSTEM) {
+            if (message.type === MessageType.NOTICE || message.type === MessageType.SYSTEM) {
                 const tenMinutesLater = new Date(Date.now() + 10 * 60 * 1000);
-                updates.expiresAt = Timestamp.fromDate(tenMinutesLater);
+                updates.expires_at = tenMinutesLater.toISOString();
             }
 
-            await updateDoc(messageRef, updates);
+            const { error } = await supabase
+                .from('mailbox')
+                .update(updates)
+                .eq('id', messageId);
+
+            if (error) throw error;
+
             console.log(`✅ Message ${messageId} marked as read`);
         }
     } catch (error) {
@@ -205,30 +151,28 @@ export const markMessagesAsReadBatch = async (messageIds: string[]): Promise<voi
     if (messageIds.length === 0) return;
 
     try {
-        // We need to check message types to apply specific logic
-        // But for efficiency in batch, we can't read all docs first if we don't have them passed.
-        // However, usually this is called with IDs filtered by the UI effectively.
+        // Fetch all messages to check their types
+        const { data: messages } = await supabase
+            .from('mailbox')
+            .select('*')
+            .in('id', messageIds);
 
-        // BETTER APPROACH: Just read them, it's safer functionality-wise, 
-        // OR rely on the fact that this function is only called for a specific filtered list if we trust the caller.
+        if (!messages) return;
 
-        // Let's iterate and update individually to be safe and correct (Firestore limits batches to 500, we are fine)
-        const updatePromises = messageIds.map(async (id) => {
-            const docRef = doc(db, 'mailbox', id);
-            const docSnap = await getDoc(docRef);
+        // Update each message with type-specific logic
+        const updatePromises = messages.map(async (msg) => {
+            const updates: any = { status: MessageStatus.READ };
 
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                const updates: any = { status: MessageStatus.READ };
-
-                // IF NOTICE/SYSTEM -> Expire in 10 minutes
-                if (data.type === MessageType.NOTICE || data.type === MessageType.SYSTEM) {
-                    const tenMinutesLater = new Date(Date.now() + 10 * 60 * 1000);
-                    updates.expiresAt = Timestamp.fromDate(tenMinutesLater);
-                }
-
-                await updateDoc(docRef, updates);
+            // IF NOTICE/SYSTEM -> Expire in 10 minutes
+            if (msg.type === MessageType.NOTICE || msg.type === MessageType.SYSTEM) {
+                const tenMinutesLater = new Date(Date.now() + 10 * 60 * 1000);
+                updates.expires_at = tenMinutesLater.toISOString();
             }
+
+            return supabase
+                .from('mailbox')
+                .update(updates)
+                .eq('id', msg.id);
         });
 
         await Promise.all(updatePromises);
@@ -244,26 +188,37 @@ export const markMessagesAsReadBatch = async (messageIds: string[]): Promise<voi
  */
 export const deleteExpiredMessages = async (userId: string): Promise<number> => {
     try {
-        const now = Timestamp.now();
+        const now = new Date().toISOString();
 
-        const q = query(
-            collection(db, 'mailbox'),
-            where('userId', '==', userId),
-            where('expiresAt', '<', now)
-        );
+        const { data, error } = await supabase
+            .from('mailbox')
+            .select('id')
+            .eq('user_id', userId)
+            .lt('expires_at', now);
 
-        const snapshot = await getDocs(q);
+        if (error) {
+            console.error('❌ Error fetching expired messages:', error);
+            return 0;
+        }
 
-        let deletedCount = 0;
-        const deletePromises = snapshot.docs.map(async (docSnapshot) => {
-            await deleteDoc(doc(db, 'mailbox', docSnapshot.id));
-            deletedCount++;
-        });
+        if (!data || data.length === 0) {
+            return 0;
+        }
 
-        await Promise.all(deletePromises);
+        // Delete all expired messages
+        const idsToDelete = data.map(msg => msg.id);
+        const { error: deleteError } = await supabase
+            .from('mailbox')
+            .delete()
+            .in('id', idsToDelete);
 
-        console.log(`✅ Deleted ${deletedCount} expired messages`);
-        return deletedCount;
+        if (deleteError) {
+            console.error('❌ Error deleting expired messages:', deleteError);
+            return 0;
+        }
+
+        console.log(`✅ Deleted ${idsToDelete.length} expired messages`);
+        return idsToDelete.length;
     } catch (error) {
         console.error('❌ Error deleting expired messages:', error);
         return 0;
@@ -275,20 +230,22 @@ export const deleteExpiredMessages = async (userId: string): Promise<number> => 
  */
 export const getUnreadCount = async (userId: string): Promise<number> => {
     try {
-        const now = Timestamp.now();
+        const now = new Date().toISOString();
 
-        const q = query(
-            collection(db, 'mailbox'),
-            where('userId', '==', userId),
-            where('status', '==', MessageStatus.UNREAD),
-            where('expiresAt', '>', now)
-        );
+        const { count, error } = await supabase
+            .from('mailbox')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', userId)
+            .eq('status', MessageStatus.UNREAD)
+            .gt('expires_at', now);
 
-        const snapshot = await getDocs(q);
-        const count = snapshot.size;
+        if (error) {
+            console.error('❌ Error getting unread count:', error);
+            return 0;
+        }
 
         console.log(`✅ User ${userId} has ${count} unread messages`);
-        return count;
+        return count || 0;
     } catch (error) {
         console.error('❌ Error getting unread count:', error);
         return 0;
@@ -300,23 +257,13 @@ export const getUnreadCount = async (userId: string): Promise<number> => {
  */
 export const subscribeToUnreadCount = (userId: string, callback: (count: number) => void): (() => void) => {
     try {
-        const now = Timestamp.now();
-
-        const q = query(
-            collection(db, 'mailbox'),
-            where('userId', '==', userId),
-            where('status', '==', MessageStatus.UNREAD),
-            where('expiresAt', '>', now)
-        );
-
-        // Real-time listener
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const count = snapshot.size;
-            // console.log(`🔄 Real-time unread count for ${userId}: ${count}`);
+        const unsubscribe = realtime.subscribeToMailbox(userId, async () => {
+            const count = await getUnreadCount(userId);
             callback(count);
-        }, (error) => {
-            console.error('❌ Error in unread count listener:', error);
         });
+
+        // Initial fetch
+        getUnreadCount(userId).then(callback);
 
         return unsubscribe;
     } catch (error) {
@@ -338,20 +285,25 @@ export const createNoticeMessage = async (
         const now = new Date();
         const expiresAt = new Date(now.getTime() + expiryDays * 24 * 60 * 60 * 1000);
 
-        const message = {
-            userId,
-            type: MessageType.NOTICE,
-            title,
-            description,
-            createdAt: Timestamp.now(),
-            expiresAt: Timestamp.fromDate(expiresAt),
-            status: MessageStatus.UNREAD,
-            isExpired: false
-        };
+        const { data, error } = await supabase
+            .from('mailbox')
+            .insert({
+                user_id: userId,
+                type: MessageType.NOTICE,
+                title,
+                description,
+                created_at: now.toISOString(),
+                expires_at: expiresAt.toISOString(),
+                status: MessageStatus.UNREAD,
+                is_expired: false
+            })
+            .select()
+            .single();
 
-        const docRef = await addDoc(collection(db, 'mailbox'), message);
-        console.log('✅ Notice message created:', docRef.id);
-        return docRef.id;
+        if (error) throw error;
+
+        console.log('✅ Notice message created:', data.id);
+        return data.id;
     } catch (error) {
         console.error('❌ Error creating notice message:', error);
         throw error;
@@ -374,22 +326,27 @@ export const createLevelUpRewardMessage = async (
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-        const message: any = {
-            userId,
-            type: MessageType.LEVEL_REWARD,
-            title: '🎉 Level Up Reward!',
-            description: `Level ${level} Reward: ${eTokensEarned} E-Tokens`,
-            createdAt: Timestamp.now(),
-            expiresAt: Timestamp.fromDate(expiresAt),
-            status: MessageStatus.UNREAD,
-            rewardType: 'E_TOKEN',
-            rewardAmount: eTokensEarned,
-            isExpired: false
-        };
+        const { data, error } = await supabase
+            .from('mailbox')
+            .insert({
+                user_id: userId,
+                type: MessageType.LEVEL_REWARD,
+                title: '🎉 Level Up Reward!',
+                description: `Level ${level} Reward: ${eTokensEarned} E-Tokens`,
+                created_at: now.toISOString(),
+                expires_at: expiresAt.toISOString(),
+                status: MessageStatus.UNREAD,
+                reward_type: 'E_TOKEN',
+                reward_amount: eTokensEarned,
+                is_expired: false
+            })
+            .select()
+            .single();
 
-        const docRef = await addDoc(collection(db, 'mailbox'), message);
+        if (error) throw error;
+
         console.log(`✅ Level ${level} reward message created for user ${userId}`);
-        return docRef.id;
+        return data.id;
     } catch (error) {
         console.error('❌ Error creating level up reward message:', error);
         return '';
@@ -397,8 +354,8 @@ export const createLevelUpRewardMessage = async (
 };
 
 /**
-     * Create a referral reward message
-     */
+ * Create a referral reward message
+ */
 export const createReferralRewardMessage = async (
     userId: string,
     amount: number,
@@ -408,28 +365,29 @@ export const createReferralRewardMessage = async (
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days expiry
 
-        const message = {
-            userId,
-            type: MessageType.REFERRAL_REWARD,
-            title: '🎁 Referral Reward!',
-            description: `${reason}: ${amount} E-Tokens`,
-            createdAt: Timestamp.now(),
-            expiresAt: Timestamp.fromDate(expiresAt),
-            status: MessageStatus.UNREAD,
-            rewardType: 'E_TOKEN',
-            rewardAmount: amount,
-            isExpired: false
-        };
+        const { data, error } = await supabase
+            .from('mailbox')
+            .insert({
+                user_id: userId,
+                type: MessageType.REFERRAL_REWARD,
+                title: '🎁 Referral Reward!',
+                description: `${reason}: ${amount} E-Tokens`,
+                created_at: now.toISOString(),
+                expires_at: expiresAt.toISOString(),
+                status: MessageStatus.UNREAD,
+                reward_type: 'E_TOKEN',
+                reward_amount: amount,
+                is_expired: false
+            })
+            .select()
+            .single();
 
-        const docRef = await addDoc(collection(db, 'mailbox'), message);
+        if (error) throw error;
+
         console.log(`✅ Referral reward message created for user ${userId}`);
-        return docRef.id;
+        return data.id;
     } catch (error) {
         console.error('❌ Error creating referral reward message:', error);
         return '';
     }
 };
-
-
-
-

@@ -16,7 +16,7 @@ const MaintenancePoster: React.FC = () => {
 
     // Don't show anything if no warning or maintenance
     const isAdmin = sessionStorage.getItem('isAdmin') === 'true';
-    if (isAdmin || !gameStatus || (!gameStatus.warningActive && !gameStatus.maintenanceMode && gameStatus.readyCountdown === 0)) {
+    if (isAdmin || !gameStatus || (!gameStatus.warning_active && !gameStatus.maintenance_mode && gameStatus.ready_countdown === 0)) {
         return null;
     }
 
@@ -44,23 +44,23 @@ const MaintenancePoster: React.FC = () => {
         <div className="maintenance-poster-overlay">
             <div className="maintenance-poster">
                 {/* Warning Phase (15s before maintenance) */}
-                {gameStatus.warningActive && (
+                {gameStatus.warning_active && (
                     <>
                         <div className="maintenance-icon warning-icon">⚠️</div>
                         <h1 className="maintenance-title">WINNERS ANNOUNCEMENT</h1>
-                        <h2 className="maintenance-subtitle">IN {gameStatus.warningCountdown} SECONDS</h2>
+                        <h2 className="maintenance-subtitle">IN {gameStatus.warning_countdown} SECONDS</h2>
                         <p className="maintenance-message">
                             Last chance to spin! 🎰<br />
                             Make your final moves!
                         </p>
                         <div className="countdown-circle">
-                            <div className="countdown-number">{gameStatus.warningCountdown}</div>
+                            <div className="countdown-number">{gameStatus.warning_countdown}</div>
                         </div>
                     </>
                 )}
 
                 {/* Maintenance Phase */}
-                {gameStatus.maintenanceMode && gameStatus.readyCountdown === 0 && (
+                {gameStatus.maintenance_mode && gameStatus.ready_countdown === 0 && (
                     <>
                         <div
                             className="maintenance-icon"
@@ -96,7 +96,7 @@ const MaintenancePoster: React.FC = () => {
                 )}
 
                 {/* Ready Countdown Phase (15s after maintenance) */}
-                {gameStatus.readyCountdown > 0 && (
+                {gameStatus.ready_countdown > 0 && (
                     <>
                         <div className="maintenance-icon ready-icon">🎊</div>
                         <h1 className="maintenance-title">NEW WEEK STARTING!</h1>
@@ -106,7 +106,7 @@ const MaintenancePoster: React.FC = () => {
                             May luck be with you!
                         </p>
                         <div className="countdown-circle ready">
-                            <div className="countdown-number">{gameStatus.readyCountdown}</div>
+                            <div className="countdown-number">{gameStatus.ready_countdown}</div>
                         </div>
                     </>
                 )}
